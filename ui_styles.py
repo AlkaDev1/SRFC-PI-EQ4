@@ -78,11 +78,11 @@ FUENTES = {
 }
 
 MEDIDAS = {
-    # Ventana
-    "ancho_ventana":        1100,
-    "alto_ventana":         680,
-    "min_ancho":            900,
-    "min_alto":             560,
+    # Ventana - Pantalla de 7 pulgadas (fija, no redimensionable)
+    "ancho_ventana":        1024,
+    "alto_ventana":         600,
+    "min_ancho":            1024,
+    "min_alto":             600,
 
     # Barra superior
     "alto_topbar":          75,
