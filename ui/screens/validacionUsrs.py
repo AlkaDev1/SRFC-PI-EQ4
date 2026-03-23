@@ -23,6 +23,7 @@ except ImportError:
     TIENE_FACE_RECOGNITION = False
 
 
+
 class ValidacionBiometrica:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -65,82 +66,19 @@ class ValidacionBiometrica:
             height=MEDIDAS["alto_linea_sep"],
         ).pack(fill="x")
         
-        # Contenedor principal sin paddings para que la cámara ocupe todo
-        contenedor = tk.Frame(pantalla, bg=PALETA["central_fondo"])
+        # Contenedor principal - el video ocupa TODO el espacio
+        contenedor = tk.Frame(pantalla, bg="#000000")
         contenedor.pack(fill="both", expand=True)
         
-        # Frame para botones (arriba)
-        frame_botones = tk.Frame(contenedor, bg=PALETA["central_fondo"], height=70)
-        frame_botones.pack(fill="x", padx=10, pady=(10, 5))
-        frame_botones.pack_propagate(False)
-        
-        estilo_boton = dict(
-            font=("Segoe UI", 11, "bold"),
-            fg=PALETA["boton_fg"],
-            bg=PALETA["boton_bg"],
-            activebackground=PALETA["boton_hover"],
-            activeforeground="#ffffff",
-            bd=0,
-            padx=15,
-            pady=10,
-            cursor="hand2",
-            relief="flat",
-        )
-        
-        # Botones en dos filas para mejor aprovechamiento del espacio
-        frame_fila1 = tk.Frame(frame_botones, bg=PALETA["central_fondo"])
-        frame_fila1.pack(fill="x", pady=2)
-        
-        tk.Button(
-            frame_fila1,
-            text="← VOLVER",
-            command=self._volver,
-            **estilo_boton
-        ).pack(side="left", padx=5)
-        
-        tk.Button(
-            frame_fila1,
-            text="🔒 CAPTURAR",
-            command=self._capturar_rostro,
-            **estilo_boton
-        ).pack(side="left", padx=5)
-        
-        tk.Button(
-            frame_fila1,
-            text="📋 VERIFICAR",
-            command=self._verificar_identidad,
-            **estilo_boton
-        ).pack(side="left", padx=5)
-        
-        tk.Button(
-            frame_fila1,
-            text="⚙ CONFIG",
-            command=self._abrir_configuracion,
-            **estilo_boton
-        ).pack(side="left", padx=5)
-        
-        # Label de estado en la segunda fila
-        frame_fila2 = tk.Frame(frame_botones, bg=PALETA["central_fondo"])
-        frame_fila2.pack(fill="x", pady=2)
-        
-        self.label_estado = tk.Label(
-            frame_fila2,
-            text="",
-            font=("Segoe UI", 9),
-            fg=PALETA["topbar_sistema_fg"],
-            bg=PALETA["central_fondo"],
-        )
-        self.label_estado.pack(side="left", padx=10)
-        
-        # Frame para la cámara (ocupa el espacio restante)
+        # Frame para la cámara (OCUPA TODO)
         self.frame_camara = tk.Frame(
             contenedor,
             bg="#000000",
             relief="solid",
-            borderwidth=1,
+            borderwidth=0,
             highlightthickness=0
         )
-        self.frame_camara.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+        self.frame_camara.place(x=0, y=0, relwidth=1, relheight=1)
         
         # Label para mostrar video
         self.label_video = tk.Label(
@@ -151,6 +89,57 @@ class ValidacionBiometrica:
             fg=PALETA["topbar_sistema_fg"]
         )
         self.label_video.pack(fill="both", expand=True)
+        
+        # Frame para botones SUPERPUESTO (arriba del video)
+        frame_botones = tk.Frame(contenedor, bg=PALETA["central_fondo"])
+        frame_botones.place(x=10, y=10, relwidth=0.98)
+        
+        estilo_boton = dict(
+            font=("Segoe UI", 11, "bold"),
+            fg=PALETA["boton_fg"],
+            bg=PALETA["boton_bg"],
+            activebackground=PALETA["boton_hover"],
+            
+            bd=0,
+            padx=15,
+            pady=10,
+            cursor="hand2",
+            relief="flat",
+        )
+        
+        # Botones en una sola fila (lado a lado)
+        frame_fila1 = tk.Frame(frame_botones, bg=PALETA["central_fondo"])
+        frame_fila1.pack(fill="x", pady=5)
+        
+        # -------------- BOTONES ------------------
+        tk.Button(
+            frame_fila1,
+            text="← VOLVER",
+            command=self._volver,
+            **estilo_boton
+        ).pack(side="left", padx=5)
+        
+        tk.Button(
+            frame_fila1,
+            text="··· CONTRA",
+            command=self._abrir_configuracion,
+            **estilo_boton
+        ).pack(side="left", padx=5)
+        
+        # Label de estado en la misma fila
+        self.label_estado = tk.Label(
+            frame_fila1,
+            text="",
+            font=("Segoe UI", 9, "bold"),
+            
+            bg=PALETA["boton_bg"],
+            padx=15,
+            pady=10,
+            relief="flat"
+        )
+        self.label_estado.pack(side="left", padx=5)
+        
+        
     
     def _iniciar_captura_camara(self) -> None:
         """Inicia captura de cámara en un thread separado"""

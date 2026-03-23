@@ -79,10 +79,10 @@ FUENTES = {
 
 MEDIDAS = {
     # Ventana - Pantalla de 7 pulgadas (fija, no redimensionable)
-    "ancho_ventana":        1024,
-    "alto_ventana":         600,
-    "min_ancho":            1024,
-    "min_alto":             600,
+    "ancho_ventana":        800,
+    "alto_ventana":         480,
+    "min_ancho":            800,
+    "min_alto":             480,
 
     # Barra superior
     "alto_topbar":          75,
@@ -92,7 +92,7 @@ MEDIDAS = {
     "alto_boton":           200,
     "ancho_boton":          30,
     "margen_boton":         13,    # Espacio entre botones
-    "padding_boton_x":      24,
+    "padding_boton_x":      14,
     "padding_boton_y":      14,
 }
 
