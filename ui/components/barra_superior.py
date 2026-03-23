@@ -2,7 +2,7 @@ import tkinter as tk
 from datetime import datetime
 from pathlib import Path
 
-from ui_styles import PALETA, FUENTES, MEDIDAS
+from ui.styles import PALETA, FUENTES, MEDIDAS
 
 
 def actualizar_fecha_hora(lbl_fecha: tk.Label, lbl_hora: tk.Label, root: tk.Tk) -> None:
@@ -39,9 +39,9 @@ def crear_encabezado(parent: tk.Frame, root: tk.Tk) -> None:
         # Ajustar tamaño según qué tan grande sea la imagen
         ancho_img = img_logo.width()
         if ancho_img > 200:
-            img_logo = img_logo.subsample(15, 15) 
+            img_logo = img_logo.subsample(3, 3) 
         elif ancho_img > 100:
-            img_logo = img_logo.subsample(3, 3)
+            img_logo = img_logo.subsample(2, 2)
         
         lbl_logo = tk.Label(bloque_izq, image=img_logo, bg=PALETA["topbar_brand_bg"])
         lbl_logo.image = img_logo

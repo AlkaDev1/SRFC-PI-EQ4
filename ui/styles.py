@@ -92,7 +92,7 @@ MEDIDAS = {
     "alto_boton":           200,
     "ancho_boton":          30,
     "margen_boton":         13,    # Espacio entre botones
-    "padding_boton_x":      14,
+    "padding_boton_x":      24,
     "padding_boton_y":      14,
 }
 

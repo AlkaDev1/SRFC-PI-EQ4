@@ -1,5 +1,9 @@
 import tkinter as tk
+<<<<<<< HEAD
 from ui_styles import PALETA, FUENTES
+=======
+from ui.styles import PALETA, FUENTES
+>>>>>>> ed101c028d6832168d8c65efb6621bfb89af5454
 
 TEXTO_AVISO = (
     "AVISO DE PRIVACIDAD\n\n"

@@ -12,7 +12,7 @@ import sys
 project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from ui_styles import PALETA, FUENTES, MEDIDAS, configurar_estilos
+from ui.styles import PALETA, FUENTES, MEDIDAS, configurar_estilos
 from ui.components.barra_superior import crear_encabezado
 
 # Intentar importar face_recognition, pero no es obligatorio

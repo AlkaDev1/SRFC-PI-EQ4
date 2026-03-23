@@ -2,7 +2,7 @@ import tkinter as tk
 from pathlib import Path
 import math
 
-from ui_styles import PALETA, FUENTES, MEDIDAS
+from ui.styles import PALETA, FUENTES, MEDIDAS
 from ui.components.barra_superior import crear_encabezado
 from ui.components.aviso_privacidad import mostrar_aviso
 
@@ -67,10 +67,6 @@ def dibujar_area_central(canvas: tk.Canvas, ancho: int, alto: int) -> None:
         )
 
 
-#Esto es solo para verificar que los botones sirven
-
-def presionar_acceder() -> None:
-    print("[BCK] Acceder → pendiente")
 
 def presionar_gestion() -> None:
     print("[BCK] Gestión → pendiente")
@@ -81,7 +77,7 @@ def aviso_aceptado() -> None:
 
 # Patntalla principal
 
-def crear_pantalla_principal(root: tk.Tk) -> None:
+def crear_pantalla_principal(root, app) -> None:
     # Un solo frame que llena toda la ventana, pegado arriba
     pantalla = tk.Frame(root, bg=PALETA["page_bg"])
     pantalla.pack(fill="both", expand=True, side="top")
@@ -125,14 +121,14 @@ def crear_pantalla_principal(root: tk.Tk) -> None:
         width=18,
     )
 
-    tk.Button(contenedor, text="🔑  ACCEDER",
-              command=presionar_acceder,
+    tk.Button(contenedor, text=" 🔑 ACCEDER",
+              command=lambda: app.mostrar_pantalla("acceso"),
               **estilo).pack(side="left", padx=MEDIDAS["margen_boton"])
 
-    tk.Button(contenedor, text="⚙  GESTIÓN",
+    tk.Button(contenedor, text=" ⚙ GESTIÓN",
               command=presionar_gestion,
               **estilo).pack(side="left", padx=MEDIDAS["margen_boton"])
 
-    tk.Button(contenedor, text="🔒  AVISO DE PRIVACIDAD",
+    tk.Button(contenedor, text=" 🔒 AVISO DE PRIVACIDAD",
               command=lambda: mostrar_aviso(root, al_aceptar=aviso_aceptado),
               **estilo).pack(side="left", padx=MEDIDAS["margen_boton"])
