@@ -1,0 +1,31 @@
+{
+  "language_name": "Turkish",
+  "translations": {
+    "Sistema de Control Biometrico": "Biyometrik kontrol sistemi",
+    "SISTEMA DE\nCONTROL\nBIOMETRICO": "BIYOMETRIK\nKONTROL\nSISTEMI",
+    "GESTION DE USUARIOS": "KULLANICI YONETIMI",
+    "Buscar...": "Ara...",
+    "Buscar idioma...": "Dil ara...",
+    "Todos los roles": "Tum roller",
+    "Dia": "Gun",
+    "Filtrar por dia": "Gune gore filtrele",
+    "Aplicar filtros": "Filtreleri uygula",
+    "Limpiar dia": "Gunu temizle",
+    "Editar seleccionado": "Secileni duzenle",
+    "Eliminar seleccionado": "Secileni sil",
+    "Historial de accesos": "Erisim gecmisi",
+    "< Regresar": "< Geri",
+    "No. Institucional": "Kurumsal ID",
+    "Nombre": "Ad",
+    "Nombre Completo": "Tam ad",
+    "Fecha de acceso": "Erisim tarihi",
+    "Hora de acceso": "Erisim saati",
+    "Fecha": "Tarih",
+    "Hora": "Saat",
+    "Rol": "Rol",
+    "Guardar": "Kaydet",
+    "Cancelar": "Iptal",
+    "Cerrar": "Kapat",
+    "Recargar": "Yenile"
+  }
+}
