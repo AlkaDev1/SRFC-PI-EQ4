@@ -1,0 +1,31 @@
+{
+  "language_name": "Arabic",
+  "translations": {
+    "Sistema de Control Biometrico": "نظام التحكم البيومتري",
+    "SISTEMA DE\nCONTROL\nBIOMETRICO": "نظام\nالتحكم\nالبيومتري",
+    "GESTION DE USUARIOS": "إدارة المستخدمين",
+    "Buscar...": "بحث...",
+    "Buscar idioma...": "ابحث عن لغة...",
+    "Todos los roles": "كل الأدوار",
+    "Dia": "اليوم",
+    "Filtrar por dia": "تصفية حسب اليوم",
+    "Aplicar filtros": "تطبيق الفلاتر",
+    "Limpiar dia": "مسح اليوم",
+    "Editar seleccionado": "تعديل المحدد",
+    "Eliminar seleccionado": "حذف المحدد",
+    "Historial de accesos": "سجل الوصول",
+    "< Regresar": "< رجوع",
+    "No. Institucional": "المعرف المؤسسي",
+    "Nombre": "الاسم",
+    "Nombre Completo": "الاسم الكامل",
+    "Fecha de acceso": "تاريخ الوصول",
+    "Hora de acceso": "وقت الوصول",
+    "Fecha": "التاريخ",
+    "Hora": "الوقت",
+    "Rol": "الدور",
+    "Guardar": "حفظ",
+    "Cancelar": "إلغاء",
+    "Cerrar": "إغلاق",
+    "Recargar": "إعادة تحميل"
+  }
+}

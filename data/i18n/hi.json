@@ -1,0 +1,31 @@
+{
+  "language_name": "Hindi",
+  "translations": {
+    "Sistema de Control Biometrico": "बायोमेट्रिक नियंत्रण प्रणाली",
+    "SISTEMA DE\nCONTROL\nBIOMETRICO": "बायोमेट्रिक\nनियंत्रण\nप्रणाली",
+    "GESTION DE USUARIOS": "उपयोगकर्ता प्रबंधन",
+    "Buscar...": "खोजें...",
+    "Buscar idioma...": "भाषा खोजें...",
+    "Todos los roles": "सभी भूमिकाएँ",
+    "Dia": "दिन",
+    "Filtrar por dia": "दिन के अनुसार फ़िल्टर",
+    "Aplicar filtros": "फ़िल्टर लागू करें",
+    "Limpiar dia": "दिन साफ करें",
+    "Editar seleccionado": "चयनित संपादित करें",
+    "Eliminar seleccionado": "चयनित हटाएँ",
+    "Historial de accesos": "प्रवेश इतिहास",
+    "< Regresar": "< वापस",
+    "No. Institucional": "संस्थागत आईडी",
+    "Nombre": "नाम",
+    "Nombre Completo": "पूरा नाम",
+    "Fecha de acceso": "प्रवेश तिथि",
+    "Hora de acceso": "प्रवेश समय",
+    "Fecha": "तारीख",
+    "Hora": "समय",
+    "Rol": "भूमिका",
+    "Guardar": "सहेजें",
+    "Cancelar": "रद्द करें",
+    "Cerrar": "बंद करें",
+    "Recargar": "रीलोड करें"
+  }
+}
