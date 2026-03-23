@@ -1,5 +1,18 @@
 import tkinter as tk
-from gestion import abrir_gestion
+import sys
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+from views.gestion import app as abrir_gestion
+
+
+def ir_a_gestion(ventana: tk.Tk) -> None:
+    """Cierra la ventana actual y abre la pantalla de gestion."""
+    ventana.destroy()
+    abrir_gestion()
 
 
 def abrir_principal() -> None:
@@ -25,7 +38,7 @@ def abrir_principal() -> None:
         ventana,
         text="Ir a Gestion",
         font=("Arial", 12),
-        command=lambda: abrir_gestion(ventana),
+        command=lambda: ir_a_gestion(ventana),
     )
     boton_gestion.pack(pady=10)
     #__________________________FIN_3______________________#
