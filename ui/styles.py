@@ -79,10 +79,10 @@ FUENTES = {
 
 MEDIDAS = {
     # Ventana
-    "ancho_ventana":        1100,
-    "alto_ventana":         680,
-    "min_ancho":            900,
-    "min_alto":             560,
+    "ancho_ventana":        800,
+    "alto_ventana":         480,
+    "min_ancho":            800,
+    "min_alto":             480,
 
     # Barra superior
     "alto_topbar":          75,

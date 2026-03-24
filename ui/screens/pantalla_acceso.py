@@ -264,55 +264,78 @@ class PantallaAcceso:
         tk.Frame(pantalla, bg=PALETA["topbar_sistema_fg"],
                  height=MEDIDAS["alto_linea_sep"]).pack(fill="x")
 
-        # Contenedor oscuro — video ocupa todo
-        contenedor = tk.Frame(pantalla, bg="#000000")
+        # Contenedor — video ocupa todo
+        contenedor = tk.Frame(pantalla, bg=PALETA["central_fondo"])
         contenedor.pack(fill="both", expand=True)
 
-        # Video de fondo
-        self.label_video = tk.Label(
-            contenedor, bg="#000000",
-            text="Iniciando cámara...",
-            font=("Segoe UI", 14),
-            fg=PALETA["topbar_sistema_fg"],
-        )
+        # Video fondo completo
+        self.label_video = tk.Label(contenedor, bg=PALETA["central_fondo"],
+                                    text="Iniciando cámara...",
+                                    font=("Segoe UI", 14),
+                                    fg=PALETA["topbar_sistema_fg"])
         self.label_video.place(x=0, y=0, relwidth=1, relheight=1)
 
-        # ── Barra superior superpuesta ────────
-        self.barra_top = tk.Frame(contenedor, bg=PALETA["central_fondo"])
-        self.barra_top.place(x=10, y=10, relwidth=0.98)
+        # ── Botón volver esquina superior izquierda ──
+        tk.Button(contenedor, text="← VOLVER",
+                  font=("Segoe UI", 10, "bold"),
+                  fg=PALETA["topbar_btn_fg"],
+                  bg=PALETA["topbar_btn_bg"],
+                  activebackground=PALETA["topbar_btn_hover"],
+                  activeforeground=PALETA["topbar_btn_fg"],
+                  bd=0, padx=14, pady=8,
+                  cursor="hand2", relief="flat",
+                  command=self._volver).place(x=16, y=16)
 
-        estilo_btn = dict(
-            font=("Segoe UI", 11, "bold"),
-            fg=PALETA["boton_fg"],
-            bg=PALETA["boton_bg"],
-            activebackground=PALETA["boton_hover"],
-            bd=0, padx=15, pady=10,
-            cursor="hand2", relief="flat",
-        )
+        # ── HUD inferior — mismo estilo que validacionUsrs ──
+        hud = tk.Frame(contenedor, bg=PALETA["page_bg"])
+        hud.place(relx=0.5, rely=1.0, anchor="s", relwidth=1.0)
 
-        tk.Button(self.barra_top, text="← VOLVER",
-                  command=self._volver, **estilo_btn).pack(side="left", padx=5, pady=5)
+        tk.Frame(hud, bg=PALETA["topbar_sistema_fg"], height=3).pack(fill="x")
 
-        # Icono de estado animado (canvas pequeño)
-        self.canvas_icono = tk.Canvas(
-            self.barra_top, width=34, height=34,
-            bg=PALETA["central_fondo"], highlightthickness=0)
-        self.canvas_icono.pack(side="left", padx=(10, 4), pady=5)
+        contenido = tk.Frame(hud, bg=PALETA["page_bg"])
+        contenido.pack(pady=12, padx=24)
 
-        # Texto de estado
-        self.lbl_estado = tk.Label(
-            self.barra_top, text="Buscando rostro...",
-            font=("Segoe UI", 11, "bold"),
-            fg=PALETA["topbar_sistema_fg"],
-            bg=PALETA["central_fondo"],
-            pady=10,
-        )
-        self.lbl_estado.pack(side="left", padx=4)
+        # Icono animado
+        self.canvas_icono = tk.Canvas(contenido, width=40, height=40,
+                                      bg=PALETA["page_bg"], highlightthickness=0)
+        self.canvas_icono.pack(side="left", padx=(0, 14))
 
-        self.canvas_barra = tk.Canvas(
-            self.barra_top, width=120, height=8,
-            bg=PALETA["ghost_bg"], highlightthickness=0)
-        self.canvas_barra.pack(side="left", padx=(4, 10), pady=5)
+        # Bloque estado
+        bloque = tk.Frame(contenido, bg=PALETA["page_bg"])
+        bloque.pack(side="left", padx=(0, 24))
+
+        self.lbl_titulo_estado = tk.Label(bloque, text="CONTROL DE ACCESO",
+                                          font=("Segoe UI", 8), fg="#aaaaaa",
+                                          bg=PALETA["page_bg"], anchor="w")
+        self.lbl_titulo_estado.pack(anchor="w")
+
+        self.lbl_estado = tk.Label(bloque, text="Buscando rostro...",
+                                   font=("Segoe UI", 13, "bold"),
+                                   fg=PALETA["topbar_sistema_fg"],
+                                   bg=PALETA["page_bg"], anchor="w")
+        self.lbl_estado.pack(anchor="w")
+
+        # Separador vertical
+        tk.Frame(contenido, bg=PALETA["topbar_separador"], width=1).pack(
+            side="left", fill="y", padx=(0, 24), pady=4)
+
+        # Bloque contador rostros
+        bloque2 = tk.Frame(contenido, bg=PALETA["page_bg"])
+        bloque2.pack(side="left")
+
+        tk.Label(bloque2, text="ROSTROS EN CÁMARA",
+                 font=("Segoe UI", 8), fg="#aaaaaa",
+                 bg=PALETA["page_bg"], anchor="w").pack(anchor="w")
+
+        self.lbl_contador = tk.Label(bloque2, text="0",
+                                     font=("Segoe UI", 22, "bold"),
+                                     fg="#cccccc", bg=PALETA["page_bg"], anchor="w")
+        self.lbl_contador.pack(anchor="w")
+
+        # dummy para compatibilidad
+        self.canvas_barra = tk.Canvas(contenido, width=0, height=0,
+                                      bg=PALETA["page_bg"], highlightthickness=0)
+        self.canvas_barra.pack(side="left")
 
     def _iniciar_animacion(self):
         self._animar()
@@ -333,42 +356,46 @@ class PantallaAcceso:
     def _dibujar_icono(self):
         c = self.canvas_icono
         c.delete("all")
-        cx, cy, r = 17, 17, 13
+        cx, cy, r = 20, 20, 15
+
+        verde    = PALETA["topbar_sistema_fg"]   # #3A8C3F
+        verde_cl = PALETA["central_onda"]         # #4CAF50
+        fondo    = PALETA["page_bg"]              # #ffffff
+        gris     = PALETA["ghost_bg"]             # #edf1f5
 
         if self._estado in ("escaneando", "sin_rostro", "sin_camara"):
             c.create_oval(cx-r, cy-r, cx+r, cy+r,
-                          outline="#cccccc", width=2, fill=PALETA["ghost_bg"])
+                          outline=PALETA["topbar_separador"], width=2, fill=gris)
             c.create_arc(cx-r, cy-r, cx+r, cy+r,
-                         start=self._angulo, extent=230,
-                         style="arc", outline=PALETA["central_onda"], width=2)
+                         start=self._angulo, extent=240,
+                         style="arc", outline=verde_cl, width=2)
+            c.create_oval(cx-3, cy-3, cx+3, cy+3,
+                          fill=verde_cl, outline="")
+
         elif self._estado == "detectado":
-            ai = int(40 + self._pulso * 80)
+            ai  = int(100 + self._pulso * 80)
+            pr  = int(r + 2 + self._pulso * 3)
+            c.create_oval(cx-pr, cy-pr, cx+pr, cy+pr,
+                          outline=verde_cl, width=1, fill="")
             c.create_oval(cx-r, cy-r, cx+r, cy+r,
-                          outline=f"#{ai:02x}af{ai:02x}", width=3,
-                          fill=PALETA["topbar_btn_bg"])
-            c.create_oval(cx-4, cy-4, cx+4, cy+4,
-                          fill=PALETA["central_onda"], outline="")
+                          outline=verde, width=2, fill=gris)
+            c.create_oval(cx-5, cy-5, cx+5, cy+5,
+                          fill=verde_cl, outline="")
+
         elif self._estado == "acceso_ok":
             c.create_oval(cx-r, cy-r, cx+r, cy+r,
-                          outline="#4CAF50", width=2, fill="#e8f5e9")
-            c.create_text(cx, cy, text="✓",
-                          font=("Segoe UI", 12, "bold"), fill="#2e7d32")
+                          outline=verde_cl, width=2, fill="#e8f5e9")
+            c.create_text(cx, cy+1, text="✓",
+                          font=("Segoe UI", 13, "bold"), fill=verde)
+
         elif self._estado == "acceso_deny":
             c.create_oval(cx-r, cy-r, cx+r, cy+r,
                           outline="#e53935", width=2, fill="#ffebee")
-            c.create_text(cx, cy, text="✕",
-                          font=("Segoe UI", 12, "bold"), fill="#c62828")
+            c.create_text(cx, cy+1, text="✕",
+                          font=("Segoe UI", 13, "bold"), fill="#c62828")
 
     def _dibujar_barra(self):
-        c = self.canvas_barra
-        c.delete("all")
-        w, h = 120, 8
-        c.create_rectangle(0, 0, w, h, fill=PALETA["ghost_bg"], outline="")
-        fw = int(w * min(max(self._confianza, 0), 1))
-        if fw > 0:
-            col = ("#4CAF50" if self._confianza > 0.6 else
-                   "#FFC107" if self._confianza > 0.3 else "#9E9E9E")
-            c.create_rectangle(0, 0, fw, h, fill=col, outline="")
+        pass  # Barra de confianza removida
 
     def _pintar_frame(self):
         if self._photo is None: return
@@ -389,6 +416,18 @@ class PantallaAcceso:
         }
         txt, color = textos.get(estado, ("", PALETA["topbar_sistema_fg"]))
         self.lbl_estado.config(text=txt, fg=color)
+        titulos = {
+            "escaneando":  "SISTEMA ACTIVO",
+            "detectado":   "ROSTRO DETECTADO",
+            "acceso_ok":   "ACCESO CONCEDIDO",
+            "acceso_deny": "ACCESO DENEGADO",
+            "sin_rostro":  "SIN DETECCIÓN",
+            "sin_camara":  "ERROR DE CÁMARA",
+        }
+        try:
+            self.lbl_titulo_estado.config(text=titulos.get(estado, "SISTEMA ACTIVO"))
+        except Exception:
+            pass
 
     def _volver(self):
         self._corriendo = False
