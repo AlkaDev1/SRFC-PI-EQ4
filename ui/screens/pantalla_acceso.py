@@ -256,9 +256,6 @@ class PantallaAcceso:
         self._bbox      = None
         self._cambiar_estado("escaneando", 0.0)
 
-    # ══════════════════════════════════════════
-    #  UI — layout limpio (estilo validacionUsrs)
-    # ══════════════════════════════════════════
     def _construir_ui(self):
         pantalla = tk.Frame(self.parent, bg=PALETA["page_bg"])
         pantalla.pack(fill="both", expand=True)
@@ -312,15 +309,11 @@ class PantallaAcceso:
         )
         self.lbl_estado.pack(side="left", padx=4)
 
-        # Barra de confianza (pequeña, al lado del texto)
         self.canvas_barra = tk.Canvas(
             self.barra_top, width=120, height=8,
             bg=PALETA["ghost_bg"], highlightthickness=0)
         self.canvas_barra.pack(side="left", padx=(4, 10), pady=5)
 
-    # ══════════════════════════════════════════
-    #  Animación
-    # ══════════════════════════════════════════
     def _iniciar_animacion(self):
         self._animar()
 
@@ -382,9 +375,6 @@ class PantallaAcceso:
         self.label_video.imgtk = self._photo
         self.label_video.config(image=self._photo, text="")
 
-    # ══════════════════════════════════════════
-    #  Estado
-    # ══════════════════════════════════════════
     def _cambiar_estado(self, estado, confianza=0.0, nombre=""):
         self._estado    = estado
         self._confianza = confianza
@@ -400,9 +390,6 @@ class PantallaAcceso:
         txt, color = textos.get(estado, ("", PALETA["topbar_sistema_fg"]))
         self.lbl_estado.config(text=txt, fg=color)
 
-    # ══════════════════════════════════════════
-    #  Limpieza
-    # ══════════════════════════════════════════
     def _volver(self):
         self._corriendo = False
         if self._cap:

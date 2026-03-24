@@ -38,9 +38,6 @@ class PantallaGestion:
         self._crear_interfaz()
         self._iniciar_camara()
 
-    # ══════════════════════════════════════════
-    #  UI
-    # ══════════════════════════════════════════
     def _crear_interfaz(self):
         pantalla = tk.Frame(self.parent, bg=PALETA["page_bg"])
         pantalla.pack(fill="both", expand=True)

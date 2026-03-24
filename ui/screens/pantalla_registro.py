@@ -419,10 +419,6 @@ class PantallaRegistro:
             self._cap.release()
         self.app.mostrar_pantalla("gestion")
 
-    # ══════════════════════════════════════════
-    #  Punto de entrada
-    # ══════════════════════════════════════════
-
 
 def crear_pantalla_registro(parent, app):
     PantallaRegistro(parent, app)

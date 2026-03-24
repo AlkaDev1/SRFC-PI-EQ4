@@ -68,7 +68,6 @@ def dibujar_area_central(canvas: tk.Canvas, ancho: int, alto: int) -> None:
 
 
 
-
 def presionar_gestion() -> None:
     print("[BCK] Gestión → pendiente")
 
