@@ -126,7 +126,7 @@ def crear_pantalla_principal(root, app) -> None:
               **estilo).pack(side="left", padx=MEDIDAS["margen_boton"])
 
     tk.Button(contenedor, text=" ⚙ GESTIÓN",
-              command=presionar_gestion,
+              command=lambda: app.mostrar_pantalla("gestion"),
               **estilo).pack(side="left", padx=MEDIDAS["margen_boton"])
 
     tk.Button(contenedor, text=" 🔒 AVISO DE PRIVACIDAD",
