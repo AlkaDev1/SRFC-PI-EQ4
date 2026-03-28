@@ -34,7 +34,7 @@ def crear_encabezado(parent: tk.Frame, root: tk.Tk) -> None:
     if ruta_logo.exists():
         try:
             raw = tk.PhotoImage(file=str(ruta_logo))
-            lbl_logo = tk.Label(logo_wrap, image=raw, bg=V_DARK) # correguir el color de fondo del logo: V_DARK en vez de BLANCO 
+            lbl_logo = tk.Label(logo_wrap, image=raw, bg=V_DARK) 
             lbl_logo.image = raw # Proteger de recolección de basura
             lbl_logo.pack()
         except Exception as e:
