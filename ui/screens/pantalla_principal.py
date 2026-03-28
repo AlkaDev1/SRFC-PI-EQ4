@@ -25,7 +25,9 @@ TEXTO_DIM= "#A5D6A7"   # subtítulo sobre verde
 _RAIZ    = Path(__file__).resolve().parent.parent.parent
 _LOGO    = _RAIZ / "assets" / "img" / "logoudc.png"
 _PERICOS = _RAIZ / "assets" / "img" / "pericos.png"
-
+_ICONO_ACCESO = _RAIZ / "assets" / "img" / "accederIcon.png"
+_ICONO_AVISO_PRIVACIDAD = _RAIZ / "assets" / "img" / "avisoPrivacidadIcon.png"
+_ICONO_GESTION = _RAIZ / "assets" / "img" / "gestionIcon.png"
 
 # ─────────────────────────────────────────────────────────────────────────────
 def crear_pantalla_principal(parent: tk.Frame, app) -> None:
@@ -243,13 +245,13 @@ class _Botones(tk.Frame):
         fila = tk.Frame(self, bg=GRIS_BG)
         fila.pack(expand=True)          # centrado vertical por expand
 
-        _Btn(fila, "🔑", "ACCEDER",
-             lambda: app.mostrar_pantalla("acceso"))
-        _Btn(fila, "⚙",  "GESTIÓN",
-             lambda: app.mostrar_pantalla("gestion"))
-        _Btn(fila, "🔒", "AVISO DE\nPRIVACIDAD",
-             lambda: mostrar_aviso(
-                 parent.winfo_toplevel(), al_aceptar=lambda: None))
+        _Btn(fila, _ICONO_ACCESO, "ACCEDER",
+            lambda: app.mostrar_pantalla("acceso"))
+        _Btn(fila, _ICONO_GESTION,  "GESTIÓN",
+            lambda: app.mostrar_pantalla("gestion"))
+        _Btn(fila, _ICONO_AVISO_PRIVACIDAD, "AVISO DE\nPRIVACIDAD",
+            lambda: mostrar_aviso(
+                parent.winfo_toplevel(), al_aceptar=lambda: None))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -258,15 +260,22 @@ class _Botones(tk.Frame):
 class _Btn:
     W, H, R = 208, 58, 10
 
-    def __init__(self, parent, ico, txt, cmd):
-        self._ico = ico; self._txt = txt; self._cmd = cmd
+    def __init__(self, parent, img_path: Path, txt, cmd):
+        self._txt = txt; self._cmd = cmd
         self._bg  = V_LIGHT; self._hov = V_DARK
+
+        self._img_tk = None
+        if img_path.exists():
+            try:
+
+                self._img_tk = tk.PhotoImage(file=str(img_path))
+            except Exception as e:
+                print(f"[ERROR ICONO] No se pudo cargar {img_path}: {e}")
 
         wrap = tk.Frame(parent, bg=GRIS_BG)
         wrap.pack(side="left", padx=10, pady=8)
 
-        self._cv = tk.Canvas(wrap, width=self.W, height=self.H,
-                             bg=GRIS_BG, highlightthickness=0, cursor="hand2")
+        self._cv = tk.Canvas(wrap, width=self.W, height=self.H, bg=GRIS_BG, highlightthickness=0, cursor="hand2")
         self._cv.pack()
         self._draw(self._bg)
 
@@ -276,21 +285,28 @@ class _Btn:
 
     def _draw(self, color):
         c = self._cv; c.delete("all")
-        # Sombra
+
         _rr(c, 2, 2, self.W+2, self.H+2, self.R, "#b0bfb0")
-        # Fondo
+
         _rr(c, 0, 0, self.W, self.H, self.R, color)
-        # Icono
-        c.create_text(30, self.H//2, text=self._ico,
-                      font=("Segoe UI", 17), fill=BLANCO, anchor="center")
-        # Separador
+        
+
+        if self._img_tk:
+
+            c.create_image(30, self.H//2, image=self._img_tk, anchor="center")
+        else:
+
+            c.create_text(30, self.H//2, text="?", font=("Segoe UI", 17), fill=BLANCO)
+
         c.create_line(56, 10, 56, self.H-10, fill=V_ACCENT, width=1)
-        # Texto
+
         c.create_text(132, self.H//2, text=self._txt,
-                      font=("Segoe UI", 12, "bold"),
-                      fill=BLANCO, anchor="center", justify="center")
+                    font=("Segoe UI", 12, "bold"),
+                    fill=BLANCO, anchor="center", justify="center")
 
-
+# ─────────────────────────────────────────────────────────────────────────────
+#  FUNCIÓN AUXILIAR PARA DIBUJAR RECTÁNGULOS REDONDEADOS
+# ─────────────────────────────────────────────────────────────────────────────
 def _rr(c, x1, y1, x2, y2, r, col):
     kw = dict(fill=col, outline="")
     c.create_arc(x1,      y1,      x1+2*r, y1+2*r, start=90,  extent=90, **kw)
