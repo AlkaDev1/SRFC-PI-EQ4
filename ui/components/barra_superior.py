@@ -124,6 +124,6 @@ def crear_encabezado(parent: tk.Frame, root: tk.Tk) -> None:
         justify="center",
     )
     lbl_hora.pack()
-
+    
     # Iniciar el reloj
     actualizar_fecha_hora(lbl_fecha, lbl_hora, root)

@@ -77,8 +77,8 @@ class PantallaGestion:
                   command=self._volver,
                   **estilo_btn).place(x=16, y=16)
 
-        tk.Button(contenedor, text="+ REGISTRAR",
-                  command=lambda: self.app.mostrar_pantalla("registro"),
+        tk.Button(contenedor, text="✓ ENTRAR AL SISTEMA",
+                  command=self._validar_y_entrar,
                   font=("Segoe UI", 10, "bold"),
                   fg=PALETA["boton_fg"],
                   bg=PALETA["boton_bg"],
@@ -237,6 +237,19 @@ class PantallaGestion:
     # ══════════════════════════════════════════
     #  Acciones
     # ══════════════════════════════════════════
+    def _validar_y_entrar(self):
+        """Valida que haya al menos un rostro detectado y pasa a gestión."""
+        if len(self.rostros_detectados) == 0:
+            self.label_estado.config(
+                text="No se detecta ningún rostro",
+                fg="#c62828")
+            return
+        # TODO: cuando face_recognition esté disponible, validar que
+        # el rostro pertenezca a un admin/superadmin en la BD.
+        # Por ahora, con detectar un rostro es suficiente para demo.
+        self._limpiar()
+        self.app.mostrar_pantalla("gestion_real")
+
     def _volver(self):
         self._limpiar()
         self.app.mostrar_pantalla("principal")

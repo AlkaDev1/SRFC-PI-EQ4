@@ -31,6 +31,10 @@ class App:
             from ui.screens.pantalla_registro import crear_pantalla_registro
             crear_pantalla_registro(self.contenedor, self)
 
+        elif nombre == "gestion_real":
+            from ui.screens.pantalla_gestion import crear_pantalla_gestion_real
+            crear_pantalla_gestion_real(self.contenedor, self)
+
 
 def app():
     root = tk.Tk()
