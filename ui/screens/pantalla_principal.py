@@ -120,7 +120,6 @@ class _Central(tk.Frame):
                 self._foto = foto
                 c.create_image(cx, cy, image=foto, anchor="center")
             except Exception as e:
-                print(f"[PERICOS] {e}")
                 c.create_text(cx, cy, text="🦜🦜",
                               font=("Segoe UI", int(ri * 0.5)),
                               fill=BLANCO, anchor="center")

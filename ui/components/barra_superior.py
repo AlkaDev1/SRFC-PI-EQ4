@@ -27,16 +27,14 @@ def crear_encabezado(parent: tk.Frame, root: tk.Tk) -> None:
     top_bar.pack_propagate(False)
 
     # --- Logo en pastilla blanca ---
-    logo_wrap = tk.Frame(top_bar, bg=BLANCO, padx=6, pady=3) # correguir el color de fondo del logo: V_DARK en vez de BLANCO 
-    logo_wrap.pack(side="left", padx=(14, 0), pady=10)
+    logo_wrap = tk.Frame(top_bar, bg=V_DARK)
+    logo_wrap.pack(side="left", padx=(14, 0), pady=0, fill="y")
     
     ruta_logo = Path(__file__).resolve().parent.parent.parent / "assets" / "img" / "logoudc.png"
     if ruta_logo.exists():
         try:
             raw = tk.PhotoImage(file=str(ruta_logo))
-            f   = max(1, round(raw.width() / 130))
-            raw = raw.subsample(f, f)
-            lbl_logo = tk.Label(logo_wrap, image=raw, bg=BLANCO) # correguir el color de fondo del logo: V_DARK en vez de BLANCO 
+            lbl_logo = tk.Label(logo_wrap, image=raw, bg=V_DARK) # correguir el color de fondo del logo: V_DARK en vez de BLANCO 
             lbl_logo.image = raw # Proteger de recolección de basura
             lbl_logo.pack()
         except Exception as e:
@@ -61,7 +59,17 @@ def crear_encabezado(parent: tk.Frame, root: tk.Tk) -> None:
     btn_f.pack(side="right", padx=(8,0), pady=18)
 
     # 1. Botón de Idioma
-    btn_idioma = tk.Label(btn_f, text="🌐", font=("Segoe UI", 14), fg=BLANCO, bg=V_LIGHT, padx=7, pady=2, cursor="hand2")
+    ruta_icono_idioma = Path(__file__).resolve().parent.parent.parent / "assets" / "img" / "languageIcon.png"
+    btn_idioma = tk.Label(btn_f, bg=V_LIGHT, padx=7, pady=2, cursor="hand2")
+
+    if ruta_icono_idioma.exists():
+        img_idioma = tk.PhotoImage(file=str(ruta_icono_idioma))
+        btn_idioma.config(image=img_idioma)
+        btn_idioma.image = img_idioma  # Proteger de recolección de basura
+    else:
+        btn_idioma.config(text="🌐", font=("Segoe UI", 14), fg=BLANCO)
+
+
     btn_idioma.pack(side="right", padx=3)
     btn_idioma.bind("<Enter>", lambda e, w=btn_idioma: w.config(bg=V_ACCENT))
     btn_idioma.bind("<Leave>", lambda e, w=btn_idioma: w.config(bg=V_LIGHT))
