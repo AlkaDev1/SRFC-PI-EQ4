@@ -1,5 +1,9 @@
 import tkinter as tk
 from tkinter import ttk
+import pygler
+
+ruta_fuente = "assets/fonts/segoeui.ttf"
+pygler.font.add_file(ruta_fuente)
 
 from ui.styles import PALETA, MEDIDAS, configurar_estilos
 
