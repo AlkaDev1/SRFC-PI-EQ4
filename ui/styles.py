@@ -101,6 +101,8 @@ MEDIDAS = {
 def configurar_estilos(style: ttk.Style) -> None:
     style.theme_use("clam")
 
+    style.configure("TLabel", font=FUENTES["tabla_fila"], background=PALETA["page_bg"], foreground=PALETA["title_fg"])
+    style.configure("TButon", font=FUENTES["tabla_fila"])
     style.configure("Page.TFrame",  background=PALETA["page_bg"])
     style.configure("TopDark.TFrame", background=PALETA["topbar_bg"])
     style.configure("Brand.TFrame", background=PALETA["topbar_brand_bg"])
