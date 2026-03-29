@@ -23,7 +23,6 @@ GRIS_BG  = "#EEF2EE"   # fondo barra botones
 TEXTO_DIM= "#A5D6A7"   # subtítulo sobre verde
 
 _RAIZ    = Path(__file__).resolve().parent.parent.parent
-_LOGO    = _RAIZ / "assets" / "img" / "logoudc.png"
 _PERICOS = _RAIZ / "assets" / "img" / "pericos.png"
 _ICONO_ACCESO = _RAIZ / "assets" / "img" / "accederIcon.png"
 _ICONO_AVISO_PRIVACIDAD = _RAIZ / "assets" / "img" / "avisoPrivacidadIcon.png"
@@ -108,17 +107,11 @@ class _Central(tk.Frame):
         if _PERICOS.exists():
             try:
                 from PIL import Image, ImageTk
-                import numpy as np
-                img  = Image.open(str(_PERICOS)).convert("RGBA")
-                data = np.array(img)
-                r_c, g_c, b_c = data[:,:,0], data[:,:,1], data[:,:,2]
-                data[(r_c < 50) & (g_c < 50) & (b_c < 50), 3] = 0
-                img  = Image.fromarray(data)
-                tam  = int(ri * 1.85)
-                img  = img.resize((tam, tam), Image.LANCZOS)
-                foto = ImageTk.PhotoImage(img)
-                self._foto = foto
-                c.create_image(cx, cy, image=foto, anchor="center")
+                img_pil = Image.open(_PERICOS)
+                target_size = int(ri * 1.5)
+                img_pil = img_pil.resize((target_size, target_size), Image.LANCZOS)
+                self._foto = ImageTk.PhotoImage(img_pil)
+                c.create_image(cx, cy, image=self._foto, anchor="center")
             except Exception as e:
                 c.create_text(cx, cy, text="🦜🦜",
                               font=("Segoe UI", int(ri * 0.5)),
