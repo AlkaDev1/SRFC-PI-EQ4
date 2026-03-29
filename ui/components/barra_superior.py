@@ -15,9 +15,11 @@ def actualizar_fecha_hora(lbl_fecha: tk.Label, lbl_hora: tk.Label, root: tk.Tk) 
     MESES = ["enero","febrero","marzo","abril","mayo","junio",
             "julio","agosto","septiembre","octubre","noviembre","diciembre"]
     
-    lbl_fecha.config(text=f"FECHA: {DIAS[n.weekday()]} {n.day} de {MESES[n.month-1]} {n.year}")
-    h = n.strftime("%I:%M:%S %p").lower().replace("am","a.m").replace("pm","p.m")
-    lbl_hora.config(text=f"Hora: {h}")
+    fecha = f"{DIAS[n.weekday()]} {n.day} de {MESES[n.month-1]} de {n.year}"
+    lbl_fecha.config(text=fecha)
+
+    hora = n.strftime("%I:%M:%S %p").lower().replace("am", "a.m.").replace("pm", "p.m.")
+    lbl_hora.config(text=hora)
     
     root.after(1000, lambda: actualizar_fecha_hora(lbl_fecha, lbl_hora, root))
 
@@ -93,10 +95,39 @@ def crear_encabezado(parent: tk.Frame, root: tk.Tk) -> None:
     # --- Fecha y Hora ---
     dt = tk.Frame(der, bg=V_DARK)
     dt.pack(side="right", pady=10)
-    lbl_fecha = tk.Label(dt, text="", font=("Segoe UI", 10, "bold"), fg=BLANCO, bg=V_DARK)
-    lbl_fecha.pack(anchor="e")
-    lbl_hora = tk.Label(dt, text="", font=("Segoe UI", 10), fg=TEXTO_DIM, bg=V_DARK)
-    lbl_hora.pack(anchor="e")
+
+    fila_fecha = tk.Frame(dt, bg=V_DARK)
+    fila_fecha.pack(anchor="e")
+
+    ruta_calendar_icon = Path(__file__).resolve().parent.parent.parent / "assets" / "img" / "calendar_Icon.png"
+    if ruta_calendar_icon.exists():
+        raw_calendar = tk.PhotoImage(file=str(ruta_calendar_icon))
+        factor_c = max(1, round(raw_calendar.height() / 18))
+        img_calendar = raw_calendar.subsample(factor_c, factor_c)
+
+
+        lbl_ico_fecha = tk.Label(fila_fecha, image=img_calendar, bg=V_DARK)
+        lbl_ico_fecha.image = img_calendar  # Proteger de recolección de basura
+        lbl_ico_fecha.pack(side="left", padx=(0,4), pady=(2,0))
+
+    lbl_fecha = tk.Label(fila_fecha, text= "",  font=("Segoe UI", 10, "bold"), fg=BLANCO, bg=V_DARK)
+    lbl_fecha.pack(side="left")
+
+    fila_hora = tk.Frame(dt, bg=V_DARK)
+    fila_hora.pack(anchor="e")
+
+    ruta_clock_icon = Path(__file__).resolve().parent.parent.parent / "assets" / "img" / "clockIcon.png"
+    if ruta_clock_icon.exists():
+        raw_clock = tk.PhotoImage(file=str(ruta_clock_icon))
+        factor_h = max(1, round(raw_clock.height() / 18))
+        img_clock = raw_clock.subsample(factor_h, factor_h)
+
+        lbl_ico_hora = tk.Label(fila_hora, image=img_clock, bg=V_DARK)
+        lbl_ico_hora.image = img_clock  # Proteger de recolección de basura
+        lbl_ico_hora.pack(side="left", padx=(0,4))
+    
+    lbl_hora = tk.Label(fila_hora, text="", font=("Segoe UI", 10), fg=TEXTO_DIM, bg=V_DARK)
+    lbl_hora.pack(side="left")
 
     # Iniciar el reloj
     actualizar_fecha_hora(lbl_fecha, lbl_hora, root)
