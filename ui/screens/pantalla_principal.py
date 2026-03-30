@@ -8,7 +8,7 @@ import tkinter as tk
 import math
 from pathlib import Path
 from datetime import datetime
-
+from ui.components.barra_superior import crear_encabezado
 from ui.styles import FUENTES, MEDIDAS
 from ui.components.aviso_privacidad import mostrar_aviso
 
@@ -23,7 +23,6 @@ GRIS_BG  = "#EEF2EE"   # fondo barra botones
 TEXTO_DIM= "#A5D6A7"   # subtítulo sobre verde
 
 _RAIZ    = Path(__file__).resolve().parent.parent.parent
-_LOGO    = _RAIZ / "assets" / "img" / "logoudc.png"
 _PERICOS = _RAIZ / "assets" / "img" / "pericos.png"
 _ICONO_ACCESO = _RAIZ / "assets" / "img" / "accederIcon.png"
 _ICONO_AVISO_PRIVACIDAD = _RAIZ / "assets" / "img" / "avisoPrivacidadIcon.png"
@@ -33,84 +32,9 @@ _ICONO_GESTION = _RAIZ / "assets" / "img" / "gestionIcon.png"
 def crear_pantalla_principal(parent: tk.Frame, app) -> None:
     f = tk.Frame(parent, bg=V_DARK)
     f.pack(fill="both", expand=True)
-    _Header(f)
+    crear_encabezado(f, app.root)
     _Central(f)
     _Botones(f, app)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  HEADER  — altura fija 72 px
-# ─────────────────────────────────────────────────────────────────────────────
-class _Header(tk.Frame):
-    def __init__(self, parent):
-        super().__init__(parent, bg=V_DARK, height=72)
-        self.pack(fill="x")
-        self.pack_propagate(False)
-
-        # Logo en pastilla blanca
-        logo_wrap = tk.Frame(self, bg=BLANCO, padx=6, pady=3)
-        logo_wrap.pack(side="left", padx=(14, 0), pady=10)
-        self._logo_img = None
-        if _LOGO.exists():
-            try:
-                raw = tk.PhotoImage(file=str(_LOGO))
-                f   = max(1, round(raw.width() / 130))
-                raw = raw.subsample(f, f)
-                self._logo_img = raw
-                tk.Label(logo_wrap, image=raw, bg=BLANCO).pack()
-            except Exception as e:
-                print(f"[LOGO] {e}")
-                tk.Label(logo_wrap, text="UdC", font=("Segoe UI", 12, "bold"),
-                         fg=V_DARK, bg=BLANCO).pack()
-        else:
-            tk.Label(logo_wrap, text="UdC", font=("Segoe UI", 12, "bold"),
-                     fg=V_DARK, bg=BLANCO).pack()
-
-        # Separador + nombre sistema
-        tk.Frame(self, bg=V_ACCENT, width=2).pack(
-            side="left", fill="y", pady=14, padx=10)
-        col = tk.Frame(self, bg=V_DARK)
-        col.pack(side="left")
-        tk.Label(col, text="SISTEMA DE CONTROL", font=("Segoe UI", 9, "bold"),
-                 fg=V_ACCENT, bg=V_DARK).pack(anchor="w")
-        tk.Label(col, text="BIOMÉTRICO", font=("Segoe UI", 10, "bold"),
-                 fg=BLANCO, bg=V_DARK).pack(anchor="w")
-        tk.Label(col, text="Universidad de Colima", font=("Segoe UI", 8),
-                 fg=TEXTO_DIM, bg=V_DARK).pack(anchor="w")
-
-        # Derecha: fecha/hora + botones icono
-        der = tk.Frame(self, bg=V_DARK)
-        der.pack(side="right", padx=14, fill="y")
-
-        btn_f = tk.Frame(der, bg=V_DARK)
-        btn_f.pack(side="right", padx=(8,0), pady=18)
-        for ico in ("☀", "🌐"):
-            b = tk.Label(btn_f, text=ico, font=("Segoe UI", 14),
-                         fg=BLANCO, bg=V_LIGHT, padx=7, pady=2, cursor="hand2")
-            b.pack(side="left", padx=3)
-            b.bind("<Enter>", lambda e, w=b: w.config(bg=V_ACCENT))
-            b.bind("<Leave>", lambda e, w=b: w.config(bg=V_LIGHT))
-
-        dt = tk.Frame(der, bg=V_DARK)
-        dt.pack(side="right", pady=10)
-        self._lf = tk.Label(dt, text="", font=("Segoe UI", 10, "bold"),
-                             fg=BLANCO, bg=V_DARK)
-        self._lf.pack(anchor="e")
-        self._lh = tk.Label(dt, text="", font=("Segoe UI", 10),
-                             fg=TEXTO_DIM, bg=V_DARK)
-        self._lh.pack(anchor="e")
-        self._tick()
-
-    def _tick(self):
-        n = datetime.now()
-        DIAS  = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
-        MESES = ["enero","febrero","marzo","abril","mayo","junio",
-                 "julio","agosto","septiembre","octubre","noviembre","diciembre"]
-        self._lf.config(text=f"FECHA: {DIAS[n.weekday()]} {n.day} de {MESES[n.month-1]} {n.year}")
-        h = n.strftime("%I:%M:%S %p").lower().replace("am","a.m").replace("pm","p.m")
-        self._lh.config(text=f"Hora: {h}")
-        self.after(1000, self._tick)
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  ÁREA CENTRAL
@@ -183,19 +107,12 @@ class _Central(tk.Frame):
         if _PERICOS.exists():
             try:
                 from PIL import Image, ImageTk
-                import numpy as np
-                img  = Image.open(str(_PERICOS)).convert("RGBA")
-                data = np.array(img)
-                r_c, g_c, b_c = data[:,:,0], data[:,:,1], data[:,:,2]
-                data[(r_c < 50) & (g_c < 50) & (b_c < 50), 3] = 0
-                img  = Image.fromarray(data)
-                tam  = int(ri * 1.85)
-                img  = img.resize((tam, tam), Image.LANCZOS)
-                foto = ImageTk.PhotoImage(img)
-                self._foto = foto
-                c.create_image(cx, cy, image=foto, anchor="center")
+                img_pil = Image.open(_PERICOS)
+                target_size = int(ri * 1.5)
+                img_pil = img_pil.resize((target_size, target_size), Image.LANCZOS)
+                self._foto = ImageTk.PhotoImage(img_pil)
+                c.create_image(cx, cy, image=self._foto, anchor="center")
             except Exception as e:
-                print(f"[PERICOS] {e}")
                 c.create_text(cx, cy, text="🦜🦜",
                               font=("Segoe UI", int(ri * 0.5)),
                               fill=BLANCO, anchor="center")
