@@ -1,5 +1,7 @@
 import tkinter as tk
 from ui.styles import PALETA, FUENTES
+from PIL import Image, ImageTk
+from pathlib import Path
 
 TEXTO_AVISO = (
     "AVISO DE PRIVACIDAD\n\n"
@@ -48,13 +50,31 @@ def mostrar_aviso(root: tk.Tk, al_aceptar=None) -> None:
     encabezado.pack(fill="x")
     encabezado.pack_propagate(False)
 
-    tk.Label(
+    label_titulo = tk.Label(
         encabezado,
-        text="🔒  Aviso de Privacidad",
+        text=" Aviso de Privacidad",
         font=FUENTES["modal_titulo"],
         fg=PALETA["modal_header_fg"],
         bg=PALETA["modal_header_bg"],
-    ).pack(side="left", padx=20, pady=12)
+        compound="left" 
+    )
+    label_titulo.pack(side="left", padx=20, pady=12)
+    _RAIZ = Path(__file__).resolve().parent.parent.parent
+    ruta_candado = _RAIZ / "assets" / "img" / "lock_icon.png"
+
+    # 3. Cargamos la imagen
+    if ruta_candado.exists():
+        try:
+            img_pil = Image.open(ruta_candado).resize((24, 24), Image.Resampling.LANCZOS)
+            
+            modal.icono_candado = ImageTk.PhotoImage(img_pil)
+            
+            label_titulo.config(image=modal.icono_candado)
+            
+        except Exception as e:
+            label_titulo.config(text="🔒  Aviso de Privacidad", image="")
+    else:
+        label_titulo.config(text="🔒  Aviso de Privacidad", image="")
 
     frame_botones = tk.Frame(modal, bg=PALETA["modal_bg"])
     frame_botones.pack(fill="x", side="bottom", padx=16, pady=(4, 16))
