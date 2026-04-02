@@ -61,6 +61,7 @@ def mostrar_aviso(root: tk.Tk, al_aceptar=None) -> None:
     label_titulo.pack(side="left", padx=20, pady=12)
     _RAIZ = Path(__file__).resolve().parent.parent.parent
     ruta_candado = _RAIZ / "assets" / "img" / "lock_icon.png"
+    ruta_check_icon = _RAIZ / "assets" / "img" / "check_icon.png"
 
     # 3. Cargamos la imagen
     if ruta_candado.exists():
@@ -84,8 +85,10 @@ def mostrar_aviso(root: tk.Tk, al_aceptar=None) -> None:
             al_aceptar()
         modal.destroy()
 
-    def crear_fondo_redondeado(ancho, alto, radio, color):
+
+    def crear_fondo_redondeado_con_icono(ancho, alto, radio, color, ruta_icono=None):
         factor = 3
+
         img = Image.new("RGBA", (ancho * factor, alto * factor), (255, 255, 255, 0))
         dibujo = ImageDraw.Draw(img)
         dibujo.rounded_rectangle(
@@ -93,19 +96,36 @@ def mostrar_aviso(root: tk.Tk, al_aceptar=None) -> None:
             fill=color, 
             radius=radio * factor
         )
-        # Redimensionamos con alta calidad para suavizar la curva
+
         img_suave = img.resize((ancho, alto), Image.Resampling.LANCZOS)
+
+        if ruta_icono and Path(ruta_icono).exists():
+            try:
+                icono = Image.open(ruta_icono).convert("RGBA")
+
+                tam_icono = 20
+                icono = icono.resize((tam_icono, tam_icono), Image.Resampling.LANCZOS)
+                
+                pos_x = 28
+                pos_y = (alto - tam_icono) // 2
+                
+
+                img_suave.paste(icono, (pos_x, pos_y), icono)
+            except Exception:
+                pass
+
         return ImageTk.PhotoImage(img_suave)
     
-    modal.btn_bg_normal = crear_fondo_redondeado(160, 45, 8, PALETA["boton_bg"])
-    modal.btn_bg_hover = crear_fondo_redondeado(160, 45, 8, PALETA["boton_hover"])
 
-    # Botón Aceptar
+    modal.btn_bg_normal = crear_fondo_redondeado_con_icono(160, 45, 8, PALETA["boton_bg"], ruta_check_icon)
+    modal.btn_bg_hover = crear_fondo_redondeado_con_icono(160, 45, 8, PALETA["boton_hover"], ruta_check_icon)
+
     btn_aceptar = tk.Button(
         frame_botones,
-        text="✓  Aceptar",
+
+        text="   Aceptar", 
         image=modal.btn_bg_normal,
-        compound="center",         
+        compound="center",        
         font=FUENTES["boton_principal"],
         fg=PALETA["boton_fg"],
         bg=PALETA["modal_bg"],      
@@ -118,6 +138,7 @@ def mostrar_aviso(root: tk.Tk, al_aceptar=None) -> None:
     )
     btn_aceptar.pack(expand=True, pady=(10, 0))
 
+    # 3. Efectos Hover
     btn_aceptar.bind("<Enter>", lambda e: btn_aceptar.config(image=modal.btn_bg_hover))
     btn_aceptar.bind("<Leave>", lambda e: btn_aceptar.config(image=modal.btn_bg_normal))
 
