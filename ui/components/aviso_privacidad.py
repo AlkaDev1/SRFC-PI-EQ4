@@ -1,6 +1,6 @@
 import tkinter as tk
 from ui.styles import PALETA, FUENTES
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw
 from pathlib import Path
 
 TEXTO_AVISO = (
@@ -84,38 +84,42 @@ def mostrar_aviso(root: tk.Tk, al_aceptar=None) -> None:
             al_aceptar()
         modal.destroy()
 
+    def crear_fondo_redondeado(ancho, alto, radio, color):
+        factor = 3
+        img = Image.new("RGBA", (ancho * factor, alto * factor), (255, 255, 255, 0))
+        dibujo = ImageDraw.Draw(img)
+        dibujo.rounded_rectangle(
+            (0, 0, ancho * factor, alto * factor), 
+            fill=color, 
+            radius=radio * factor
+        )
+        # Redimensionamos con alta calidad para suavizar la curva
+        img_suave = img.resize((ancho, alto), Image.Resampling.LANCZOS)
+        return ImageTk.PhotoImage(img_suave)
+    
+    modal.btn_bg_normal = crear_fondo_redondeado(160, 45, 8, PALETA["boton_bg"])
+    modal.btn_bg_hover = crear_fondo_redondeado(160, 45, 8, PALETA["boton_hover"])
+
     # Botón Aceptar
-    tk.Button(
+    btn_aceptar = tk.Button(
         frame_botones,
         text="✓  Aceptar",
+        image=modal.btn_bg_normal,
+        compound="center",         
         font=FUENTES["boton_principal"],
         fg=PALETA["boton_fg"],
-        bg=PALETA["boton_bg"],
-        activebackground=PALETA["boton_hover"],
-        activeforeground="#ffffff",
+        bg=PALETA["modal_bg"],      
+        activebackground=PALETA["modal_bg"],
+        activeforeground=PALETA["boton_fg"],
         bd=0,
-        padx=20,
-        pady=8,
         cursor="hand2",
         relief="flat",
         command=presionar_aceptar,
-    ).pack(side="right")
+    )
+    btn_aceptar.pack(expand=True, pady=(10, 0))
 
-    # Botón Cerrar
-    tk.Button(
-        frame_botones,
-        text="Cerrar",
-        font=FUENTES["modal_texto"],
-        fg=PALETA["modal_btn_cerrar_fg"],
-        bg=PALETA["modal_btn_cerrar_bg"],
-        activebackground=PALETA["topbar_btn_hover"],
-        bd=0,
-        padx=14,
-        pady=8,
-        cursor="hand2",
-        relief="flat",
-        command=modal.destroy,
-    ).pack(side="right", padx=(0, 8))
+    btn_aceptar.bind("<Enter>", lambda e: btn_aceptar.config(image=modal.btn_bg_hover))
+    btn_aceptar.bind("<Leave>", lambda e: btn_aceptar.config(image=modal.btn_bg_normal))
 
     frame_texto = tk.Frame(modal, bg=PALETA["modal_bg"])
     frame_texto.pack(fill="both", expand=True, padx=16, pady=(12, 6))
