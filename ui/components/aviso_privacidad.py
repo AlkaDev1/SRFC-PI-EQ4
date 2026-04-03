@@ -40,6 +40,10 @@ def mostrar_aviso(root: tk.Tk, al_aceptar=None) -> None:
     modal.transient(root)
     modal.grab_set()
     modal.focus_set()
+    
+    def ignorar_cierre():
+        pass
+    modal.protocol("WM_DELETE_WINDOW", ignorar_cierre)
 
     # Fijar tamaño y centrar
     px = root.winfo_x() + (root.winfo_width()  // 2) - (ancho // 2)
