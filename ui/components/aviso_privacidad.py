@@ -1,5 +1,7 @@
 import tkinter as tk
 from ui.styles import PALETA, FUENTES
+from PIL import Image, ImageTk, ImageDraw
+from pathlib import Path
 
 TEXTO_AVISO = (
     "AVISO DE PRIVACIDAD\n\n"
@@ -48,13 +50,32 @@ def mostrar_aviso(root: tk.Tk, al_aceptar=None) -> None:
     encabezado.pack(fill="x")
     encabezado.pack_propagate(False)
 
-    tk.Label(
+    label_titulo = tk.Label(
         encabezado,
-        text="🔒  Aviso de Privacidad",
+        text=" Aviso de Privacidad",
         font=FUENTES["modal_titulo"],
         fg=PALETA["modal_header_fg"],
         bg=PALETA["modal_header_bg"],
-    ).pack(side="left", padx=20, pady=12)
+        compound="left" 
+    )
+    label_titulo.pack(side="left", padx=20, pady=12)
+    _RAIZ = Path(__file__).resolve().parent.parent.parent
+    ruta_candado = _RAIZ / "assets" / "img" / "lock_icon.png"
+    ruta_check_icon = _RAIZ / "assets" / "img" / "check_icon.png"
+
+    # 3. Cargamos la imagen
+    if ruta_candado.exists():
+        try:
+            img_pil = Image.open(ruta_candado).resize((24, 24), Image.Resampling.LANCZOS)
+            
+            modal.icono_candado = ImageTk.PhotoImage(img_pil)
+            
+            label_titulo.config(image=modal.icono_candado)
+            
+        except Exception as e:
+            label_titulo.config(text="🔒  Aviso de Privacidad", image="")
+    else:
+        label_titulo.config(text="🔒  Aviso de Privacidad", image="")
 
     frame_botones = tk.Frame(modal, bg=PALETA["modal_bg"])
     frame_botones.pack(fill="x", side="bottom", padx=16, pady=(4, 16))
@@ -64,38 +85,62 @@ def mostrar_aviso(root: tk.Tk, al_aceptar=None) -> None:
             al_aceptar()
         modal.destroy()
 
-    # Botón Aceptar
-    tk.Button(
+
+    def crear_fondo_redondeado_con_icono(ancho, alto, radio, color, ruta_icono=None):
+        factor = 3
+
+        img = Image.new("RGBA", (ancho * factor, alto * factor), (255, 255, 255, 0))
+        dibujo = ImageDraw.Draw(img)
+        dibujo.rounded_rectangle(
+            (0, 0, ancho * factor, alto * factor), 
+            fill=color, 
+            radius=radio * factor
+        )
+
+        img_suave = img.resize((ancho, alto), Image.Resampling.LANCZOS)
+
+        if ruta_icono and Path(ruta_icono).exists():
+            try:
+                icono = Image.open(ruta_icono).convert("RGBA")
+
+                tam_icono = 20
+                icono = icono.resize((tam_icono, tam_icono), Image.Resampling.LANCZOS)
+                
+                pos_x = 28
+                pos_y = (alto - tam_icono) // 2
+                
+
+                img_suave.paste(icono, (pos_x, pos_y), icono)
+            except Exception:
+                pass
+
+        return ImageTk.PhotoImage(img_suave)
+    
+
+    modal.btn_bg_normal = crear_fondo_redondeado_con_icono(160, 45, 8, PALETA["boton_bg"], ruta_check_icon)
+    modal.btn_bg_hover = crear_fondo_redondeado_con_icono(160, 45, 8, PALETA["boton_hover"], ruta_check_icon)
+
+    btn_aceptar = tk.Button(
         frame_botones,
-        text="✓  Aceptar",
+
+        text="   Aceptar", 
+        image=modal.btn_bg_normal,
+        compound="center",        
         font=FUENTES["boton_principal"],
         fg=PALETA["boton_fg"],
-        bg=PALETA["boton_bg"],
-        activebackground=PALETA["boton_hover"],
-        activeforeground="#ffffff",
+        bg=PALETA["modal_bg"],      
+        activebackground=PALETA["modal_bg"],
+        activeforeground=PALETA["boton_fg"],
         bd=0,
-        padx=20,
-        pady=8,
         cursor="hand2",
         relief="flat",
         command=presionar_aceptar,
-    ).pack(side="right")
+    )
+    btn_aceptar.pack(expand=True, pady=(10, 0))
 
-    # Botón Cerrar
-    tk.Button(
-        frame_botones,
-        text="Cerrar",
-        font=FUENTES["modal_texto"],
-        fg=PALETA["modal_btn_cerrar_fg"],
-        bg=PALETA["modal_btn_cerrar_bg"],
-        activebackground=PALETA["topbar_btn_hover"],
-        bd=0,
-        padx=14,
-        pady=8,
-        cursor="hand2",
-        relief="flat",
-        command=modal.destroy,
-    ).pack(side="right", padx=(0, 8))
+    # 3. Efectos Hover
+    btn_aceptar.bind("<Enter>", lambda e: btn_aceptar.config(image=modal.btn_bg_hover))
+    btn_aceptar.bind("<Leave>", lambda e: btn_aceptar.config(image=modal.btn_bg_normal))
 
     frame_texto = tk.Frame(modal, bg=PALETA["modal_bg"])
     frame_texto.pack(fill="both", expand=True, padx=16, pady=(12, 6))
