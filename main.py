@@ -39,6 +39,10 @@ class App:
             from ui.screens.pantalla_gestion import crear_pantalla_gestion_real
             crear_pantalla_gestion_real(self.contenedor, self)
 
+        elif nombre == "login":                                     # ← NUEVO
+            from ui.screens.pantalla_login import crear_pantalla_login
+            crear_pantalla_login(self.contenedor, self)
+
 
 def app():
     root = tk.Tk()
