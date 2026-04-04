@@ -102,6 +102,8 @@ class PantallaAcceso:
         self._construir_capa_deny()
         self._mostrar_capa("escaneo")
 
+    
+
     # ── Capa escaneo ─────────────────────────
     def _construir_capa_escaneo(self):
         self.capa_escaneo = tk.Frame(self.contenedor, bg="#000000")
