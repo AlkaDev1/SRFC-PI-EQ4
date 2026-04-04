@@ -89,6 +89,9 @@ class PantallaAcceso:
         self.pantalla = tk.Frame(self.parent, bg="#000000")
         self.pantalla.pack(fill="both", expand=True)
 
+        ventana_principal = self.parent.winfo_toplevel()
+        ventana_principal.protocol("WM_DELETE_WINDOW", self.ignorar_cierre)
+
         crear_encabezado(self.pantalla, self.parent.winfo_toplevel())
         
         self.contenedor = tk.Frame(self.pantalla, bg="#000000")
@@ -464,6 +467,8 @@ class PantallaAcceso:
     # ══════════════════════════════════════════
     #  Limpieza
     # ══════════════════════════════════════════
+    def ignorar_cierre(self):
+        pass
     def _volver(self):
         self._corriendo = False
         if self._cap:
@@ -474,6 +479,8 @@ class PantallaAcceso:
                     self.canvas_icono.after_cancel(aid)
                 except Exception:
                     pass
+        ventana_principal = self.parent.winfo_toplevel()
+        ventana_principal.protocol("WM_DELETE_WINDOW", ventana_principal.destroy)
         self.app.mostrar_pantalla("principal")
 
 
