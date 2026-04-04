@@ -12,6 +12,7 @@ import queue
 import os
 import cv2
 import numpy as np
+from pathlib import Path
 from PIL import Image, ImageTk
 from datetime import datetime
 
@@ -102,7 +103,53 @@ class PantallaAcceso:
         self._construir_capa_deny()
         self._mostrar_capa("escaneo")
 
-    
+    def _crear_boton_volver(self, parent, bg_normal, bg_hover):
+        w, h = 60, 40  # Tamaño del botón
+        canvas = tk.Canvas(parent, width=w, height=h, bg=parent["bg"], highlightthickness=0)
+
+        # Función para dibujar las esquinas redondeadas
+        def round_rect(x1, y1, x2, y2, r):
+            puntos = [x1+r, y1, x2-r, y1, x2, y1, x2, y1+r, x2, y2-r, x2, y2,
+                      x2-r, y2, x1+r, y2, x1, y2, x1, y2-r, x1, y1+r, x1, y1]
+            return canvas.create_polygon(puntos, smooth=True, fill=bg_normal)
+
+        rect_id = round_rect(2, 2, w-2, h-2, 12)
+
+        # Cargar icono usando tu método con pathlib
+        if not hasattr(self, '_img_return'):
+            ruta_icono = Path(__file__).resolve().parent.parent.parent / "assets" / "img" / "return_icon.png"
+            if ruta_icono.exists():
+                try:
+                    self._img_return = tk.PhotoImage(file=str(ruta_icono))
+                    
+                    # TIP: Si notas que el icono se ve muy gigante en el botón, 
+                    # descomenta la siguiente línea para reducirlo a la mitad nativamente:
+                    # self._img_return = self._img_return.subsample(2, 2) 
+                    
+                except Exception as e:
+                    print(f"[UI] Error cargando return_icon.png: {e}")
+                    self._img_return = None
+            else:
+                self._img_return = None
+
+        # Colocar la imagen (o la flecha de texto como respaldo si falla)
+        if self._img_return:
+            content_id = canvas.create_image(w//2, h//2, image=self._img_return)
+        else:
+            content_id = canvas.create_text(w//2, h//2, text="←", fill="#ffffff", font=("Segoe UI", 15, "bold"))
+
+        # Eventos para dar el efecto de botón (hover y clic)
+        def on_enter(e): canvas.itemconfig(rect_id, fill=bg_hover)
+        def on_leave(e): canvas.itemconfig(rect_id, fill=bg_normal)
+        def on_click(e): self._volver()
+
+        canvas.bind("<Enter>", on_enter)
+        canvas.bind("<Leave>", on_leave)
+        canvas.bind("<Button-1>", on_click)
+        canvas.tag_bind(rect_id, "<Button-1>", on_click)
+        canvas.tag_bind(content_id, "<Button-1>", on_click)
+
+        return canvas
 
     # ── Capa escaneo ─────────────────────────
     def _construir_capa_escaneo(self):
@@ -132,14 +179,8 @@ class PantallaAcceso:
         self.lbl_sub.pack()
 
         # Botón volver — esquina inferior izquierda
-        tk.Button(self.capa_escaneo, text="←",
-                  font=("Segoe UI", 15, "bold"),
-                  fg="#ffffff", bg="#333333",
-                  activebackground="#444444",
-                  bd=0, padx=16, pady=8,
-                  cursor="hand2", relief="flat",
-                  command=self._volver).place(
-                      x=14, rely=1.0, anchor="sw", y=-14)
+        btn_volver = self._crear_boton_volver(self.capa_escaneo, bg_normal="#333333", bg_hover="#444444")
+        btn_volver.place(x=14, rely=1.0, anchor="sw", y=-14)
 
         # Icono animado — esquina inferior derecha
         self.canvas_icono = tk.Canvas(
@@ -183,14 +224,8 @@ class PantallaAcceso:
             fg="#c8eec8", bg=verde)
         self.lbl_info_ok.place(relx=0.5, rely=0.73, anchor="center")
 
-        tk.Button(self.capa_ok, text="←",
-                  font=("Segoe UI", 15, "bold"),
-                  fg="#ffffff", bg="#2d7d32",
-                  activebackground="#1b5e20",
-                  bd=0, padx=16, pady=8,
-                  cursor="hand2", relief="flat",
-                  command=self._volver).place(
-                      x=14, rely=1.0, anchor="sw", y=-14)
+        btn_volver = self._crear_boton_volver(self.capa_ok, bg_normal="#2d7d32", bg_hover="#1b5e20")
+        btn_volver.place(x=14, rely=1.0, anchor="sw", y=-14)
 
     # ── Capa acceso DENY ─────────────────────
     def _construir_capa_deny(self):
@@ -221,14 +256,8 @@ class PantallaAcceso:
                  fg="#ffcdd2", bg=rojo).place(
                      relx=0.5, rely=0.80, anchor="center")
 
-        tk.Button(self.capa_deny, text="←",
-                  font=("Segoe UI", 15, "bold"),
-                  fg="#ffffff", bg="#b71c1c",
-                  activebackground="#7f0000",
-                  bd=0, padx=16, pady=8,
-                  cursor="hand2", relief="flat",
-                  command=self._volver).place(
-                      x=14, rely=1.0, anchor="sw", y=-14)
+        btn_volver = self._crear_boton_volver(self.capa_deny, bg_normal="#b71c1c", bg_hover="#7f0000")
+        btn_volver.place(x=14, rely=1.0, anchor="sw", y=-14)
 
     def _mostrar_capa(self, capa):
         for c in (self.capa_escaneo, self.capa_ok, self.capa_deny):
