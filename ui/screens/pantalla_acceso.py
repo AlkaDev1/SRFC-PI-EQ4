@@ -12,6 +12,7 @@ import queue
 import os
 import cv2
 import numpy as np
+import math 
 from pathlib import Path
 from PIL import Image, ImageTk
 from datetime import datetime
@@ -103,42 +104,39 @@ class PantallaAcceso:
         self._construir_capa_deny()
         self._mostrar_capa("escaneo")
 
+    # Método centralizado para crear rectángulos con bordes curvos
+    def _crear_rect_redondeado(self, canvas, x1, y1, x2, y2, r, **kwargs):
+        puntos = [x1+r, y1, x2-r, y1, x2, y1, x2, y1+r, x2, y2-r, x2, y2,
+                  x2-r, y2, x1+r, y2, x1, y2, x1, y2-r, x1, y1+r, x1, y1]
+        return canvas.create_polygon(puntos, smooth=True, **kwargs)
+
     def _crear_boton_volver(self, parent, bg_normal, bg_hover):
-        w, h = 60, 40  # Tamaño del botón
+        w, h = 100, 60  
         canvas = tk.Canvas(parent, width=w, height=h, bg=parent["bg"], highlightthickness=0)
 
-        # Función para dibujar las esquinas redondeadas
-        def round_rect(x1, y1, x2, y2, r):
-            puntos = [x1+r, y1, x2-r, y1, x2, y1, x2, y1+r, x2, y2-r, x2, y2,
-                      x2-r, y2, x1+r, y2, x1, y2, x1, y2-r, x1, y1+r, x1, y1]
-            return canvas.create_polygon(puntos, smooth=True, fill=bg_normal)
+        rect_id = self._crear_rect_redondeado(
+            canvas, 2, 2, w-2, h-2, 16, 
+            fill=bg_normal,
+            outline="#ffffff",  # Color del borde (blanco)
+            width=2             # Grosor del borde (ajustable)
+        )
 
-        rect_id = round_rect(2, 2, w-2, h-2, 12)
-
-        # Cargar icono usando tu método con pathlib
         if not hasattr(self, '_img_return'):
             ruta_icono = Path(__file__).resolve().parent.parent.parent / "assets" / "img" / "return_icon.png"
             if ruta_icono.exists():
                 try:
                     self._img_return = tk.PhotoImage(file=str(ruta_icono))
-                    
-                    # TIP: Si notas que el icono se ve muy gigante en el botón, 
-                    # descomenta la siguiente línea para reducirlo a la mitad nativamente:
-                    # self._img_return = self._img_return.subsample(2, 2) 
-                    
                 except Exception as e:
                     print(f"[UI] Error cargando return_icon.png: {e}")
                     self._img_return = None
             else:
                 self._img_return = None
 
-        # Colocar la imagen (o la flecha de texto como respaldo si falla)
         if self._img_return:
             content_id = canvas.create_image(w//2, h//2, image=self._img_return)
         else:
-            content_id = canvas.create_text(w//2, h//2, text="←", fill="#ffffff", font=("Segoe UI", 15, "bold"))
+            content_id = canvas.create_text(w//2, h//2, text="←", fill="#ffffff", font=("Segoe UI", 20, "bold"))
 
-        # Eventos para dar el efecto de botón (hover y clic)
         def on_enter(e): canvas.itemconfig(rect_id, fill=bg_hover)
         def on_leave(e): canvas.itemconfig(rect_id, fill=bg_normal)
         def on_click(e): self._volver()
@@ -162,7 +160,6 @@ class PantallaAcceso:
             fg=PALETA["topbar_sistema_fg"])
         self.label_video.place(x=0, y=0, relwidth=1, relheight=1)
 
-        # Texto superior
         top = tk.Frame(self.capa_escaneo, bg="#000000", pady=8)
         top.place(relx=0.5, y=0, anchor="n", relwidth=1.0)
 
@@ -178,14 +175,13 @@ class PantallaAcceso:
             fg=PALETA["topbar_sistema_fg"], bg="#000000")
         self.lbl_sub.pack()
 
-        # Botón volver — esquina inferior izquierda
         btn_volver = self._crear_boton_volver(self.capa_escaneo, bg_normal="#333333", bg_hover="#444444")
         btn_volver.place(x=14, rely=1.0, anchor="sw", y=-14)
 
-        # Icono animado — esquina inferior derecha
+        # Ahora el bg es igual al del frame (#000000) para que las esquinas se disimulen 
         self.canvas_icono = tk.Canvas(
             self.capa_escaneo, width=44, height=44,
-            bg="#333333", highlightthickness=0)
+            bg="#000000", highlightthickness=0)
         self.canvas_icono.place(
             relx=1.0, rely=1.0, anchor="se", x=-14, y=-14)
 
@@ -194,13 +190,11 @@ class PantallaAcceso:
         verde = PALETA["central_circulo"]
         self.capa_ok = tk.Frame(self.contenedor, bg=verde)
 
-        # Círculo blanco con icono usuario
         self.canvas_foto = tk.Canvas(
             self.capa_ok, width=120, height=120,
             bg=verde, highlightthickness=0)
         self.canvas_foto.place(relx=0.5, rely=0.22, anchor="center")
 
-        # Badge check
         badge = tk.Label(self.capa_ok, text="✓",
                          font=("Segoe UI", 14, "bold"),
                          fg="#ffffff", bg=PALETA["central_onda"],
@@ -232,7 +226,6 @@ class PantallaAcceso:
         rojo = "#c62828"
         self.capa_deny = tk.Frame(self.contenedor, bg=rojo)
 
-        # X en círculo
         c = tk.Canvas(self.capa_deny, width=130, height=130,
                       bg=rojo, highlightthickness=0)
         c.place(relx=0.5, rely=0.25, anchor="center")
@@ -440,7 +433,6 @@ class PantallaAcceso:
             hora = datetime.now().strftime("%I:%M %p").lower()
             self.lbl_nombre_ok.config(text=nombre or "Usuario")
             self.lbl_info_ok.config(text=f"Acceso registrado · {hora}")
-            # Dibujar círculo usuario
             c = self.canvas_foto
             c.delete("all")
             c.create_oval(5, 5, 115, 115,
@@ -465,7 +457,7 @@ class PantallaAcceso:
             self.lbl_sub.config(text=sub)
 
     # ══════════════════════════════════════════
-    #  Animación
+    #  Animación Mejorada
     # ══════════════════════════════════════════
     def _iniciar_animacion(self):
         self._animar()
@@ -481,25 +473,53 @@ class PantallaAcceso:
     def _dibujar_icono(self):
         c = self.canvas_icono
         c.delete("all")
-        cx, cy, r = 22, 22, 16
+        
+        # 1. Dibujamos el fondo redondeado (margen de 2px)
+        self._crear_rect_redondeado(c, 2, 2, 42, 42, 10, fill="#333333")
+
+        cx, cy, r = 22, 22, 13 # Ajustamos el radio para darle espacio al grosor
+        grosor = 4
+        
         if self._estado in ("escaneando", "sin_rostro", "sin_camara"):
+            # 2. Círculo base gris (pista)
             c.create_oval(cx-r, cy-r, cx+r, cy+r,
-                          outline="#555555", width=2, fill="#333333")
+                          outline="#555555", width=grosor)
+            
+            # 3. Arco de progreso principal
+            color_onda = PALETA.get("central_onda", "#4caf50")
             c.create_arc(cx-r, cy-r, cx+r, cy+r,
                          start=self._angulo, extent=240,
-                         style="arc", outline=PALETA["central_onda"], width=2)
+                         style="arc", outline=color_onda, width=grosor)
+            
+            # 4. Puntas redondeadas usando Trigonometría
+            rad_start = math.radians(self._angulo)
+            rad_end = math.radians(self._angulo + 240)
+            
+            # (Recordatorio: en Tkinter el eje Y está invertido, por eso es `cy - ...`)
+            x_start = cx + r * math.cos(rad_start)
+            y_start = cy - r * math.sin(rad_start)
+            
+            x_end = cx + r * math.cos(rad_end)
+            y_end = cy - r * math.sin(rad_end)
+            
+            cr = grosor / 2.0 # Radio de los circulitos tapa
+            c.create_oval(x_start-cr, y_start-cr, x_start+cr, y_start+cr, fill=color_onda, outline="")
+            c.create_oval(x_end-cr, y_end-cr, x_end+cr, y_end+cr, fill=color_onda, outline="")
+
         elif self._estado == "detectado":
+            color_onda = PALETA.get("central_onda", "#4caf50")
             c.create_oval(cx-r, cy-r, cx+r, cy+r,
-                          outline=PALETA["central_onda"], width=2,
+                          outline=color_onda, width=grosor,
                           fill="#2d4a2d")
             c.create_oval(cx-5, cy-5, cx+5, cy+5,
-                          fill=PALETA["central_onda"], outline="")
+                          fill=color_onda, outline="")
 
     # ══════════════════════════════════════════
     #  Limpieza
     # ══════════════════════════════════════════
     def ignorar_cierre(self):
         pass
+        
     def _volver(self):
         self._corriendo = False
         if self._cap:
