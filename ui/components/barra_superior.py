@@ -10,7 +10,10 @@ V_LIGHT  = "#43A047"
 TEXTO_DIM= "#A5D6A7"
 
 def actualizar_fecha_hora(lbl_fecha: tk.Label, lbl_hora: tk.Label, root: tk.Tk) -> None:
+    if not lbl_fecha.winfo_exists() or not lbl_hora.winfo_exists():
+        return  # Si alguna etiqueta fue destruida, no continua
     n = datetime.now()
+    
     DIAS  = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
     MESES = ["enero","febrero","marzo","abril","mayo","junio",
             "julio","agosto","septiembre","octubre","noviembre","diciembre"]

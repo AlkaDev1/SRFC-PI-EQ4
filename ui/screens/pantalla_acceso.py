@@ -90,9 +90,7 @@ class PantallaAcceso:
         self.pantalla.pack(fill="both", expand=True)
 
         crear_encabezado(self.pantalla, self.parent.winfo_toplevel())
-        tk.Frame(self.pantalla, bg=PALETA["topbar_sistema_fg"],
-                 height=MEDIDAS["alto_linea_sep"]).pack(fill="x")
-
+        
         self.contenedor = tk.Frame(self.pantalla, bg="#000000")
         self.contenedor.pack(fill="both", expand=True)
 
