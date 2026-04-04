@@ -169,6 +169,9 @@ class _Botones(tk.Frame):
         _Btn(fila, _ICONO_AVISO_PRIVACIDAD, "AVISO DE\nPRIVACIDAD",
             lambda: mostrar_aviso(
                 parent.winfo_toplevel(), al_aceptar=lambda: None))
+        # ── Botón temporal de prueba ──────────────────────────────────────────
+        _Btn(fila, _ICONO_ACCESO, "PRUEBA",
+            lambda: app.mostrar_pantalla("login"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -184,7 +187,6 @@ class _Btn:
         self._img_tk = None
         if img_path.exists():
             try:
-
                 self._img_tk = tk.PhotoImage(file=str(img_path))
             except Exception as e:
                 print(f"[ERROR ICONO] No se pudo cargar {img_path}: {e}")
@@ -204,15 +206,11 @@ class _Btn:
         c = self._cv; c.delete("all")
 
         _rr(c, 2, 2, self.W+2, self.H+2, self.R, "#b0bfb0")
-
         _rr(c, 0, 0, self.W, self.H, self.R, color)
-        
 
         if self._img_tk:
-
             c.create_image(30, self.H//2, image=self._img_tk, anchor="center")
         else:
-
             c.create_text(30, self.H//2, text="?", font=("Segoe UI", 17), fill=BLANCO)
 
         c.create_line(56, 10, 56, self.H-10, fill=V_ACCENT, width=1)
