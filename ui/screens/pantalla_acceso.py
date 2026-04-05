@@ -1,7 +1,7 @@
 """
 ui/screens/pantalla_acceso.py
 Diseño según mockup:
-  - Escaneando: video full + texto arriba + recuadro verde + botón volver abajo izq
+  - Escaneando: video full + texto con borde superpuesto + botón volver abajo izq
   - Acceso OK:  pantalla verde completa con icono usuario, nombre, hora
   - Acceso DENY: pantalla roja completa con X grande
 """
@@ -117,8 +117,8 @@ class PantallaAcceso:
         rect_id = self._crear_rect_redondeado(
             canvas, 2, 2, w-2, h-2, 16, 
             fill=bg_normal,
-            outline="#ffffff",  # Color del borde (blanco)
-            width=2             # Grosor del borde (ajustable)
+            outline="#ffffff",
+            width=2
         )
 
         if not hasattr(self, '_img_return'):
@@ -153,6 +153,7 @@ class PantallaAcceso:
     def _construir_capa_escaneo(self):
         self.capa_escaneo = tk.Frame(self.contenedor, bg="#000000")
 
+        # El video ocupa toda la capa
         self.label_video = tk.Label(
             self.capa_escaneo, bg="#000000",
             text="Iniciando cámara...",
@@ -160,25 +161,10 @@ class PantallaAcceso:
             fg=PALETA["topbar_sistema_fg"])
         self.label_video.place(x=0, y=0, relwidth=1, relheight=1)
 
-        top = tk.Frame(self.capa_escaneo, bg="#000000", pady=8)
-        top.place(relx=0.5, y=0, anchor="n", relwidth=1.0)
-
-        self.lbl_instruccion = tk.Label(
-            top, text="POR FAVOR NO SE MUEVA",
-            font=("Segoe UI", 13, "bold"),
-            fg="#ffffff", bg="#000000")
-        self.lbl_instruccion.pack()
-
-        self.lbl_sub = tk.Label(
-            top, text="ESCANEANDO ROSTRO...",
-            font=("Segoe UI", 10),
-            fg=PALETA["topbar_sistema_fg"], bg="#000000")
-        self.lbl_sub.pack()
-
+        # Controles flotantes encima del video
         btn_volver = self._crear_boton_volver(self.capa_escaneo, bg_normal="#333333", bg_hover="#444444")
         btn_volver.place(x=14, rely=1.0, anchor="sw", y=-14)
 
-        # Ahora el bg es igual al del frame (#000000) para que las esquinas se disimulen 
         self.canvas_icono = tk.Canvas(
             self.capa_escaneo, width=44, height=44,
             bg="#000000", highlightthickness=0)
@@ -276,6 +262,12 @@ class PantallaAcceso:
         threading.Thread(target=self._hilo_camara,    daemon=True).start()
         threading.Thread(target=self._hilo_biometria, daemon=True).start()
 
+    def _dibujar_texto_con_borde(self, img, texto, pos, fuente, escala, grosor_borde, grosor_texto, color_texto):
+        # Dibuja el borde (sombra negra)
+        cv2.putText(img, texto, pos, fuente, escala, (0, 0, 0), grosor_borde, cv2.LINE_AA)
+        # Dibuja el texto principal
+        cv2.putText(img, texto, pos, fuente, escala, color_texto, grosor_texto, cv2.LINE_AA)
+
     def _hilo_camara(self):
         import time
         while self._corriendo:
@@ -295,11 +287,42 @@ class PantallaAcceso:
                     if cw < 10 or ch < 10:
                         time.sleep(0.04)
                         continue
+                    
                     resized = cv2.resize(frame, (cw, ch))
+
+                    # Dibujar bounding box
                     if self._bbox:
                         x1, y1, x2, y2 = self._bbox
-                        cv2.rectangle(resized, (x1, y1), (x2, y2),
-                                      (76, 175, 80), 2)
+                        # El color es BGR en OpenCV (verde)
+                        cv2.rectangle(resized, (x1, y1), (x2, y2), (80, 175, 76), 2) 
+                    
+                    # Dibujar textos superpuestos
+                    msgs = {
+                        "escaneando": ("POR FAVOR NO SE MUEVA",   "ESCANEANDO ROSTRO..."),
+                        "detectado":  ("ROSTRO DETECTADO",        "Verificando identidad..."),
+                        "sin_rostro": ("ACERCATE A LA CAMARA",    "No se detecta ningun rostro"),
+                        "sin_camara": ("CAMARA NO DISPONIBLE",    "Verifique la conexion"),
+                    }
+                    titulo, sub = msgs.get(self._estado, ("ESCANEANDO...", ""))
+
+                    fuente = cv2.FONT_HERSHEY_SIMPLEX
+                    # Obtener tamaños para centrar el texto
+                    (w_titulo, h_titulo), _ = cv2.getTextSize(titulo, fuente, 0.8, 2)
+                    (w_sub, h_sub), _ = cv2.getTextSize(sub, fuente, 0.5, 1)
+
+                    pos_titulo = ((cw - w_titulo) // 2, 40)
+                    pos_sub = ((cw - w_sub) // 2, 70)
+
+                    # Título: texto blanco, borde negro
+                    self._dibujar_texto_con_borde(
+                        img=resized, texto=titulo, pos=pos_titulo, 
+                        fuente=fuente, escala=0.8, grosor_borde=5, grosor_texto=2, color_texto=(255, 255, 255))
+                    
+                    # Subtítulo: texto grisáceo, borde negro
+                    self._dibujar_texto_con_borde(
+                        img=resized, texto=sub, pos=pos_sub, 
+                        fuente=fuente, escala=0.5, grosor_borde=3, grosor_texto=1, color_texto=(200, 200, 200))
+
                     rgb   = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
                     photo = ImageTk.PhotoImage(image=Image.fromarray(rgb))
                     self._photo = photo
@@ -334,10 +357,8 @@ class PantallaAcceso:
             if not ubs:
                 return {"hay_rostro": False}
                 
-            # Selecciona el rostro más grande detectado
             ub = max(ubs, key=lambda u: (u[2]-u[0]) * (u[1]-u[3]))
             
-            # --- Validación de distancia y tamaño ---
             alto_rostro = ub[2] - ub[0]
             ancho_rostro = ub[1] - ub[3]
             area_rostro = alto_rostro * ancho_rostro
@@ -476,15 +497,7 @@ class PantallaAcceso:
 
         else:
             self._mostrar_capa("escaneo")
-            msgs = {
-                "escaneando": ("POR FAVOR NO SE MUEVA",   "ESCANEANDO ROSTRO..."),
-                "detectado":  ("ROSTRO DETECTADO",        "Verificando identidad..."),
-                "sin_rostro": ("ACÉRCATE A LA CÁMARA",    "No se detecta ningún rostro"),
-                "sin_camara": ("CÁMARA NO DISPONIBLE",    "Verifique la conexión"),
-            }
-            titulo, sub = msgs.get(estado, ("ESCANEANDO...", ""))
-            self.lbl_instruccion.config(text=titulo)
-            self.lbl_sub.config(text=sub)
+            
 
     # ══════════════════════════════════════════
     #  Animación Mejorada
@@ -504,35 +517,30 @@ class PantallaAcceso:
         c = self.canvas_icono
         c.delete("all")
         
-        # 1. Dibujamos el fondo redondeado (margen de 2px)
         self._crear_rect_redondeado(c, 2, 2, 42, 42, 10, fill="#333333")
 
-        cx, cy, r = 22, 22, 13 # Ajustamos el radio para darle espacio al grosor
+        cx, cy, r = 22, 22, 13
         grosor = 4
         
         if self._estado in ("escaneando", "sin_rostro", "sin_camara"):
-            # 2. Círculo base gris (pista)
             c.create_oval(cx-r, cy-r, cx+r, cy+r,
                           outline="#555555", width=grosor)
             
-            # 3. Arco de progreso principal
             color_onda = PALETA.get("central_onda", "#4caf50")
             c.create_arc(cx-r, cy-r, cx+r, cy+r,
                          start=self._angulo, extent=240,
                          style="arc", outline=color_onda, width=grosor)
             
-            # 4. Puntas redondeadas usando Trigonometría
             rad_start = math.radians(self._angulo)
             rad_end = math.radians(self._angulo + 240)
             
-            # (Recordatorio: en Tkinter el eje Y está invertido, por eso es `cy - ...`)
             x_start = cx + r * math.cos(rad_start)
             y_start = cy - r * math.sin(rad_start)
             
             x_end = cx + r * math.cos(rad_end)
             y_end = cy - r * math.sin(rad_end)
             
-            cr = grosor / 2.0 # Radio de los circulitos tapa
+            cr = grosor / 2.0
             c.create_oval(x_start-cr, y_start-cr, x_start+cr, y_start+cr, fill=color_onda, outline="")
             c.create_oval(x_end-cr, y_end-cr, x_end+cr, y_end+cr, fill=color_onda, outline="")
 
