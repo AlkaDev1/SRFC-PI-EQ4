@@ -169,9 +169,6 @@ class _Botones(tk.Frame):
         _Btn(fila, _ICONO_AVISO_PRIVACIDAD, "AVISO DE\nPRIVACIDAD",
             lambda: mostrar_aviso(
                 parent.winfo_toplevel(), al_aceptar=lambda: None))
-        # ── Botón temporal de prueba ──────────────────────────────────────────
-        _Btn(fila, _ICONO_ACCESO, "PRUEBA",
-            lambda: app.mostrar_pantalla("login"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
