@@ -330,36 +330,66 @@ class PantallaAcceso:
             pequeño = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
             rgb     = cv2.cvtColor(pequeño, cv2.COLOR_BGR2RGB)
             ubs     = face_recognition.face_locations(rgb, model="hog")
+            
             if not ubs:
                 return {"hay_rostro": False}
-            ub      = max(ubs, key=lambda u: (u[2]-u[0]) * (u[1]-u[3]))
+                
+            # Selecciona el rostro más grande detectado
+            ub = max(ubs, key=lambda u: (u[2]-u[0]) * (u[1]-u[3]))
+            
+            # --- Validación de distancia y tamaño ---
+            alto_rostro = ub[2] - ub[0]
+            ancho_rostro = ub[1] - ub[3]
+            area_rostro = alto_rostro * ancho_rostro
+            
+            alto_frame, ancho_frame, _ = pequeño.shape
+            area_frame = alto_frame * ancho_frame
+            
+            if (area_rostro / area_frame) < 0.10: 
+                return {"hay_rostro": False}
+
             ub_orig = (ub[0]*2, ub[1]*2, ub[2]*2, ub[3]*2)
+            
             if not self._encodings:
                 return {"hay_rostro": True, "reconocido": False,
                         "confianza": 0.0, "ubicacion": ub_orig, "nombre": ""}
+                        
             encs = face_recognition.face_encodings(rgb, [ub])
             if not encs:
                 return {"hay_rostro": True, "reconocido": False,
                         "confianza": 0.0, "ubicacion": ub_orig, "nombre": ""}
+                        
             dists = face_recognition.face_distance(self._encodings, encs[0])
             idx   = int(np.argmin(dists))
             dist  = float(dists[idx])
             conf  = round(max(0.0, 1.0 - dist), 3)
+            
             if dist <= 0.50:
                 return {"hay_rostro": True, "reconocido": True,
                         "confianza": conf, "ubicacion": ub_orig,
                         "nombre": self._nombres[idx]}
+                        
             return {"hay_rostro": True, "reconocido": False,
                     "confianza": conf, "ubicacion": ub_orig, "nombre": ""}
+                    
         else:
             gris    = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             cascade = cv2.CascadeClassifier(
                 cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
             rostros = cascade.detectMultiScale(
                 gris, scaleFactor=1.1, minNeighbors=8, minSize=(100, 100))
+                
             if len(rostros) == 0:
                 return {"hay_rostro": False}
+                
             x, y, w, h = max(rostros, key=lambda r: r[2]*r[3])
+            
+            area_rostro_hc = w * h
+            area_frame_hc = frame.shape[0] * frame.shape[1]
+            
+            if (area_rostro_hc / area_frame_hc) < 0.10:
+                return {"hay_rostro": False}
+            
             return {"hay_rostro": True, "reconocido": False,
                     "confianza": 0.3, "ubicacion": (y, x+w, y+h, x),
                     "nombre": ""}
