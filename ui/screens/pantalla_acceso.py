@@ -3,7 +3,7 @@ ui/screens/pantalla_acceso.py
 Diseño según mockup:
   - Escaneando: video full + texto con borde superpuesto + botón volver abajo izq
   - Acceso OK:  pantalla verde completa con icono usuario, nombre, hora
-  - Acceso DENY: pantalla roja completa con X grande
+  - Acceso DENY: Se mantiene la cámara, texto en rojo "ACCESO DENEGADO"
 """
 
 import tkinter as tk
@@ -101,7 +101,7 @@ class PantallaAcceso:
 
         self._construir_capa_escaneo()
         self._construir_capa_ok()
-        self._construir_capa_deny()
+        # Se eliminó _construir_capa_deny para mantener todo en la cámara
         self._mostrar_capa("escaneo")
 
     # Método centralizado para crear rectángulos con bordes curvos
@@ -207,43 +207,11 @@ class PantallaAcceso:
         btn_volver = self._crear_boton_volver(self.capa_ok, bg_normal="#2d7d32", bg_hover="#1b5e20")
         btn_volver.place(x=14, rely=1.0, anchor="sw", y=-14)
 
-    # ── Capa acceso DENY ─────────────────────
-    def _construir_capa_deny(self):
-        rojo = "#c62828"
-        self.capa_deny = tk.Frame(self.contenedor, bg=rojo)
-
-        c = tk.Canvas(self.capa_deny, width=130, height=130,
-                      bg=rojo, highlightthickness=0)
-        c.place(relx=0.5, rely=0.25, anchor="center")
-        c.create_oval(4, 4, 126, 126, outline="#ffffff", width=4, fill="")
-        c.create_line(36, 36, 94, 94, fill="#ffffff", width=7, capstyle="round")
-        c.create_line(94, 36, 36, 94, fill="#ffffff", width=7, capstyle="round")
-
-        tk.Label(self.capa_deny, text="ACCESO DENEGADO",
-                 font=("Segoe UI", 17, "bold"),
-                 fg="#ffffff", bg=rojo).place(
-                     relx=0.5, rely=0.58, anchor="center")
-
-        tk.Label(self.capa_deny, text="Usuario no autorizado",
-                 font=("Segoe UI", 11),
-                 fg="#ffcdd2", bg=rojo).place(
-                     relx=0.5, rely=0.70, anchor="center")
-
-        tk.Label(self.capa_deny,
-                 text="Intente de nuevo o contacte a administración",
-                 font=("Segoe UI", 9),
-                 fg="#ffcdd2", bg=rojo).place(
-                     relx=0.5, rely=0.80, anchor="center")
-
-        btn_volver = self._crear_boton_volver(self.capa_deny, bg_normal="#b71c1c", bg_hover="#7f0000")
-        btn_volver.place(x=14, rely=1.0, anchor="sw", y=-14)
-
     def _mostrar_capa(self, capa):
-        for c in (self.capa_escaneo, self.capa_ok, self.capa_deny):
+        for c in (self.capa_escaneo, self.capa_ok):
             c.place_forget()
         mapa = {"escaneo": self.capa_escaneo,
-                "ok":      self.capa_ok,
-                "deny":    self.capa_deny}
+                "ok":      self.capa_ok}
         mapa[capa].place(x=0, y=0, relwidth=1, relheight=1)
 
     # ══════════════════════════════════════════
@@ -280,7 +248,7 @@ class PantallaAcceso:
             except queue.Full:
                 pass
 
-            if self._estado not in ("acceso_ok", "acceso_deny"):
+            if self._estado not in ("acceso_ok",):
                 try:
                     cw = self.label_video.winfo_width()
                     ch = self.label_video.winfo_height()
@@ -293,15 +261,17 @@ class PantallaAcceso:
                     # Dibujar bounding box
                     if self._bbox:
                         x1, y1, x2, y2 = self._bbox
-                        # El color es BGR en OpenCV (verde)
-                        cv2.rectangle(resized, (x1, y1), (x2, y2), (80, 175, 76), 2) 
+                        # Si es acceso denegado, pinta el cuadro rojo (BGR: 0, 0, 255), si no, verde
+                        color_bbox = (0, 0, 255) if self._estado == "acceso_deny" else (80, 175, 76)
+                        cv2.rectangle(resized, (x1, y1), (x2, y2), color_bbox, 2) 
                     
                     # Dibujar textos superpuestos
                     msgs = {
-                        "escaneando": ("POR FAVOR NO SE MUEVA",   "ESCANEANDO ROSTRO..."),
-                        "detectado":  ("ROSTRO DETECTADO",        "Verificando identidad..."),
-                        "sin_rostro": ("ACERCATE A LA CAMARA",    "No se detecta ningun rostro"),
-                        "sin_camara": ("CAMARA NO DISPONIBLE",    "Verifique la conexion"),
+                        "escaneando":  ("POR FAVOR NO SE MUEVA",   "ESCANEANDO ROSTRO..."),
+                        "detectado":   ("ROSTRO DETECTADO",        "Verificando identidad..."),
+                        "sin_rostro":  ("ACERCATE A LA CAMARA",    "No se detecta ningun rostro"),
+                        "sin_camara":  ("CAMARA NO DISPONIBLE",    "Verifique la conexion"),
+                        "acceso_deny": ("ACCESO DENEGADO",         "Intentando de nuevo..."),
                     }
                     titulo, sub = msgs.get(self._estado, ("ESCANEANDO...", ""))
 
@@ -313,10 +283,13 @@ class PantallaAcceso:
                     pos_titulo = ((cw - w_titulo) // 2, 40)
                     pos_sub = ((cw - w_sub) // 2, 70)
 
-                    # Título: texto blanco, borde negro
+                    # Si es acceso denegado, el título es rojo
+                    color_titulo = (0, 0, 255) if self._estado == "acceso_deny" else (255, 255, 255)
+
+                    # Título: borde negro
                     self._dibujar_texto_con_borde(
                         img=resized, texto=titulo, pos=pos_titulo, 
-                        fuente=fuente, escala=0.8, grosor_borde=5, grosor_texto=2, color_texto=(255, 255, 255))
+                        fuente=fuente, escala=0.8, grosor_borde=5, grosor_texto=2, color_texto=color_titulo)
                     
                     # Subtítulo: texto grisáceo, borde negro
                     self._dibujar_texto_con_borde(
@@ -465,8 +438,9 @@ class PantallaAcceso:
                 self._frames_deny = 0
                 self._bloqueado   = True
                 self._cambiar_estado("acceso_deny")
+                # Se redujo a 2000 ms (2 segundos) para que vuelva a intentar más rápido
                 self._after_reset = self.canvas_icono.after(
-                    4000, self._resetear)
+                    2000, self._resetear) 
 
     def _resetear(self):
         self._bloqueado = False
@@ -493,7 +467,8 @@ class PantallaAcceso:
                           fill=PALETA["central_circulo"])
 
         elif estado == "acceso_deny":
-            self._mostrar_capa("deny")
+            # Ahora en lugar de mostrar la pantalla roja, mostramos la cámara
+            self._mostrar_capa("escaneo")
 
         else:
             self._mostrar_capa("escaneo")
@@ -522,11 +497,13 @@ class PantallaAcceso:
         cx, cy, r = 22, 22, 13
         grosor = 4
         
-        if self._estado in ("escaneando", "sin_rostro", "sin_camara"):
+        if self._estado in ("escaneando", "sin_rostro", "sin_camara", "acceso_deny"):
+            # También mantenemos la animación girando cuando está denegado
             c.create_oval(cx-r, cy-r, cx+r, cy+r,
                           outline="#555555", width=grosor)
             
-            color_onda = PALETA.get("central_onda", "#4caf50")
+            # Cambiamos la onda a roja si está denegado
+            color_onda = "#ff0000" if self._estado == "acceso_deny" else PALETA.get("central_onda", "#4caf50")
             c.create_arc(cx-r, cy-r, cx+r, cy+r,
                          start=self._angulo, extent=240,
                          style="arc", outline=color_onda, width=grosor)
