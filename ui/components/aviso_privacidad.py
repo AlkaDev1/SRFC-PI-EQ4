@@ -27,12 +27,11 @@ TEXTO_AVISO = (
     "de sus datos biométricos bajo los términos descritos."
 )
 
-
 def mostrar_aviso(root: tk.Tk, al_aceptar=None) -> None:
     ancho = 620
     alto  = 560
 
-    #crea el modal
+    # crea el modal
     modal = tk.Toplevel(root)
     modal.title("Aviso de Privacidad")
     modal.configure(bg=PALETA["modal_bg"])
@@ -89,7 +88,6 @@ def mostrar_aviso(root: tk.Tk, al_aceptar=None) -> None:
             al_aceptar()
         modal.destroy()
 
-
     def crear_fondo_redondeado_con_icono(ancho, alto, radio, color, ruta_icono=None):
         factor = 3
 
@@ -107,12 +105,13 @@ def mostrar_aviso(root: tk.Tk, al_aceptar=None) -> None:
             try:
                 icono = Image.open(ruta_icono).convert("RGBA")
 
-                tam_icono = 20
+                # --- AJUSTES DE TAMAÑO Y POSICIÓN DEL ICONO ---
+                tam_icono = 26  # Antes era 20
                 icono = icono.resize((tam_icono, tam_icono), Image.Resampling.LANCZOS)
                 
-                pos_x = 28
+                pos_x = 18  # Antes era 28 (Más cerca del borde izquierdo)
                 pos_y = (alto - tam_icono) // 2
-                
+                # ---------------------------------------------
 
                 img_suave.paste(icono, (pos_x, pos_y), icono)
             except Exception:
@@ -120,14 +119,12 @@ def mostrar_aviso(root: tk.Tk, al_aceptar=None) -> None:
 
         return ImageTk.PhotoImage(img_suave)
     
-
     modal.btn_bg_normal = crear_fondo_redondeado_con_icono(160, 45, 8, PALETA["boton_bg"], ruta_check_icon)
     modal.btn_bg_hover = crear_fondo_redondeado_con_icono(160, 45, 8, PALETA["boton_hover"], ruta_check_icon)
 
     btn_aceptar = tk.Button(
         frame_botones,
-
-        text="   Aceptar", 
+        text="     Aceptar", # Se agregó un poco más de espacio para balancearlo
         image=modal.btn_bg_normal,
         compound="center",        
         font=FUENTES["boton_principal"],
