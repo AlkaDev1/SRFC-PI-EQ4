@@ -145,6 +145,34 @@ class ValidacionUsrs:
 
         return canvas
 
+    # --- NUEVO: Función para crear el botón de login manual con el mismo estilo ---
+    def _crear_boton_login_manual(self, parent, bg_normal, bg_hover):
+        w, h = 100, 60  
+        canvas = tk.Canvas(parent, width=w, height=h, bg=parent["bg"], highlightthickness=0)
+
+        rect_id = self._crear_rect_redondeado(
+            canvas, 2, 2, w-2, h-2, 16, 
+            fill=bg_normal,
+            outline="#ffffff",
+            width=2
+        )
+
+        # Aquí puedes cargar tu imagen más adelante igual que en el botón volver.
+        # Por ahora dejamos un icono de texto temporal (llave).
+        content_id = canvas.create_text(w//2, h//2, text="🔑", fill="#ffffff", font=("Segoe UI", 20))
+
+        def on_enter(e): canvas.itemconfig(rect_id, fill=bg_hover)
+        def on_leave(e): canvas.itemconfig(rect_id, fill=bg_normal)
+        def on_click(e): self._ir_a_login()
+
+        canvas.bind("<Enter>", on_enter)
+        canvas.bind("<Leave>", on_leave)
+        canvas.bind("<Button-1>", on_click)
+        canvas.tag_bind(rect_id, "<Button-1>", on_click)
+        canvas.tag_bind(content_id, "<Button-1>", on_click)
+
+        return canvas
+
     # ── Capa escaneo ─────────────────────────
     def _construir_capa_escaneo(self):
         self.capa_escaneo = tk.Frame(self.contenedor, bg="#000000")
@@ -164,6 +192,12 @@ class ValidacionUsrs:
             bg="#000000", highlightthickness=0)
         self.canvas_icono.place(
             relx=1.0, rely=0.0, anchor="ne", x=-14, y=14)
+
+        # --- MODIFICADO: Botón de ingreso manual usando el nuevo canvas style ---
+        self.btn_login = self._crear_boton_login_manual(
+            self.capa_escaneo, bg_normal="#d32f2f", bg_hover="#b71c1c"
+        )
+        # Se mantiene oculto por defecto, se posicionará en _cambiar_estado
 
     # ── Capa acceso OK ────────────────────────
     def _construir_capa_ok(self):
@@ -422,8 +456,9 @@ class ValidacionUsrs:
                 self._frames_deny = 0
                 self._bloqueado   = True
                 self._cambiar_estado("acceso_deny")
+                # MODIFICADO: Cambiado de 2000 a 5000 para dar tiempo a pulsar el botón
                 self._after_reset = self.canvas_icono.after(
-                    2000, self._resetear) 
+                    5000, self._resetear) 
 
     def _resetear(self):
         self._bloqueado = False
@@ -453,8 +488,14 @@ class ValidacionUsrs:
 
         elif estado == "acceso_deny":
             self._mostrar_capa("escaneo")
+            # --- MODIFICADO: Mostrar el botón de login manual en la parte inferior derecha ---
+            if hasattr(self, 'btn_login'):
+                self.btn_login.place(relx=1.0, rely=1.0, anchor="se", x=-14, y=-14)
         else:
             self._mostrar_capa("escaneo")
+            # NUEVO: Ocultar el botón si regresa a escanear
+            if hasattr(self, 'btn_login'):
+                self.btn_login.place_forget()
             
     def _ir_a_gestion_real(self):
         """Detiene los procesos actuales y salta a la pantalla de gestión."""
@@ -469,6 +510,21 @@ class ValidacionUsrs:
                     pass
         # Ejecutamos la transición configurada en el main.py
         self.app.mostrar_pantalla("gestion_real")
+
+    # NUEVO: Función para redirigir a Login Manual
+    def _ir_a_login(self):
+        """Detiene la cámara y redirige a la pantalla de login manual."""
+        self._corriendo = False
+        if self._cap:
+            self._cap.release()
+        for aid in (self._after_anim, self._after_reset):
+            if aid:
+                try:
+                    self.canvas_icono.after_cancel(aid)
+                except Exception:
+                    pass
+        # Nota: Asegúrate de que "login" sea el nombre correcto registrado en tu App para esta pantalla
+        self.app.mostrar_pantalla("login")
 
     # ══════════════════════════════════════════
     #  Animación
