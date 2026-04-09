@@ -1,2 +1,6 @@
-tkcalendar
+opencv-python
+face-recognition
 Pillow
+numpy
+pyglet
+math
