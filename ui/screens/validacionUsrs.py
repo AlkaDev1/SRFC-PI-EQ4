@@ -236,10 +236,20 @@ class ValidacionUsrs:
         btn_volver.place(x=14, rely=1.0, anchor="sw", y=-14)
 
     def _mostrar_capa(self, capa):
+        # 1. Ignorar orden si la capa ya está en pantalla
+        if getattr(self, "_capa_actual", None) == capa:
+            return 
+            
+        # 2. Registrar el cambio de capa
+        self._capa_actual = capa 
+        
+        # 3. Ocultar y mostrar
         for c in (self.capa_escaneo, self.capa_ok):
             c.place_forget()
+            
         mapa = {"escaneo": self.capa_escaneo,
                 "ok":      self.capa_ok}
+        
         mapa[capa].place(x=0, y=0, relwidth=1, relheight=1)
 
     # ══════════════════════════════════════════
@@ -469,6 +479,8 @@ class ValidacionUsrs:
     #  Cambio de estado
     # ══════════════════════════════════════════
     def _cambiar_estado(self, estado, nombre=""):
+        if self._estado == estado and estado not in ("acceso_ok", "acceso_deny"):
+            return
         self._estado = estado
 
         if estado == "acceso_ok":

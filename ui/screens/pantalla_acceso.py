@@ -461,6 +461,8 @@ class PantallaAcceso:
     #  Cambio de estado
     # ══════════════════════════════════════════
     def _cambiar_estado(self, estado, nombre=""):
+        if self._estado == estado and estado not in ("acceso_ok", "acceso_deny"):
+            return
         self._estado = estado
 
         if estado == "acceso_ok":
