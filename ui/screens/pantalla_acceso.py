@@ -208,10 +208,20 @@ class PantallaAcceso:
         btn_volver.place(x=14, rely=1.0, anchor="sw", y=-14)
 
     def _mostrar_capa(self, capa):
+        # 1. Si la capa que queremos mostrar YA es la que está activa, ignoramos la orden para evitar el parpadeo
+        if getattr(self, "_capa_actual", None) == capa:
+            return 
+            
+        # 2. Si es una capa nueva, registramos el cambio
+        self._capa_actual = capa 
+        
+        # 3. Ocultamos todas y mostramos solo la que necesitamos
         for c in (self.capa_escaneo, self.capa_ok):
             c.place_forget()
+            
         mapa = {"escaneo": self.capa_escaneo,
                 "ok":      self.capa_ok}
+        
         mapa[capa].place(x=0, y=0, relwidth=1, relheight=1)
 
     # ══════════════════════════════════════════
