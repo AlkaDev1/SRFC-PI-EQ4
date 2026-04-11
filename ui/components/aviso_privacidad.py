@@ -31,22 +31,26 @@ def mostrar_aviso(root: tk.Tk, al_aceptar=None) -> None:
     ancho = 620
     alto  = 560
 
-    # crea el modal
+    # 1. Crear modal sin bloquear la pantalla
     modal = tk.Toplevel(root)
     modal.title("Aviso de Privacidad")
     modal.configure(bg=PALETA["modal_bg"])
     modal.resizable(False, False)
     modal.transient(root)
-    modal.grab_set()
-    modal.focus_set()
     
     def ignorar_cierre():
         pass
     modal.protocol("WM_DELETE_WINDOW", ignorar_cierre)
 
+    #calcular el tamaño real de la ventana de fondo
+    root.update_idletasks()
+
     # Fijar tamaño y centrar
-    px = root.winfo_x() + (root.winfo_width()  // 2) - (ancho // 2)
-    py = root.winfo_y() + (root.winfo_height() // 2) - (alto  // 2)
+    px = root.winfo_rootx() + (root.winfo_width()  // 2) - (ancho // 2)
+    py = root.winfo_rooty() + (root.winfo_height() // 2) - (alto  // 2)
+    
+    px = max(0, px)
+    py = max(0, py)
     modal.geometry(f"{ancho}x{alto}+{px}+{py}")
 
     encabezado = tk.Frame(modal, bg=PALETA["modal_header_bg"], height=55)
