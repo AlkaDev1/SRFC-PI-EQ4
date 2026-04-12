@@ -215,7 +215,16 @@ class PantallaLogin:
         if es_password:
             icono_lbl.config(text="🔒")
         else:
-            icono_lbl.config(text="👤")
+            # --- MODIFICADO: Cargar person_icon.png en lugar del emoji ---
+            try:
+                ruta_icono = "assets/img/person_icon.png"
+                img_icono = Image.open(ruta_icono).resize((18, 18), Image.LANCZOS)
+                # Guardamos la referencia en self para que no se borre de la memoria
+                self._img_person = ImageTk.PhotoImage(img_icono)
+                icono_lbl.config(image=self._img_person)
+            except Exception as e:
+                print(f"[UI] Error cargando person_icon.png: {e}")
+                icono_lbl.config(text="👤") # Plan B si no encuentra la imagen
 
         entry = tk.Entry(
             wrapper,

@@ -610,7 +610,17 @@ class ValidacionUsrs:
     #  Limpieza
     # ══════════════════════════════════════════
     def ignorar_cierre(self):
-        pass
+        print("Cerrando forzosamente desde validación biométrica...")
+        self._corriendo = False
+        if self._cap:
+            self._cap.release() # Liberamos la cámara educadamente
+    
+        # Destruimos la ventana
+        ventana_principal = self.parent.winfo_toplevel()
+        ventana_principal.destroy()
+    
+        # Matamos el proceso de Python de raíz para que OpenCV no se quede colgado
+        os._exit(0)
         
     def _volver(self):
         self._corriendo = False
