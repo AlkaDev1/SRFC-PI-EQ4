@@ -313,7 +313,7 @@ class PantallaLogin:
         u = self.entry_usuario.get()
         c = self.entry_clave.get()
         if u == "admin" and c == "1234":
-            self.app.mostrar_pantalla("principal")
+            self.app.mostrar_pantalla("gestion_real")
         else:
             self.lbl_error.config(text="⚠ Credenciales incorrectas")
 
