@@ -248,9 +248,21 @@ class PantallaLogin:
         entry.insert(0, placeholder)
 
         if es_password:
-            ojo = tk.Label(wrapper, text="👁", bg=FONDO_CAMPO,
-                           fg=TEXTO_SEC, font=("Segoe UI", 11),
-                           cursor="hand2")
+            # --- MODIFICADO: Cargar iconos de visibilidad ---
+            try:
+                img_vis = Image.open("assets/img/visibility_icon.png").resize((18, 18), Image.LANCZOS)
+                img_vis_off = Image.open("assets/img/visibility_off_icon.png").resize((18, 18), Image.LANCZOS)
+                
+                # Guardamos las referencias en self
+                self._img_ojo_on = ImageTk.PhotoImage(img_vis)
+                self._img_ojo_off = ImageTk.PhotoImage(img_vis_off)
+                
+                ojo = tk.Label(wrapper, image=self._img_ojo_on, bg=FONDO_CAMPO, cursor="hand2")
+            except Exception as e:
+                print(f"[UI] Error cargando iconos de visibilidad: {e}")
+                # Plan B si no encuentra la imagen
+                ojo = tk.Label(wrapper, text="👁", bg=FONDO_CAMPO, fg=TEXTO_SEC, font=("Segoe UI", 11), cursor="hand2")
+                
             ojo.pack(side="right", padx=(4, 8))
             ojo.bind("<Button-1>", lambda e: self._toggle_clave(entry, ojo))
 
@@ -286,7 +298,16 @@ class PantallaLogin:
             return
         self._mostrar_clave = not self._mostrar_clave
         entry.config(show="" if self._mostrar_clave else "●")
-        ojo_lbl.config(text="🙈" if self._mostrar_clave else "👁")
+        
+        # --- MODIFICADO: Alternar entre las imágenes cargadas ---
+        if hasattr(self, '_img_ojo_on') and hasattr(self, '_img_ojo_off'):
+            if self._mostrar_clave:
+                ojo_lbl.config(image=self._img_ojo_off)
+            else:
+                ojo_lbl.config(image=self._img_ojo_on)
+        else:
+            # Plan B si fallaron las imágenes
+            ojo_lbl.config(text="🙈" if self._mostrar_clave else "👁")
 
     def _login(self):
         u = self.entry_usuario.get()
