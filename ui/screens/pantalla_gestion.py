@@ -9,7 +9,7 @@ from datetime import datetime
 
 from ui.styles import PALETA, FUENTES, MEDIDAS
 from ui.components.barra_superior import crear_encabezado
-from core.database import obtener_usuarios, obtener_accesos, inicializar_bd
+from core.database import listar_usuarios as obtener_usuarios, listar_accesos as obtener_accesos, inicializar_bd
 
 
 class PantallaGestion:

@@ -146,6 +146,7 @@ class ValidacionUsrs:
         return canvas
 
     # --- NUEVO: Función para crear el botón de login manual con el mismo estilo ---
+    # --- MODIFICADO: Función para crear el botón de login manual con imagen ---
     def _crear_boton_login_manual(self, parent, bg_normal, bg_hover):
         w, h = 100, 60  
         canvas = tk.Canvas(parent, width=w, height=h, bg=parent["bg"], highlightthickness=0)
@@ -157,9 +158,23 @@ class ValidacionUsrs:
             width=2
         )
 
-        # Aquí puedes cargar tu imagen más adelante igual que en el botón volver.
-        # Por ahora dejamos un icono de texto temporal (llave).
-        content_id = canvas.create_text(w//2, h//2, text="🔑", fill="#ffffff", font=("Segoe UI", 20))
+        # 1. Cargar la imagen password_icon.png
+        if not hasattr(self, '_img_password'):
+            ruta_icono = Path(__file__).resolve().parent.parent.parent / "assets" / "img" / "password_icon.png"
+            if ruta_icono.exists():
+                try:
+                    self._img_password = tk.PhotoImage(file=str(ruta_icono))
+                except Exception as e:
+                    print(f"[UI] Error cargando password_icon.png: {e}")
+                    self._img_password = None
+            else:
+                self._img_password = None
+
+        # 2. Si la imagen se cargó bien, la mostramos. Si no, usamos la llave de respaldo.
+        if self._img_password:
+            content_id = canvas.create_image(w//2, h//2, image=self._img_password)
+        else:
+            content_id = canvas.create_text(w//2, h//2, text="🔑", fill="#ffffff", font=("Segoe UI", 20))
 
         def on_enter(e): canvas.itemconfig(rect_id, fill=bg_hover)
         def on_leave(e): canvas.itemconfig(rect_id, fill=bg_normal)
@@ -236,10 +251,20 @@ class ValidacionUsrs:
         btn_volver.place(x=14, rely=1.0, anchor="sw", y=-14)
 
     def _mostrar_capa(self, capa):
+        # 1. Ignorar orden si la capa ya está en pantalla
+        if getattr(self, "_capa_actual", None) == capa:
+            return 
+            
+        # 2. Registrar el cambio de capa
+        self._capa_actual = capa 
+        
+        # 3. Ocultar y mostrar
         for c in (self.capa_escaneo, self.capa_ok):
             c.place_forget()
+            
         mapa = {"escaneo": self.capa_escaneo,
                 "ok":      self.capa_ok}
+        
         mapa[capa].place(x=0, y=0, relwidth=1, relheight=1)
 
     # ══════════════════════════════════════════
@@ -469,6 +494,8 @@ class ValidacionUsrs:
     #  Cambio de estado
     # ══════════════════════════════════════════
     def _cambiar_estado(self, estado, nombre=""):
+        if self._estado == estado and estado not in ("acceso_ok", "acceso_deny"):
+            return
         self._estado = estado
 
         if estado == "acceso_ok":
@@ -583,7 +610,17 @@ class ValidacionUsrs:
     #  Limpieza
     # ══════════════════════════════════════════
     def ignorar_cierre(self):
-        pass
+        print("Cerrando forzosamente desde validación biométrica...")
+        self._corriendo = False
+        if self._cap:
+            self._cap.release() # Liberamos la cámara educadamente
+    
+        # Destruimos la ventana
+        ventana_principal = self.parent.winfo_toplevel()
+        ventana_principal.destroy()
+    
+        # Matamos el proceso de Python de raíz para que OpenCV no se quede colgado
+        os._exit(0)
         
     def _volver(self):
         self._corriendo = False

@@ -213,9 +213,27 @@ class PantallaLogin:
         icono_lbl.pack(side="left", padx=(8, 4))
 
         if es_password:
-            icono_lbl.config(text="🔒")
+            # --- MODIFICADO: Cargar lock_icon_dk.png en lugar del emoji ---
+            try:
+                ruta_icono_lock = "assets/img/lock_icon_dk.png"
+                img_icono_lock = Image.open(ruta_icono_lock).resize((18, 18), Image.LANCZOS)
+                # Guardamos la referencia en self para que no se borre de la memoria
+                self._img_lock = ImageTk.PhotoImage(img_icono_lock)
+                icono_lbl.config(image=self._img_lock)
+            except Exception as e:
+                print(f"[UI] Error cargando lock_icon_dk.png: {e}")
+                icono_lbl.config(text="🔒") # Plan B si no encuentra la imagen
         else:
-            icono_lbl.config(text="👤")
+            # --- MODIFICADO: Cargar person_icon.png en lugar del emoji ---
+            try:
+                ruta_icono = "assets/img/person_icon.png"
+                img_icono = Image.open(ruta_icono).resize((18, 18), Image.LANCZOS)
+                # Guardamos la referencia en self para que no se borre de la memoria
+                self._img_person = ImageTk.PhotoImage(img_icono)
+                icono_lbl.config(image=self._img_person)
+            except Exception as e:
+                print(f"[UI] Error cargando person_icon.png: {e}")
+                icono_lbl.config(text="👤") # Plan B si no encuentra la imagen
 
         entry = tk.Entry(
             wrapper,
@@ -230,9 +248,21 @@ class PantallaLogin:
         entry.insert(0, placeholder)
 
         if es_password:
-            ojo = tk.Label(wrapper, text="👁", bg=FONDO_CAMPO,
-                           fg=TEXTO_SEC, font=("Segoe UI", 11),
-                           cursor="hand2")
+            # --- MODIFICADO: Cargar iconos de visibilidad ---
+            try:
+                img_vis = Image.open("assets/img/visibility_icon.png").resize((18, 18), Image.LANCZOS)
+                img_vis_off = Image.open("assets/img/visibility_off_icon.png").resize((18, 18), Image.LANCZOS)
+                
+                # Guardamos las referencias en self
+                self._img_ojo_on = ImageTk.PhotoImage(img_vis)
+                self._img_ojo_off = ImageTk.PhotoImage(img_vis_off)
+                
+                ojo = tk.Label(wrapper, image=self._img_ojo_on, bg=FONDO_CAMPO, cursor="hand2")
+            except Exception as e:
+                print(f"[UI] Error cargando iconos de visibilidad: {e}")
+                # Plan B si no encuentra la imagen
+                ojo = tk.Label(wrapper, text="👁", bg=FONDO_CAMPO, fg=TEXTO_SEC, font=("Segoe UI", 11), cursor="hand2")
+                
             ojo.pack(side="right", padx=(4, 8))
             ojo.bind("<Button-1>", lambda e: self._toggle_clave(entry, ojo))
 
@@ -268,13 +298,22 @@ class PantallaLogin:
             return
         self._mostrar_clave = not self._mostrar_clave
         entry.config(show="" if self._mostrar_clave else "●")
-        ojo_lbl.config(text="🙈" if self._mostrar_clave else "👁")
+        
+        # --- MODIFICADO: Alternar entre las imágenes cargadas ---
+        if hasattr(self, '_img_ojo_on') and hasattr(self, '_img_ojo_off'):
+            if self._mostrar_clave:
+                ojo_lbl.config(image=self._img_ojo_off)
+            else:
+                ojo_lbl.config(image=self._img_ojo_on)
+        else:
+            # Plan B si fallaron las imágenes
+            ojo_lbl.config(text="🙈" if self._mostrar_clave else "👁")
 
     def _login(self):
         u = self.entry_usuario.get()
         c = self.entry_clave.get()
         if u == "admin" and c == "1234":
-            self.app.mostrar_pantalla("principal")
+            self.app.mostrar_pantalla("gestion_real")
         else:
             self.lbl_error.config(text="⚠ Credenciales incorrectas")
 
