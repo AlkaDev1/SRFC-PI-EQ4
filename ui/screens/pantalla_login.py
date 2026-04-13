@@ -213,7 +213,16 @@ class PantallaLogin:
         icono_lbl.pack(side="left", padx=(8, 4))
 
         if es_password:
-            icono_lbl.config(text="🔒")
+            # --- MODIFICADO: Cargar lock_icon_dk.png en lugar del emoji ---
+            try:
+                ruta_icono_lock = "assets/img/lock_icon_dk.png"
+                img_icono_lock = Image.open(ruta_icono_lock).resize((18, 18), Image.LANCZOS)
+                # Guardamos la referencia en self para que no se borre de la memoria
+                self._img_lock = ImageTk.PhotoImage(img_icono_lock)
+                icono_lbl.config(image=self._img_lock)
+            except Exception as e:
+                print(f"[UI] Error cargando lock_icon_dk.png: {e}")
+                icono_lbl.config(text="🔒") # Plan B si no encuentra la imagen
         else:
             # --- MODIFICADO: Cargar person_icon.png en lugar del emoji ---
             try:
