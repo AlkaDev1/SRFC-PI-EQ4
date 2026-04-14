@@ -44,12 +44,11 @@ class PantallaGestion:
         self.pantalla = tk.Frame(self.parent, bg=_GRIS_BG)
         self.pantalla.pack(fill="both", expand=True)
 
-        # Encabezado institucional
         crear_encabezado(self.pantalla, self.parent.winfo_toplevel())
         tk.Frame(self.pantalla, bg=PALETA["topbar_sistema_fg"],
                  height=MEDIDAS["alto_linea_sep"]).pack(fill="x")
 
-        # Área scrollable
+        # Área scrollable principal
         self._crear_scroll()
 
     def _crear_scroll(self):
@@ -85,10 +84,8 @@ class PantallaGestion:
         pad = tk.Frame(parent, bg=_GRIS_BG)
         pad.pack(fill="both", expand=True, padx=20, pady=16)
 
-        # ── Fila de tarjetas superiores ────────────────────────────────────────
         self._construir_tarjetas(pad)
 
-        # ── Cuerpo: columna izquierda + columna derecha ────────────────────────
         cuerpo = tk.Frame(pad, bg=_GRIS_BG)
         cuerpo.pack(fill="both", expand=True, pady=(14, 0))
         cuerpo.columnconfigure(0, weight=3)
@@ -123,11 +120,8 @@ class PantallaGestion:
         ]
 
         for i, (key, titulo, color_barra, key_sub) in enumerate(specs):
-            card = tk.Frame(fila, bg=_CARD_BG,
-                            highlightthickness=1,
-                            highlightbackground=_BORDE)
-            card.pack(side="left", fill="both", expand=True,
-                      padx=(0 if i == 0 else 10, 0))
+            card = tk.Frame(fila, bg=_CARD_BG,highlightthickness=1,highlightbackground=_BORDE)
+            card.pack(side="left", fill="both", expand=True,padx=(0 if i == 0 else 10, 0))
 
             # Barra de color superior
             tk.Frame(card, bg=color_barra, height=5).pack(fill="x")
@@ -135,18 +129,12 @@ class PantallaGestion:
             body = tk.Frame(card, bg=_CARD_BG, padx=16, pady=12)
             body.pack(fill="both")
 
-            tk.Label(body, text=titulo,
-                     font=("Segoe UI", 8, "bold"),
-                     fg=_TEXTO_GRIS, bg=_CARD_BG).pack(anchor="w")
+            tk.Label(body, text=titulo,font=("Segoe UI", 8, "bold"),fg=_TEXTO_GRIS, bg=_CARD_BG).pack(anchor="w")
 
-            lbl_num = tk.Label(body, text="—",
-                               font=("Segoe UI", 32, "bold"),
-                               fg=_TEXTO_OSCURO, bg=_CARD_BG)
+            lbl_num = tk.Label(body, text="—",font=("Segoe UI", 32, "bold"),fg=_TEXTO_OSCURO, bg=_CARD_BG)
             lbl_num.pack(anchor="w")
 
-            lbl_sub = tk.Label(body, text="",
-                               font=("Segoe UI", 8),
-                               fg=_VERDE_CLARO, bg=_CARD_BG)
+            lbl_sub = tk.Label(body, text="",font=("Segoe UI", 8),fg=_VERDE_CLARO, bg=_CARD_BG)
             lbl_sub.pack(anchor="w")
 
             self._tarjetas[key]     = lbl_num
@@ -162,9 +150,7 @@ class PantallaGestion:
         cab = tk.Frame(card, bg=_CARD_BG)
         cab.pack(fill="x", padx=16, pady=(14, 8))
 
-        tk.Label(cab, text="HISTORIAL DE ACCESOS",
-                 font=("Segoe UI", 10, "bold"),
-                 fg=_TEXTO_OSCURO, bg=_CARD_BG).pack(side="left")
+        tk.Label(cab, text="HISTORIAL DE ACCESOS",font=("Segoe UI", 10, "bold"),fg=_TEXTO_OSCURO, bg=_CARD_BG).pack(side="left")
 
         # Filtros
         filtros = tk.Frame(cab, bg=_CARD_BG)
@@ -177,8 +163,7 @@ class PantallaGestion:
         om_rol.pack(side="left", padx=(0, 6))
 
         anios = [str(y) for y in range(2024, datetime.now().year + 1)]
-        om_anio = tk.OptionMenu(filtros, self._filtro_anio, *anios,
-                                command=lambda _: self._filtrar_historial())
+        om_anio = tk.OptionMenu(filtros, self._filtro_anio, *anios,command=lambda _: self._filtrar_historial())
         self._estilo_optionmenu(om_anio)
         om_anio.pack(side="left")
 
@@ -190,9 +175,7 @@ class PantallaGestion:
         # Ver todos
         pie = tk.Frame(card, bg=_CARD_BG)
         pie.pack(fill="x", padx=16, pady=(4, 12))
-        lbl_ver = tk.Label(pie, text="Ver todos →",
-                           font=("Segoe UI", 9),
-                           fg=_VERDE, bg=_CARD_BG, cursor="hand2")
+        lbl_ver = tk.Label(pie, text="Ver todos →",font=("Segoe UI", 9),fg=_VERDE, bg=_CARD_BG, cursor="hand2")
         lbl_ver.pack(side="right")
         lbl_ver.bind("<Button-1>", lambda e: self.app.mostrar_pantalla("historial")
                      if hasattr(self.app, "mostrar_pantalla") else None)
@@ -202,9 +185,7 @@ class PantallaGestion:
                   relief="flat", bd=0, highlightthickness=1,
                   highlightbackground=_BORDE, activebackground=_BORDE,
                   cursor="hand2", pady=3)
-        om["menu"].config(font=("Segoe UI", 9), bg=_CARD_BG,
-                          activebackground=_VERDE_CLARO,
-                          activeforeground="#ffffff")
+        om["menu"].config(font=("Segoe UI", 9), bg=_CARD_BG,activebackground=_VERDE_CLARO,activeforeground="#ffffff")
 
     # ══════════════════════════════════════════════════════════════════════════
     #  GRÁFICA DE BARRAS — ACCESOS POR HORA
