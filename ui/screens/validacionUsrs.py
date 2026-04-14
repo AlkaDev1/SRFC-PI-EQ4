@@ -214,19 +214,6 @@ class ValidacionUsrs:
         )
         # Se mantiene oculto por defecto, se posicionará en _cambiar_estado
 
-        # --- DEV: Botón de acceso directo a gestión (quitar en producción) ---
-        self.btn_dev_gestion = tk.Button(
-            self.capa_escaneo,
-            text="⚙ DEV: IR A GESTIÓN",
-            font=("Segoe UI", 9, "bold"),
-            fg="#ffffff", bg="#6a1b9a",
-            activebackground="#4a148c",
-            bd=0, padx=10, pady=6,
-            cursor="hand2", relief="flat",
-            command=self._ir_a_gestion_real
-        )
-        self.btn_dev_gestion.place(relx=0.5, rely=1.0, anchor="s", y=-14)
-
     # ── Capa acceso OK ────────────────────────
     def _construir_capa_ok(self):
         verde = PALETA["central_circulo"]
