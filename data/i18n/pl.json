@@ -1,0 +1,31 @@
+{
+  "language_name": "Polish",
+  "translations": {
+    "Sistema de Control Biometrico": "Biometryczny system kontroli",
+    "SISTEMA DE\nCONTROL\nBIOMETRICO": "BIOMETRYCZNY\nSYSTEM\nKONTROLI",
+    "GESTION DE USUARIOS": "ZARZADZANIE UZYTKOWNIKAMI",
+    "Buscar...": "Szukaj...",
+    "Buscar idioma...": "Szukaj jezyka...",
+    "Todos los roles": "Wszystkie role",
+    "Dia": "Dzien",
+    "Filtrar por dia": "Filtruj po dniu",
+    "Aplicar filtros": "Zastosuj filtry",
+    "Limpiar dia": "Wyczysc dzien",
+    "Editar seleccionado": "Edytuj zaznaczone",
+    "Eliminar seleccionado": "Usun zaznaczone",
+    "Historial de accesos": "Historia dostepu",
+    "< Regresar": "< Wroc",
+    "No. Institucional": "ID instytucjonalne",
+    "Nombre": "Nazwa",
+    "Nombre Completo": "Pelna nazwa",
+    "Fecha de acceso": "Data dostepu",
+    "Hora de acceso": "Godzina dostepu",
+    "Fecha": "Data",
+    "Hora": "Godzina",
+    "Rol": "Rola",
+    "Guardar": "Zapisz",
+    "Cancelar": "Anuluj",
+    "Cerrar": "Zamknij",
+    "Recargar": "Odswiez"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "language_name": "Dutch",
+  "translations": {
+    "Sistema de Control Biometrico": "Biometrisch controlesysteem",
+    "SISTEMA DE\nCONTROL\nBIOMETRICO": "BIOMETRISCH\nCONTROLE\nSYSTEEM",
+    "GESTION DE USUARIOS": "GEBRUIKERSBEHEER",
+    "Buscar...": "Zoeken...",
+    "Buscar idioma...": "Taal zoeken...",
+    "Todos los roles": "Alle rollen",
+    "Dia": "Dag",
+    "Filtrar por dia": "Filter op dag",
+    "Aplicar filtros": "Filters toepassen",
+    "Limpiar dia": "Dag wissen",
+    "Editar seleccionado": "Geselecteerde bewerken",
+    "Eliminar seleccionado": "Geselecteerde verwijderen",
+    "Historial de accesos": "Toegangsgeschiedenis",
+    "< Regresar": "< Terug",
+    "No. Institucional": "Institutionele ID",
+    "Nombre": "Naam",
+    "Nombre Completo": "Volledige naam",
+    "Fecha de acceso": "Toegangsdatum",
+    "Hora de acceso": "Toegangstijd",
+    "Fecha": "Datum",
+    "Hora": "Tijd",
+    "Rol": "Rol",
+    "Guardar": "Opslaan",
+    "Cancelar": "Annuleren",
+    "Cerrar": "Sluiten",
+    "Recargar": "Herladen"
+  }
+}

@@ -1,0 +1,200 @@
+--Creación de la bd
+
+CREATE DATABASE IF NOT EXISTS SRFC;
+
+-- 1. Roles
+CREATE TABLE Roles (
+    id_rol INTEGER PRIMARY KEY,
+    nombre VARCHAR(30) NOT NULL,
+    estado INTEGER DEFAULT 1,
+    fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP,
+    fecha_actualizacion DATETIME,
+    usuario_registro VARCHAR(50),
+    usuario_actualizacion VARCHAR(50)
+);
+
+-- 2. Usuarios
+CREATE TABLE Usuarios (
+    cod_institucional VARCHAR(20) PRIMARY KEY,
+    id_rol INTEGER,
+    primer_nombre VARCHAR(50) NOT NULL,
+    segundo_nombre VARCHAR(50),
+    apellido_paterno VARCHAR(50) NOT NULL,
+    apellido_materno VARCHAR(50),
+    password_hash TEXT,
+    estado INTEGER DEFAULT 1,
+    fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP,
+    fecha_actualizacion DATETIME,
+    usuario_registro VARCHAR(50),
+    usuario_actualizacion VARCHAR(50),
+    FOREIGN KEY (id_rol) REFERENCES Roles(id_rol)
+);
+
+-- 3. Alumnos Detalle
+CREATE TABLE Alumnos_Detalle (
+    cod_institucional VARCHAR(20) PRIMARY KEY,
+    grado VARCHAR(10),
+    grupo VARCHAR(10),
+    carrera VARCHAR(100),
+    FOREIGN KEY (cod_institucional) REFERENCES Usuarios(cod_institucional) ON DELETE CASCADE
+);
+
+-- 4. Rostros Encoding
+CREATE TABLE Rostros_encoding (
+    cod_institucional VARCHAR(20) PRIMARY KEY,
+    face_encoding BLOB NOT NULL,
+    foto_referencia VARCHAR(255),
+    FOREIGN KEY (cod_institucional) REFERENCES Usuarios(cod_institucional) ON DELETE CASCADE
+);
+
+-- 5. Accesos
+CREATE TABLE Acceso (
+    id_acceso INTEGER PRIMARY KEY AUTOINCREMENT,
+    cod_institucional VARCHAR(20),
+    fecha DATE DEFAULT (DATE('now', 'localtime')),
+    hora TIME DEFAULT (TIME('now', 'localtime')),
+    FOREIGN KEY (cod_institucional) REFERENCES Usuarios(cod_institucional)
+);
+
+
+--Mock DATABASE
+-- =======================================================
+-- 1. INSERCIÓN DE ROLES (Por si aún no los tienes)
+-- =======================================================
+INSERT INTO Roles (id_rol, nombre, estado, usuario_registro) VALUES 
+(1, 'SuperAdmin', 1, 'Sistema'),
+(2, 'Admin', 1, 'Sistema'),
+(3, 'SuperUsuario', 1, 'Sistema'),
+(4, 'Alumno', 1, 'Sistema');
+
+-- =======================================================
+-- 2. INSERCIÓN DE SUPERADMINS (2 Registros - Director y Técnico)
+-- =======================================================
+INSERT INTO Usuarios (cod_institucional, id_rol, primer_nombre, segundo_nombre, apellido_paterno, apellido_materno, password_hash, estado, usuario_registro) VALUES
+('SA001', 1, 'Juan', 'Pablo', 'Alcala', 'Zuñiga', '$2y$10$DemoHashPasswordSuperAdmin01', 1, 'Sistema'),
+('SA002', 1, 'Roberto', 'Tonatiuh', 'Preciado', 'Soto', '$2y$10$DemoHashPasswordSuperAdmin02', 1, 'Sistema');
+
+-- =======================================================
+-- 3. INSERCIÓN DE DIRECTIVOS / ADMINS (10 Registros)
+-- =======================================================
+INSERT INTO Usuarios (cod_institucional, id_rol, primer_nombre, segundo_nombre, apellido_paterno, apellido_materno, password_hash, estado, usuario_registro) VALUES
+('DIR001', 2, 'Carmen', 'Alicia', 'Rodríguez', 'Pérez', '$2y$10$DemoHashDir1', 1, 'SA001'),
+('DIR002', 2, 'Luis', 'Alberto', 'Gómez', 'López', '$2y$10$DemoHashDir2', 1, 'SA001'),
+('DIR003', 2, 'Ana', 'María', 'Martínez', 'García', '$2y$10$DemoHashDir3', 1, 'SA001'),
+('DIR004', 2, 'Jorge', NULL, 'Hernández', 'Díaz', '$2y$10$DemoHashDir4', 1, 'SA001'),
+('DIR005', 2, 'Laura', 'Elena', 'Ruiz', 'Sánchez', '$2y$10$DemoHashDir5', 1, 'SA001'),
+('DIR006', 2, 'Miguel', 'Ángel', 'Torres', 'Ramírez', '$2y$10$DemoHashDir6', 1, 'SA001'),
+('DIR007', 2, 'Silvia', NULL, 'Flores', 'Vázquez', '$2y$10$DemoHashDir7', 1, 'SA001'),
+('DIR008', 2, 'Fernando', 'Javier', 'Cruz', 'Morales', '$2y$10$DemoHashDir8', 1, 'SA001'),
+('DIR009', 2, 'Patricia', 'Isabel', 'Reyes', 'Gutiérrez', '$2y$10$DemoHashDir9', 1, 'SA001'),
+('DIR010', 2, 'Ricardo', 'Arturo', 'Mendoza', 'Aguilar', '$2y$10$DemoHashDir10', 1, 'SA001');
+
+-- =======================================================
+-- 4. INSERCIÓN DE ALUMNOS (50 Registros en la tabla Usuarios)
+-- =======================================================
+INSERT INTO Usuarios (cod_institucional, id_rol, primer_nombre, segundo_nombre, apellido_paterno, apellido_materno, password_hash, estado, usuario_registro) VALUES
+('ALU001', 4, 'Carlos', 'Eduardo', 'Martínez', 'López', NULL, 1, 'DIR001'),
+('ALU002', 4, 'María', 'Fernanda', 'García', 'Hernández', NULL, 1, 'DIR001'),
+('ALU003', 4, 'José', 'Luis', 'González', 'Pérez', NULL, 1, 'DIR001'),
+('ALU004', 4, 'Ana', 'Paola', 'Rodríguez', 'Sánchez', NULL, 1, 'DIR002'),
+('ALU005', 4, 'Jesús', 'Antonio', 'Quintero', 'Jacobo', NULL, 1, 'DIR002'),
+('ALU006', 4, 'Melany', 'Guadalupe', 'Hernández', 'Vázquez', NULL, 1, 'DIR002'),
+('ALU007', 4, 'Josué', 'Nahúm', 'López', 'Aguilar', NULL, 1, 'DIR003'),
+('ALU008', 4, 'Brandom', 'Yair', 'Jacobo', 'Cisneros', NULL, 1, 'DIR003'),
+('ALU009', 4, 'Luis', 'Ángel', 'Pérez', 'Gómez', NULL, 1, 'DIR003'),
+('ALU010', 4, 'Laura', 'Daniela', 'Sánchez', 'Díaz', NULL, 1, 'DIR004'),
+('ALU011', 4, 'Miguel', 'Alejandro', 'Romero', 'Jiménez', NULL, 1, 'DIR004'),
+('ALU012', 4, 'Diana', 'Laura', 'Herrera', 'Molina', NULL, 1, 'DIR004'),
+('ALU013', 4, 'Jorge', 'Alberto', 'Medina', 'Vargas', NULL, 1, 'DIR005'),
+('ALU014', 4, 'Andrea', 'Carolina', 'Castro', 'Ríos', NULL, 1, 'DIR005'),
+('ALU015', 4, 'Pedro', 'Pablo', 'Guzmán', 'Méndez', NULL, 1, 'DIR005'),
+('ALU016', 4, 'Sofía', 'Alejandra', 'Salazar', 'Cruz', NULL, 1, 'DIR006'),
+('ALU017', 4, 'Diego', 'Armando', 'Rojas', 'Silva', NULL, 1, 'DIR006'),
+('ALU018', 4, 'Daniela', 'Berenice', 'Navarro', 'Vega', NULL, 1, 'DIR006'),
+('ALU019', 4, 'Kevin', 'Omar', 'Juárez', 'Ortiz', NULL, 1, 'DIR007'),
+('ALU020', 4, 'Brenda', 'Elizabeth', 'Orozco', 'Chávez', NULL, 1, 'DIR007'),
+('ALU021', 4, 'Cristian', 'Eduardo', 'Márquez', 'Ramos', NULL, 1, 'DIR007'),
+('ALU022', 4, 'Valeria', 'Guadalupe', 'Castañeda', 'Reyes', NULL, 1, 'DIR008'),
+('ALU023', 4, 'Javier', 'Ignacio', 'Lara', 'Morales', NULL, 1, 'DIR008'),
+('ALU024', 4, 'Paulina', 'Estefanía', 'Mejía', 'Aguilar', NULL, 1, 'DIR008'),
+('ALU025', 4, 'Héctor', 'Daniel', 'Cabrera', 'Pinto', NULL, 1, 'DIR009'),
+('ALU026', 4, 'Samantha', 'Nicole', 'Rosales', 'Luna', NULL, 1, 'DIR009'),
+('ALU027', 4, 'Arturo', 'Jair', 'Escobar', 'Valdez', NULL, 1, 'DIR009'),
+('ALU028', 4, 'Karla', 'Vanessa', 'Campos', 'Delgado', NULL, 1, 'DIR010'),
+('ALU029', 4, 'Mario', 'Alberto', 'Vega', 'Romero', NULL, 1, 'DIR010'),
+('ALU030', 4, 'Alejandra', 'Monserrat', 'Ponce', 'Suárez', NULL, 1, 'DIR010'),
+('ALU031', 4, 'Ricardo', 'Alonso', 'Cervantes', 'Soto', NULL, 1, 'DIR001'),
+('ALU032', 4, 'Gabriela', 'Berenice', 'Solis', 'Velasco', NULL, 1, 'DIR001'),
+('ALU033', 4, 'Oscar', 'Uriel', 'Pacheco', 'López', NULL, 1, 'DIR002'),
+('ALU034', 4, 'Erika', 'Yazmín', 'Montes', 'Castillo', NULL, 1, 'DIR002'),
+('ALU035', 4, 'Francisco', 'Javier', 'Franco', 'Navarro', NULL, 1, 'DIR003'),
+('ALU036', 4, 'Jessica', 'Anahí', 'Ávalos', 'Gómez', NULL, 1, 'DIR003'),
+('ALU037', 4, 'Edgar', 'Iván', 'Figueroa', 'Díaz', NULL, 1, 'DIR004'),
+('ALU038', 4, 'Martha', 'Cecilia', 'Arias', 'Rosas', NULL, 1, 'DIR004'),
+('ALU039', 4, 'Raúl', 'Emiliano', 'Maldonado', 'García', NULL, 1, 'DIR005'),
+('ALU040', 4, 'Adriana', 'Lucía', 'Palacios', 'Sánchez', NULL, 1, 'DIR005'),
+('ALU041', 4, 'Roberto', 'Carlos', 'Villarreal', 'Pérez', NULL, 1, 'DIR006'),
+('ALU042', 4, 'Tania', 'Lizbeth', 'Ochoa', 'Cruz', NULL, 1, 'DIR006'),
+('ALU043', 4, 'Víctor', 'Hugo', 'Guevara', 'Mendoza', NULL, 1, 'DIR007'),
+('ALU044', 4, 'Natalia', 'Sofía', 'Cárdenas', 'Ramírez', NULL, 1, 'DIR007'),
+('ALU045', 4, 'Rubén', 'Darío', 'Espinosa', 'Vargas', NULL, 1, 'DIR008'),
+('ALU046', 4, 'Fátima', 'del Rosario', 'Gallegos', 'Ríos', NULL, 1, 'DIR008'),
+('ALU047', 4, 'Julio', 'César', 'Salinas', 'Molina', NULL, 1, 'DIR009'),
+('ALU048', 4, 'Lucero', 'Esmeralda', 'Lozano', 'Silva', NULL, 1, 'DIR009'),
+('ALU049', 4, 'Iván', 'Alejandro', 'Zavala', 'Ortiz', NULL, 1, 'DIR010'),
+('ALU050', 4, 'Mónica', 'Nayeli', 'Ríos', 'Juárez', NULL, 1, 'DIR010');
+
+-- =======================================================
+-- 5. INSERCIÓN DE DETALLE ACADÉMICO PARA LOS 50 ALUMNOS
+-- =======================================================
+INSERT INTO Alumnos_Detalle (cod_institucional, grado, grupo, carrera) VALUES
+('ALU001', '1', 'A', 'Programación'),
+('ALU002', '1', 'A', 'Programación'),
+('ALU003', '1', 'A', 'Programación'),
+('ALU004', '1', 'A', 'Programación'),
+('ALU005', '1', 'B', 'Programación'),
+('ALU006', '1', 'B', 'Programación'),
+('ALU007', '1', 'B', 'Programación'),
+('ALU008', '1', 'B', 'Programación'),
+('ALU009', '2', 'A', 'Ofimática'),
+('ALU010', '2', 'A', 'Ofimática'),
+('ALU011', '2', 'A', 'Ofimática'),
+('ALU012', '2', 'A', 'Ofimática'),
+('ALU013', '2', 'B', 'Ofimática'),
+('ALU014', '2', 'B', 'Ofimática'),
+('ALU015', '2', 'B', 'Ofimática'),
+('ALU016', '3', 'A', 'Electrónica'),
+('ALU017', '3', 'A', 'Electrónica'),
+('ALU018', '3', 'A', 'Electrónica'),
+('ALU019', '3', 'A', 'Electrónica'),
+('ALU020', '3', 'B', 'Electrónica'),
+('ALU021', '3', 'B', 'Electrónica'),
+('ALU022', '3', 'B', 'Electrónica'),
+('ALU023', '3', 'B', 'Electrónica'),
+('ALU024', '4', 'A', 'Contabilidad'),
+('ALU025', '4', 'A', 'Contabilidad'),
+('ALU026', '4', 'A', 'Contabilidad'),
+('ALU027', '4', 'A', 'Contabilidad'),
+('ALU028', '4', 'B', 'Contabilidad'),
+('ALU029', '4', 'B', 'Contabilidad'),
+('ALU030', '4', 'B', 'Contabilidad'),
+('ALU031', '5', 'A', 'Programación'),
+('ALU032', '5', 'A', 'Programación'),
+('ALU033', '5', 'A', 'Programación'),
+('ALU034', '5', 'B', 'Programación'),
+('ALU035', '5', 'B', 'Programación'),
+('ALU036', '5', 'B', 'Programación'),
+('ALU037', '5', 'C', 'Ofimática'),
+('ALU038', '5', 'C', 'Ofimática'),
+('ALU039', '5', 'C', 'Ofimática'),
+('ALU040', '6', 'A', 'Electrónica'),
+('ALU041', '6', 'A', 'Electrónica'),
+('ALU042', '6', 'A', 'Electrónica'),
+('ALU043', '6', 'B', 'Electrónica'),
+('ALU044', '6', 'B', 'Electrónica'),
+('ALU045', '6', 'B', 'Electrónica'),
+('ALU046', '6', 'C', 'Contabilidad'),
+('ALU047', '6', 'C', 'Contabilidad'),
+('ALU048', '6', 'C', 'Contabilidad'),
+('ALU049', '6', 'C', 'Contabilidad'),
+('ALU050', '6', 'C', 'Contabilidad');
