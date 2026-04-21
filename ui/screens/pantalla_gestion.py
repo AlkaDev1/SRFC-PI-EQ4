@@ -8,7 +8,9 @@ from datetime import datetime
 
 from ui.styles import PALETA, FUENTES, MEDIDAS
 from ui.components.barra_superior import crear_encabezado
-from core.database import (listar_usuarios as obtener_usuarios,listar_accesos as obtener_accesos,inicializar_bd)
+from core.database import (listar_usuarios as obtener_usuarios,
+                            listar_accesos as obtener_accesos,
+                            inicializar_bd)
 
 # ── Colores locales ────────────────────────────────────────────────────────────
 _VERDE        = "#2e7d32"
@@ -48,7 +50,6 @@ class PantallaGestion:
         tk.Frame(self.pantalla, bg=PALETA["topbar_sistema_fg"],
                  height=MEDIDAS["alto_linea_sep"]).pack(fill="x")
 
-        # Área scrollable principal
         self._crear_scroll()
 
     def _crear_scroll(self):
@@ -73,7 +74,6 @@ class PantallaGestion:
         canvas_scroll.bind("<Configure>", lambda e: canvas_scroll.itemconfig(
             win_id, width=e.width))
 
-        # Mousewheel
         def _wheel(e):
             canvas_scroll.yview_scroll(int(-1*(e.delta/120)), "units")
         canvas_scroll.bind_all("<MouseWheel>", _wheel)
@@ -120,39 +120,46 @@ class PantallaGestion:
         ]
 
         for i, (key, titulo, color_barra, key_sub) in enumerate(specs):
-            card = tk.Frame(fila, bg=_CARD_BG,highlightthickness=1,highlightbackground=_BORDE)
-            card.pack(side="left", fill="both", expand=True,padx=(0 if i == 0 else 10, 0))
+            card = tk.Frame(fila, bg=_CARD_BG,
+                            highlightthickness=1, highlightbackground=_BORDE)
+            card.pack(side="left", fill="both", expand=True,
+                      padx=(0 if i == 0 else 10, 0))
 
-            # Barra de color superior
             tk.Frame(card, bg=color_barra, height=5).pack(fill="x")
 
             body = tk.Frame(card, bg=_CARD_BG, padx=16, pady=12)
             body.pack(fill="both")
 
-            tk.Label(body, text=titulo,font=("Segoe UI", 8, "bold"),fg=_TEXTO_GRIS, bg=_CARD_BG).pack(anchor="w")
+            tk.Label(body, text=titulo,
+                     font=("Segoe UI", 8, "bold"),
+                     fg=_TEXTO_GRIS, bg=_CARD_BG).pack(anchor="w")
 
-            lbl_num = tk.Label(body, text="—",font=("Segoe UI", 32, "bold"),fg=_TEXTO_OSCURO, bg=_CARD_BG)
+            lbl_num = tk.Label(body, text="—",
+                               font=("Segoe UI", 32, "bold"),
+                               fg=_TEXTO_OSCURO, bg=_CARD_BG)
             lbl_num.pack(anchor="w")
 
-            lbl_sub = tk.Label(body, text="",font=("Segoe UI", 8),fg=_VERDE_CLARO, bg=_CARD_BG)
+            lbl_sub = tk.Label(body, text="",
+                               font=("Segoe UI", 8),
+                               fg=_VERDE_CLARO, bg=_CARD_BG)
             lbl_sub.pack(anchor="w")
 
             self._tarjetas[key]     = lbl_num
             self._tarjetas[key_sub] = lbl_sub
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  HISTORIAL DE ACCESOS
+    #  HISTORIAL DE ACCESOS (mini, en dashboard)
     # ══════════════════════════════════════════════════════════════════════════
     def _construir_historial(self, parent):
         card = self._card(parent, pady_bottom=10)
 
-        # Cabecera
         cab = tk.Frame(card, bg=_CARD_BG)
         cab.pack(fill="x", padx=16, pady=(14, 8))
 
-        tk.Label(cab, text="HISTORIAL DE ACCESOS",font=("Segoe UI", 10, "bold"),fg=_TEXTO_OSCURO, bg=_CARD_BG).pack(side="left")
+        tk.Label(cab, text="HISTORIAL DE ACCESOS",
+                 font=("Segoe UI", 10, "bold"),
+                 fg=_TEXTO_OSCURO, bg=_CARD_BG).pack(side="left")
 
-        # Filtros
         filtros = tk.Frame(cab, bg=_CARD_BG)
         filtros.pack(side="right")
 
@@ -163,29 +170,30 @@ class PantallaGestion:
         om_rol.pack(side="left", padx=(0, 6))
 
         anios = [str(y) for y in range(2024, datetime.now().year + 1)]
-        om_anio = tk.OptionMenu(filtros, self._filtro_anio, *anios,command=lambda _: self._filtrar_historial())
+        om_anio = tk.OptionMenu(filtros, self._filtro_anio, *anios,
+                                command=lambda _: self._filtrar_historial())
         self._estilo_optionmenu(om_anio)
         om_anio.pack(side="left")
 
-        # Tabla
         cols = ("No. Institucional", "Nombre", "Fecha", "Hora", "Rol")
         self.tree_hist = self._crear_tree(card, cols, height=6)
         self.tree_hist.pack(fill="x", padx=16)
 
-        # Ver todos
         pie = tk.Frame(card, bg=_CARD_BG)
         pie.pack(fill="x", padx=16, pady=(4, 12))
-        lbl_ver = tk.Label(pie, text="Ver todos →",font=("Segoe UI", 9),fg=_VERDE, bg=_CARD_BG, cursor="hand2")
+        lbl_ver = tk.Label(pie, text="Ver todos →",
+                           font=("Segoe UI", 9),
+                           fg=_VERDE, bg=_CARD_BG, cursor="hand2")
         lbl_ver.pack(side="right")
-        lbl_ver.bind("<Button-1>", lambda e: self.app.mostrar_pantalla("historial")
-                     if hasattr(self.app, "mostrar_pantalla") else None)
+        lbl_ver.bind("<Button-1>", lambda e: self._abrir_modal_historial())
 
     def _estilo_optionmenu(self, om):
         om.config(font=("Segoe UI", 8), bg=_GRIS_BG, fg=_TEXTO_OSCURO,
                   relief="flat", bd=0, highlightthickness=1,
                   highlightbackground=_BORDE, activebackground=_BORDE,
                   cursor="hand2", pady=3)
-        om["menu"].config(font=("Segoe UI", 9), bg=_CARD_BG,activebackground=_VERDE_CLARO,activeforeground="#ffffff")
+        om["menu"].config(font=("Segoe UI", 9), bg=_CARD_BG,
+                          activebackground=_VERDE_CLARO, activeforeground="#ffffff")
 
     # ══════════════════════════════════════════════════════════════════════════
     #  GRÁFICA DE BARRAS — ACCESOS POR HORA
@@ -201,15 +209,15 @@ class PantallaGestion:
                                      height=160, highlightthickness=0)
         self.canvas_graf.pack(fill="x", padx=16, pady=(0, 14))
 
-        self._datos_grafica = [0] * 13   # 7am … 7pm
+        self._datos_grafica = [0] * 13
         self._hora_activa   = None
         self.canvas_graf.bind("<Configure>", lambda e: self._dibujar_grafica())
 
     def _dibujar_grafica(self, hora_hover=None):
-        c  = self.canvas_graf
+        c = self.canvas_graf
         c.delete("all")
-        w  = c.winfo_width()
-        h  = c.winfo_height()
+        w = c.winfo_width()
+        h = c.winfo_height()
         if w < 10:
             return
 
@@ -238,7 +246,6 @@ class PantallaGestion:
 
             if i == hora_hover:
                 color = "#ff9800"
-                # Tooltip
                 c.create_rectangle(x_centro - 28, y1 - 22,
                                    x_centro + 28, y1 - 4,
                                    fill="#333333", outline="")
@@ -250,7 +257,6 @@ class PantallaGestion:
             else:
                 color = "#c8e6c9"
 
-            # Barra redondeada (simulada con dos rect + oval)
             r_top = min(4, ancho_b / 2)
             c.create_rectangle(x1, y1 + r_top, x2, y2, fill=color, outline="")
             c.create_oval(x1, y1, x2, y1 + r_top * 2, fill=color, outline="")
@@ -305,7 +311,6 @@ class PantallaGestion:
 
             self._barras_dist[rol] = (barra_fill, lbl_pct)
 
-        # Total del día
         sep = tk.Frame(card, bg=_BORDE, height=1)
         sep.pack(fill="x", padx=16, pady=(10, 6))
 
@@ -331,7 +336,6 @@ class PantallaGestion:
         fila = tk.Frame(card, bg=_CARD_BG)
         fila.pack(fill="x", padx=16, pady=(0, 14))
 
-        # Total
         bloque_total = tk.Frame(fila, bg=_CARD_BG)
         bloque_total.pack(side="left", expand=True)
         self.lbl_total_usr = tk.Label(bloque_total, text="—",
@@ -343,7 +347,6 @@ class PantallaGestion:
 
         tk.Frame(fila, bg=_BORDE, width=1).pack(side="left", fill="y", padx=8)
 
-        # Activos hoy
         bloque_activos = tk.Frame(fila, bg=_CARD_BG)
         bloque_activos.pack(side="left", expand=True)
         self.lbl_activos_hoy = tk.Label(bloque_activos, text="—",
@@ -364,8 +367,8 @@ class PantallaGestion:
                  fg=_TEXTO_OSCURO, bg=_CARD_BG).pack(anchor="w", padx=16, pady=(14, 10))
 
         botones = [
-            ("+ AGREGAR USUARIO", _VERDE_BTN,  _VERDE_HOVER, "#fff",
-             lambda: self.app.mostrar_pantalla("registro")),
+            ("+ AGREGAR USUARIO", _VERDE_BTN, _VERDE_HOVER, "#fff",
+             lambda: self._abrir_modal_agregar()),
         ]
         for texto, bg, hover, fg, cmd in botones:
             b = tk.Button(card, text=texto,
@@ -376,15 +379,14 @@ class PantallaGestion:
                           command=cmd)
             b.pack(fill="x", padx=16, pady=(0, 6))
 
-        # Fila: Gestión | Historial
         fila2 = tk.Frame(card, bg=_CARD_BG)
         fila2.pack(fill="x", padx=16, pady=(0, 6))
         fila2.columnconfigure(0, weight=1)
         fila2.columnconfigure(1, weight=1)
 
         for i, (texto, cmd) in enumerate([
-            ("GESTIÓN",   lambda: self.app.mostrar_pantalla("gestion_real")),
-            ("HISTORIAL", lambda: self.app.mostrar_pantalla("historial")),
+            ("GESTIÓN",   lambda: self._abrir_modal_gestion()),
+            ("HISTORIAL", lambda: self._abrir_modal_historial()),
         ]):
             b = tk.Button(fila2, text=texto,
                           font=("Segoe UI", 10, "bold"),
@@ -396,7 +398,6 @@ class PantallaGestion:
             b.grid(row=0, column=i, sticky="ew",
                    padx=(0 if i == 0 else 6, 0))
 
-        # Cerrar sesión
         b_salir = tk.Button(card, text="← CERRAR SESIÓN",
                             font=("Segoe UI", 10, "bold"),
                             fg="#ffffff", bg="#212121",
@@ -407,11 +408,376 @@ class PantallaGestion:
         b_salir.pack(fill="x", padx=16, pady=(0, 16))
 
     # ══════════════════════════════════════════════════════════════════════════
+    #  HELPER — ventana flotante Toplevel centrada, sin barra de título
+    # ══════════════════════════════════════════════════════════════════════════
+    def _crear_modal_toplevel(self, width, height):
+        """
+        Crea un Toplevel sin decoración, centrado sobre la ventana principal.
+        El dashboard sigue visible detrás — el modal flota encima.
+        Devuelve (toplevel, card_frame).
+        """
+        root = self.pantalla.winfo_toplevel()
+        root.update_idletasks()
+
+        rx = root.winfo_x()
+        ry = root.winfo_y()
+        rw = root.winfo_width()
+        rh = root.winfo_height()
+        x  = rx + (rw - width)  // 2
+        y  = ry + (rh - height) // 2
+
+        top = tk.Toplevel(root)
+        top.overrideredirect(True)   # sin barra de título de Windows
+        top.geometry(f"{width}x{height}+{x}+{y}")
+        top.grab_set()               # bloquea clics en la ventana principal
+        top.lift()
+        top.focus_force()
+        top.configure(bg=_BORDE)
+
+        # Sombra simulada con un frame exterior ligeramente más grande
+        shadow = tk.Frame(top, bg="#00000033" if False else "#cccccc")
+        shadow.place(x=4, y=4, width=width - 4, height=height - 4)
+
+        card = tk.Frame(top, bg=_CARD_BG,
+                        highlightthickness=1, highlightbackground="#bbbbbb")
+        card.place(x=0, y=0, width=width - 4, height=height - 4)
+
+        return top, card
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  MODAL — HISTORIAL DE ACCESOS COMPLETO
+    # ══════════════════════════════════════════════════════════════════════════
+    def _abrir_modal_historial(self):
+        top, card = self._crear_modal_toplevel(740, 500)
+
+        # ── Cabecera ──────────────────────────────────────────────────────
+        cab = tk.Frame(card, bg=_CARD_BG)
+        cab.pack(fill="x", padx=20, pady=(16, 10))
+
+        tk.Label(cab, text="HISTORIAL DE ACCESOS",
+                 font=("Segoe UI", 13, "bold"),
+                 fg=_TEXTO_OSCURO, bg=_CARD_BG).pack(side="left")
+
+        filtros = tk.Frame(cab, bg=_CARD_BG)
+        filtros.pack(side="right")
+
+        _filtro_rol_m  = tk.StringVar(value="Todos los roles")
+        _filtro_anio_m = tk.StringVar(value=str(datetime.now().year))
+
+        roles = ["Todos los roles", "Alumno", "Admin", "Profesor"]
+        om_rol = tk.OptionMenu(filtros, _filtro_rol_m, *roles)
+        self._estilo_optionmenu(om_rol)
+        om_rol.pack(side="left", padx=(0, 6))
+
+        anios = [str(y) for y in range(2024, datetime.now().year + 1)]
+        om_anio = tk.OptionMenu(filtros, _filtro_anio_m, *anios)
+        self._estilo_optionmenu(om_anio)
+        om_anio.pack(side="left")
+
+        # ── Tabla ─────────────────────────────────────────────────────────
+        cols = ("No. Institucional", "Nombre", "Fecha", "Hora", "Rol")
+        tree_frame = self._crear_tree(card, cols, height=11)
+        tree_frame.pack(fill="x", padx=20)
+        tree = tree_frame._tree
+
+        accesos = obtener_accesos(limite=500)
+
+        def _poblar(datos):
+            tree.delete(*tree.get_children())
+            for i, a in enumerate(datos):
+                tree.insert("", "end",
+                            tags=("par" if i % 2 == 0 else "impar",),
+                            values=(a["cod_institucional"],
+                                    a["nombre"] or "—",
+                                    a["fecha"], a["hora"],
+                                    a.get("rol") or "Alumno"))
+
+        def _filtrar(*_):
+            anio_f = _filtro_anio_m.get()
+            datos  = accesos
+            if anio_f:
+                datos = [a for a in datos
+                         if (a.get("fecha") or "").startswith(anio_f)]
+            _poblar(datos)
+
+        _filtro_rol_m.trace_add("write",  _filtrar)
+        _filtro_anio_m.trace_add("write", _filtrar)
+        _poblar(accesos)
+
+        # ── Pie ───────────────────────────────────────────────────────────
+        pie = tk.Frame(card, bg=_CARD_BG)
+        pie.pack(fill="x", padx=20, pady=(8, 14))
+
+        tk.Label(pie, text=f"Mostrando {len(accesos)} registros",
+                 font=("Segoe UI", 8), fg=_TEXTO_GRIS, bg=_CARD_BG).pack(side="left")
+
+        tk.Button(pie, text="← CERRAR",
+                  font=("Segoe UI", 9, "bold"),
+                  fg="#ffffff", bg="#424242",
+                  activebackground="#212121", activeforeground="#ffffff",
+                  bd=0, padx=14, pady=6, relief="flat", cursor="hand2",
+                  command=top.destroy).pack(side="right")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  MODAL — GESTIÓN DE USUARIOS
+    # ══════════════════════════════════════════════════════════════════════════
+    def _abrir_modal_gestion(self):
+        top, card = self._crear_modal_toplevel(760, 520)
+
+        # ── Cabecera ──────────────────────────────────────────────────────
+        cab = tk.Frame(card, bg=_CARD_BG)
+        cab.pack(fill="x", padx=20, pady=(16, 10))
+
+        tk.Label(cab, text="GESTIÓN DE USUARIOS",
+                 font=("Segoe UI", 13, "bold"),
+                 fg=_TEXTO_OSCURO, bg=_CARD_BG).pack(side="left")
+
+        controles = tk.Frame(cab, bg=_CARD_BG)
+        controles.pack(side="right")
+
+        _filtro_rol_g  = tk.StringVar(value="Todos los roles")
+        _filtro_anio_g = tk.StringVar(value=str(datetime.now().year))
+
+        roles = ["Todos los roles", "Alumno", "Admin", "Profesor"]
+        om_rol = tk.OptionMenu(controles, _filtro_rol_g, *roles)
+        self._estilo_optionmenu(om_rol)
+        om_rol.pack(side="left", padx=(0, 6))
+
+        anios = [str(y) for y in range(2024, datetime.now().year + 1)]
+        om_anio = tk.OptionMenu(controles, _filtro_anio_g, *anios)
+        self._estilo_optionmenu(om_anio)
+        om_anio.pack(side="left", padx=(0, 10))
+
+        tk.Button(controles, text="+ Agregar usuario",
+                  font=("Segoe UI", 9, "bold"),
+                  fg="#ffffff", bg=_VERDE_BTN,
+                  activebackground=_VERDE_HOVER, activeforeground="#ffffff",
+                  bd=0, padx=12, pady=5, relief="flat", cursor="hand2",
+                  command=lambda: self._abrir_modal_agregar(top)).pack(side="left")
+
+        # ── Tabla ─────────────────────────────────────────────────────────
+        s = ttk.Style()
+        s.configure("G.Treeview",
+                    font=("Segoe UI", 9), rowheight=30,
+                    background=_CARD_BG, foreground=_TEXTO_OSCURO,
+                    fieldbackground=_CARD_BG, borderwidth=0)
+        s.configure("G.Treeview.Heading",
+                    font=("Segoe UI", 9, "bold"),
+                    background=_VERDE, foreground="#ffffff", relief="flat")
+        s.map("G.Treeview",
+              background=[("selected", "#e8f5e9")],
+              foreground=[("selected", _VERDE)])
+
+        frame_t = tk.Frame(card, bg=_CARD_BG)
+        frame_t.pack(fill="x", padx=20)
+
+        sy = ttk.Scrollbar(frame_t, orient="vertical")
+        cols_g = ("No. Institucional", "Nombre",
+                  "Fecha de registro", "Hora de registro",
+                  "Rol", "Acciones")
+        tree_g = ttk.Treeview(frame_t, columns=cols_g, show="headings",
+                               height=10, style="G.Treeview",
+                               yscrollcommand=sy.set)
+        sy.config(command=tree_g.yview)
+
+        anchos_g = {
+            "No. Institucional":  110,
+            "Nombre":             155,
+            "Fecha de registro":  105,
+            "Hora de registro":   105,
+            "Rol":                 80,
+            "Acciones":            70,
+        }
+        for col in cols_g:
+            tree_g.heading(col, text=col)
+            tree_g.column(col, width=anchos_g.get(col, 90), minwidth=60)
+
+        tree_g.tag_configure("par",   background="#f9f9f9")
+        tree_g.tag_configure("impar", background=_CARD_BG)
+
+        sy.pack(side="right", fill="y")
+        tree_g.pack(fill="x")
+
+        usuarios = obtener_usuarios()
+
+        def _poblar_g(datos):
+            tree_g.delete(*tree_g.get_children())
+            for i, u in enumerate(datos):
+                tree_g.insert("", "end",
+                               tags=("par" if i % 2 == 0 else "impar",),
+                               values=(u.get("cod_institucional", ""),
+                                       u.get("nombre", "—"),
+                                       u.get("fecha_registro", ""),
+                                       u.get("hora_registro", ""),
+                                       u.get("rol", "Alumno"),
+                                       "✏️ Editar"))
+
+        _poblar_g(usuarios)
+
+        # ── Pie ───────────────────────────────────────────────────────────
+        pie = tk.Frame(card, bg=_CARD_BG)
+        pie.pack(fill="x", padx=20, pady=(8, 14))
+
+        tk.Label(pie,
+                 text=f"Mostrando {len(usuarios)} usuarios registrados",
+                 font=("Segoe UI", 8), fg=_TEXTO_GRIS, bg=_CARD_BG).pack(side="left")
+
+        tk.Button(pie, text="← CERRAR",
+                  font=("Segoe UI", 9, "bold"),
+                  fg="#ffffff", bg="#424242",
+                  activebackground="#212121", activeforeground="#ffffff",
+                  bd=0, padx=14, pady=6, relief="flat", cursor="hand2",
+                  command=top.destroy).pack(side="right")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  MODAL — AGREGAR USUARIO
+    # ══════════════════════════════════════════════════════════════════════════
+    def _abrir_modal_agregar(self, parent_top=None):
+        """
+        Abre el modal de Agregar Usuario.
+        Si viene del modal de Gestión (parent_top), maneja el grab correctamente.
+        """
+        if parent_top:
+            parent_top.grab_release()
+
+        top, card = self._crear_modal_toplevel(520, 500)
+
+        def _cerrar():
+            top.destroy()
+            if parent_top and parent_top.winfo_exists():
+                parent_top.grab_set()
+                parent_top.lift()
+                parent_top.focus_force()
+
+        # ── Cabecera verde ────────────────────────────────────────────────
+        header = tk.Frame(card, bg=_VERDE_BTN, height=52)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+        tk.Label(header, text="AGREGAR USUARIO",
+                 font=("Segoe UI", 13, "bold"),
+                 fg="#ffffff", bg=_VERDE_BTN).place(relx=0.5, rely=0.5, anchor="center")
+
+        # ── Cuerpo ────────────────────────────────────────────────────────
+        body = tk.Frame(card, bg=_CARD_BG)
+        body.pack(fill="both", expand=True, padx=24, pady=(14, 0))
+
+        campos = [
+            ("Nombre de Usuario", "nombre",  ""),
+            ("No. Institucional", "cod",     ""),
+            ("Fecha de registro", "fecha",   "DD/MM/AAAA"),
+            ("Hora de registro",  "hora",    "00:00 a.m."),
+        ]
+        entradas = {}
+
+        for i, (label, key, placeholder) in enumerate(campos):
+            col = i % 2
+            row = i // 2
+            sub = tk.Frame(body, bg=_CARD_BG)
+            sub.grid(row=row, column=col,
+                     padx=(0, 14 if col == 0 else 0),
+                     pady=6, sticky="ew")
+            body.columnconfigure(col, weight=1)
+
+            tk.Label(sub, text=label, font=("Segoe UI", 8),
+                     fg=_TEXTO_GRIS, bg=_CARD_BG).pack(anchor="w")
+
+            e = tk.Entry(sub, font=("Segoe UI", 10),
+                         fg=_TEXTO_GRIS if placeholder else _TEXTO_OSCURO,
+                         bg="#f5f5f5", relief="flat", bd=0,
+                         highlightthickness=1, highlightbackground=_BORDE)
+            if placeholder:
+                e.insert(0, placeholder)
+
+                def _focus_in(ev, entry=e, ph=placeholder):
+                    if entry.get() == ph:
+                        entry.delete(0, "end")
+                        entry.config(fg=_TEXTO_OSCURO)
+
+                def _focus_out(ev, entry=e, ph=placeholder):
+                    if not entry.get().strip():
+                        entry.insert(0, ph)
+                        entry.config(fg=_TEXTO_GRIS)
+
+                e.bind("<FocusIn>",  _focus_in)
+                e.bind("<FocusOut>", _focus_out)
+
+            e.pack(fill="x", ipady=6, pady=(2, 0))
+            entradas[key] = e
+
+        # ── Fila: Rol + Registro facial ────────────────────────────────────
+        fila_extra = tk.Frame(body, bg=_CARD_BG)
+        fila_extra.grid(row=2, column=0, columnspan=2, sticky="ew", pady=6)
+        fila_extra.columnconfigure(0, weight=1)
+        fila_extra.columnconfigure(1, weight=1)
+
+        sub_rol = tk.Frame(fila_extra, bg=_CARD_BG)
+        sub_rol.grid(row=0, column=0, padx=(0, 14), sticky="ew")
+        tk.Label(sub_rol, text="Rol", font=("Segoe UI", 8),
+                 fg=_TEXTO_GRIS, bg=_CARD_BG).pack(anchor="w")
+        _rol_var = tk.StringVar(value="Selecciones Rol")
+        om_rol_ag = tk.OptionMenu(sub_rol, _rol_var, "Alumno", "Profesor", "Admin")
+        om_rol_ag.config(font=("Segoe UI", 10), bg="#f5f5f5", fg=_TEXTO_OSCURO,
+                         relief="flat", bd=0, highlightthickness=1,
+                         highlightbackground=_BORDE,
+                         activebackground=_BORDE, width=18)
+        om_rol_ag["menu"].config(font=("Segoe UI", 9), bg=_CARD_BG,
+                                 activebackground=_VERDE_CLARO,
+                                 activeforeground="#ffffff")
+        om_rol_ag.pack(fill="x", ipady=4, pady=(2, 0))
+
+        sub_facial = tk.Frame(fila_extra, bg=_CARD_BG)
+        sub_facial.grid(row=0, column=1, sticky="ew")
+        tk.Label(sub_facial, text="Registro facial",
+                 font=("Segoe UI", 8), fg=_TEXTO_GRIS, bg=_CARD_BG).pack(anchor="w")
+        e_facial = tk.Entry(sub_facial, font=("Segoe UI", 10),
+                            fg=_TEXTO_OSCURO, bg="#f5f5f5",
+                            relief="flat", bd=0,
+                            highlightthickness=1, highlightbackground=_BORDE)
+        e_facial.pack(fill="x", ipady=6, pady=(2, 0))
+        entradas["registro_facial"] = e_facial
+
+        # ── Selección de carrera ───────────────────────────────────────────
+        fila_carrera = tk.Frame(body, bg=_CARD_BG)
+        fila_carrera.grid(row=3, column=0, columnspan=2, sticky="ew", pady=6)
+        tk.Label(fila_carrera, text="Selección de carrera",
+                 font=("Segoe UI", 8), fg=_TEXTO_GRIS, bg=_CARD_BG).pack(anchor="w")
+        e_car = tk.Entry(fila_carrera, font=("Segoe UI", 10),
+                         fg=_TEXTO_OSCURO, bg="#f5f5f5",
+                         relief="flat", bd=0,
+                         highlightthickness=1, highlightbackground=_BORDE)
+        e_car.pack(fill="x", ipady=6, pady=(2, 0))
+        entradas["carrera"] = e_car
+
+        # ── Botones ───────────────────────────────────────────────────────
+        pie = tk.Frame(card, bg=_CARD_BG)
+        pie.pack(fill="x", padx=24, pady=16)
+
+        def _confirmar():
+            datos = {k: v.get() for k, v in entradas.items()}
+            datos["rol"] = _rol_var.get()
+            print("[AGREGAR USUARIO]", datos)
+            # TODO: llamar aquí a tu función de BD para insertar el usuario
+            _cerrar()
+
+        tk.Button(pie, text="CONFIRMAR",
+                  font=("Segoe UI", 10, "bold"),
+                  fg="#ffffff", bg=_VERDE_BTN,
+                  activebackground=_VERDE_HOVER, activeforeground="#ffffff",
+                  bd=0, padx=20, pady=8, relief="flat", cursor="hand2",
+                  command=_confirmar).pack(side="left", padx=(0, 10))
+
+        tk.Button(pie, text="CANCELAR",
+                  font=("Segoe UI", 10, "bold"),
+                  fg="#ffffff", bg=_ROJO,
+                  activebackground=_ROJO_CLARO, activeforeground="#ffffff",
+                  bd=0, padx=20, pady=8, relief="flat", cursor="hand2",
+                  command=_cerrar).pack(side="left")
+
+    # ══════════════════════════════════════════════════════════════════════════
     #  HELPERS UI
     # ══════════════════════════════════════════════════════════════════════════
     def _card(self, parent, pady_bottom=0):
-        """Frame con fondo blanco y borde sutil."""
-        wrap = tk.Frame(parent, bg=_BORDE)
+        wrap  = tk.Frame(parent, bg=_BORDE)
         wrap.pack(fill="x", pady=(0, 12))
         inner = tk.Frame(wrap, bg=_CARD_BG)
         inner.pack(fill="both", padx=1, pady=1)
@@ -431,16 +797,16 @@ class PantallaGestion:
               foreground=[("selected", _VERDE)])
 
         frame = tk.Frame(parent, bg=_CARD_BG)
-        sy = ttk.Scrollbar(frame, orient="vertical")
+        sy    = ttk.Scrollbar(frame, orient="vertical")
 
-        tree = ttk.Treeview(frame, columns=cols, show="headings",
-                            height=height, style="D.Treeview",
-                            yscrollcommand=sy.set)
+        tree  = ttk.Treeview(frame, columns=cols, show="headings",
+                             height=height, style="D.Treeview",
+                             yscrollcommand=sy.set)
         sy.config(command=tree.yview)
 
         anchos = {
             "No. Institucional": 110, "Nombre": 160,
-            "Fecha": 80,  "Hora": 70, "Rol": 80,
+            "Fecha": 80, "Hora": 70, "Rol": 80,
         }
         for col in cols:
             tree.heading(col, text=col)
@@ -467,15 +833,14 @@ class PantallaGestion:
         accesos  = obtener_accesos(limite=1000)
         hoy      = datetime.now().strftime("%Y-%m-%d")
 
-        total    = len(usuarios)
-        alumnos  = sum(1 for u in usuarios if u["rol"] == "Alumno")
-        admins   = sum(1 for u in usuarios
-                       if u["rol"] in ("Admin", "SuperAdmin",
-                                       "SuperUsuario", "Profesor"))
+        total   = len(usuarios)
+        alumnos = sum(1 for u in usuarios if u["rol"] == "Alumno")
+        admins  = sum(1 for u in usuarios
+                      if u["rol"] in ("Admin", "SuperAdmin",
+                                      "SuperUsuario", "Profesor"))
         acc_hoy_lista = [a for a in accesos if a["fecha"] == hoy]
-        acc_hoy  = len(acc_hoy_lista)
+        acc_hoy = len(acc_hoy_lista)
 
-        # Tarjetas
         self._tarjetas["accesos_hoy"].config(text=str(acc_hoy))
         self._tarjetas["accesos_hoy_sub"].config(text="accesos registrados hoy")
         self._tarjetas["total_alumnos"].config(text=str(alumnos))
@@ -485,25 +850,12 @@ class PantallaGestion:
         pct_admins = f"{round(admins/total*100)}% del total" if total else "0%"
         self._tarjetas["admins_sub"].config(text=pct_admins)
         self._tarjetas["acc_denegados"].config(text="0")
-        self._tarjetas["deny_sub"].config(
-            text="accesos rechazados", fg=_ROJO_CLARO)
+        self._tarjetas["deny_sub"].config(text="accesos rechazados", fg=_ROJO_CLARO)
 
-        # Usuarios registrados
         self.lbl_total_usr.config(text=str(total))
         self.lbl_activos_hoy.config(text=str(acc_hoy))
         self._todos_usuarios = usuarios
 
-        # Distribución
-        total_acc = acc_hoy if acc_hoy > 0 else 1
-        roles_data = {
-            "Alumnos":    sum(1 for a in acc_hoy_lista),  # simplificado
-            "Profesores": admins,
-            "Denegados":  0,
-        }
-        # Recalcular con proporciones reales
-        alumnos_acc = sum(1 for a in acc_hoy_lista
-                          if "alumno" in (a.get("nombre") or "").lower()
-                          or True)   # por ahora todos van a alumnos
         for rol, (barra, lbl_pct) in self._barras_dist.items():
             if rol == "Alumnos":
                 pct = round(alumnos / total * 100) if total else 0
@@ -516,14 +868,13 @@ class PantallaGestion:
 
         self.lbl_total_dia.config(text=f"{acc_hoy} accesos")
 
-        # Gráfica de barras por hora
         conteo = [0] * 13
         for a in acc_hoy_lista:
             try:
                 hora_str = a.get("hora", "")
                 if hora_str:
                     h_num = int(hora_str.split(":")[0])
-                    idx = h_num - 7
+                    idx   = h_num - 7
                     if 0 <= idx < 13:
                         conteo[idx] += 1
             except Exception:
@@ -536,16 +887,11 @@ class PantallaGestion:
         self._filtrar_historial()
 
     def _filtrar_historial(self):
-        rol_f  = self._filtro_rol.get()
         anio_f = self._filtro_anio.get()
-
-        datos = self._datos_accesos
-        if rol_f != "Todos los roles":
-            datos = [a for a in datos
-                     if rol_f.lower() in (a.get("nombre") or "").lower()
-                     or True]   # sin campo rol en accesos, mostramos todos
+        datos  = self._datos_accesos
         if anio_f:
-            datos = [a for a in datos if (a.get("fecha") or "").startswith(anio_f)]
+            datos = [a for a in datos
+                     if (a.get("fecha") or "").startswith(anio_f)]
 
         t = self.tree_hist._tree
         t.delete(*t.get_children())
