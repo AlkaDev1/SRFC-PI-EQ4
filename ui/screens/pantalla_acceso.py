@@ -1,17 +1,21 @@
 """
 ui/screens/pantalla_acceso.py
-Pantalla de acceso biométrico — diseño limpio.
-Video grande, recuadro completo sobre el rostro, barra de estado arriba.
+Diseño según mockup:
+  - Escaneando: video full + texto con borde superpuesto + botón volver abajo izq
+  - Acceso OK:  pantalla verde completa con icono usuario, nombre, hora
+  - Acceso DENY: Se mantiene la cámara, texto en rojo "ACCESO DENEGADO"
 """
 
 import tkinter as tk
 import threading
-import math
 import queue
 import os
 import cv2
 import numpy as np
-from PIL import Image, ImageTk, ImageDraw
+import math 
+from pathlib import Path
+from PIL import Image, ImageTk
+from datetime import datetime
 
 from ui.styles import PALETA, FUENTES, MEDIDAS
 from ui.components.barra_superior import crear_encabezado
@@ -23,7 +27,7 @@ except ImportError:
     FR_DISPONIBLE = False
 
 FRAMES_CONFIRMAR = 8
-FRAMES_PERDER    = 8   # frames sin rostro para limpiar bbox
+FRAMES_PERDER    = 8
 
 
 class PantallaAcceso:
@@ -33,16 +37,14 @@ class PantallaAcceso:
         self.app    = app
 
         self._estado         = "escaneando"
-        self._angulo         = 0
-        self._pulso          = 0.0
-        self._pulso_dir      = 1
         self._confianza      = 0.0
-        self._bbox           = None   # (x, y, w, h) en coords del frame escalado
+        self._bbox           = None
         self._photo          = None
         self._bloqueado      = False
         self._frames_ok      = 0
         self._frames_deny    = 0
         self._frames_perdido = 0
+        self._angulo         = 0
         self._after_anim     = None
         self._after_reset    = None
 
@@ -50,9 +52,9 @@ class PantallaAcceso:
         self._encodings  = []
         self._cargar_perfiles()
 
-        self._cap        = None
-        self._corriendo  = False
-        self._cola_bio   = queue.Queue(maxsize=2)
+        self._cap       = None
+        self._corriendo = False
+        self._cola_bio  = queue.Queue(maxsize=2)
 
         self._construir_ui()
         self._iniciar_animacion()
@@ -81,7 +83,146 @@ class PantallaAcceso:
                     self._nombres.append(nombre)
             except Exception as e:
                 print(f"[PERFIL] {archivo}: {e}")
-        print(f"[PERFILES] Cargados: {len(self._nombres)}")
+
+    # ══════════════════════════════════════════
+    #  UI
+    # ══════════════════════════════════════════
+    def _construir_ui(self):
+        self.pantalla = tk.Frame(self.parent, bg="#000000")
+        self.pantalla.pack(fill="both", expand=True)
+
+        ventana_principal = self.parent.winfo_toplevel()
+        ventana_principal.protocol("WM_DELETE_WINDOW", self.ignorar_cierre)
+
+        crear_encabezado(self.pantalla, self.parent.winfo_toplevel())
+        
+        self.contenedor = tk.Frame(self.pantalla, bg="#000000")
+        self.contenedor.pack(fill="both", expand=True)
+
+        self._construir_capa_escaneo()
+        self._construir_capa_ok()
+        # Se eliminó _construir_capa_deny para mantener todo en la cámara
+        self._mostrar_capa("escaneo")
+
+    # Método centralizado para crear rectángulos con bordes curvos
+    def _crear_rect_redondeado(self, canvas, x1, y1, x2, y2, r, **kwargs):
+        puntos = [x1+r, y1, x2-r, y1, x2, y1, x2, y1+r, x2, y2-r, x2, y2,
+                  x2-r, y2, x1+r, y2, x1, y2, x1, y2-r, x1, y1+r, x1, y1]
+        return canvas.create_polygon(puntos, smooth=True, **kwargs)
+
+    def _crear_boton_volver(self, parent, bg_normal, bg_hover):
+        w, h = 100, 60  
+        canvas = tk.Canvas(parent, width=w, height=h, bg=parent["bg"], highlightthickness=0)
+
+        rect_id = self._crear_rect_redondeado(
+            canvas, 2, 2, w-2, h-2, 16, 
+            fill=bg_normal,
+            outline="#ffffff",
+            width=2
+        )
+
+        if not hasattr(self, '_img_return'):
+            ruta_icono = Path(__file__).resolve().parent.parent.parent / "assets" / "img" / "return_icon.png"
+            if ruta_icono.exists():
+                try:
+                    self._img_return = tk.PhotoImage(file=str(ruta_icono))
+                except Exception as e:
+                    print(f"[UI] Error cargando return_icon.png: {e}")
+                    self._img_return = None
+            else:
+                self._img_return = None
+
+        if self._img_return:
+            content_id = canvas.create_image(w//2, h//2, image=self._img_return)
+        else:
+            content_id = canvas.create_text(w//2, h//2, text="←", fill="#ffffff", font=("Segoe UI", 20, "bold"))
+
+        def on_enter(e): canvas.itemconfig(rect_id, fill=bg_hover)
+        def on_leave(e): canvas.itemconfig(rect_id, fill=bg_normal)
+        def on_click(e): self._volver()
+
+        canvas.bind("<Enter>", on_enter)
+        canvas.bind("<Leave>", on_leave)
+        canvas.bind("<Button-1>", on_click)
+        canvas.tag_bind(rect_id, "<Button-1>", on_click)
+        canvas.tag_bind(content_id, "<Button-1>", on_click)
+
+        return canvas
+
+    # ── Capa escaneo ─────────────────────────
+    def _construir_capa_escaneo(self):
+        self.capa_escaneo = tk.Frame(self.contenedor, bg="#000000")
+
+        # El video ocupa toda la capa
+        self.label_video = tk.Label(
+            self.capa_escaneo, bg="#000000",
+            text="Iniciando cámara...",
+            font=("Segoe UI", 13),
+            fg=PALETA["topbar_sistema_fg"])
+        self.label_video.place(x=0, y=0, relwidth=1, relheight=1)
+
+        # Controles flotantes encima del video
+        btn_volver = self._crear_boton_volver(self.capa_escaneo, bg_normal="#333333", bg_hover="#444444")
+        btn_volver.place(x=14, rely=1.0, anchor="sw", y=-14)
+
+        self.canvas_icono = tk.Canvas(
+            self.capa_escaneo, width=44, height=44,
+            bg="#000000", highlightthickness=0)
+        self.canvas_icono.place(
+            relx=1.0, rely=1.0, anchor="se", x=-14, y=-14)
+
+    # ── Capa acceso OK ────────────────────────
+    def _construir_capa_ok(self):
+        verde = PALETA["central_circulo"]
+        self.capa_ok = tk.Frame(self.contenedor, bg=verde)
+
+        self.canvas_foto = tk.Canvas(
+            self.capa_ok, width=120, height=120,
+            bg=verde, highlightthickness=0)
+        self.canvas_foto.place(relx=0.5, rely=0.22, anchor="center")
+
+        badge = tk.Label(self.capa_ok, text="✓",
+                         font=("Segoe UI", 14, "bold"),
+                         fg="#ffffff", bg=PALETA["central_onda"],
+                         padx=4, pady=2, relief="flat")
+        badge.place(relx=0.5, rely=0.22, anchor="sw", x=44, y=-4)
+
+        tk.Label(self.capa_ok, text="ACCESO CONCEDIDO",
+                 font=("Segoe UI", 17, "bold"),
+                 fg="#ffffff", bg=verde).place(
+                     relx=0.5, rely=0.52, anchor="center")
+
+        self.lbl_nombre_ok = tk.Label(
+            self.capa_ok, text="",
+            font=("Segoe UI", 13, "bold"),
+            fg="#ffffff", bg=verde)
+        self.lbl_nombre_ok.place(relx=0.5, rely=0.63, anchor="center")
+
+        self.lbl_info_ok = tk.Label(
+            self.capa_ok, text="",
+            font=("Segoe UI", 9),
+            fg="#c8eec8", bg=verde)
+        self.lbl_info_ok.place(relx=0.5, rely=0.73, anchor="center")
+
+        btn_volver = self._crear_boton_volver(self.capa_ok, bg_normal="#2d7d32", bg_hover="#1b5e20")
+        btn_volver.place(x=14, rely=1.0, anchor="sw", y=-14)
+
+    def _mostrar_capa(self, capa):
+        # 1. Si la capa que queremos mostrar YA es la que está activa, ignoramos la orden para evitar el parpadeo
+        if getattr(self, "_capa_actual", None) == capa:
+            return 
+            
+        # 2. Si es una capa nueva, registramos el cambio
+        self._capa_actual = capa 
+        
+        # 3. Ocultamos todas y mostramos solo la que necesitamos
+        for c in (self.capa_escaneo, self.capa_ok):
+            c.place_forget()
+            
+        mapa = {"escaneo": self.capa_escaneo,
+                "ok":      self.capa_ok}
+        
+        mapa[capa].place(x=0, y=0, relwidth=1, relheight=1)
 
     # ══════════════════════════════════════════
     #  Cámara
@@ -99,53 +240,78 @@ class PantallaAcceso:
         threading.Thread(target=self._hilo_camara,    daemon=True).start()
         threading.Thread(target=self._hilo_biometria, daemon=True).start()
 
+    def _dibujar_texto_con_borde(self, img, texto, pos, fuente, escala, grosor_borde, grosor_texto, color_texto):
+        # Dibuja el borde (sombra negra)
+        cv2.putText(img, texto, pos, fuente, escala, (0, 0, 0), grosor_borde, cv2.LINE_AA)
+        # Dibuja el texto principal
+        cv2.putText(img, texto, pos, fuente, escala, color_texto, grosor_texto, cv2.LINE_AA)
+
     def _hilo_camara(self):
         import time
-        cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-
         while self._corriendo:
             ok, frame = self._cap.read()
             if not ok:
                 break
-
             frame = cv2.flip(frame, 1)
-
-            # Encolar para face_recognition
             try:
                 self._cola_bio.put_nowait(frame.copy())
             except queue.Full:
                 pass
 
-            try:
-                # Escalar al canvas
-                cw = self.label_video.winfo_width()
-                ch = self.label_video.winfo_height()
-                if cw < 10 or ch < 10:
-                    time.sleep(0.04)
-                    continue
+            if self._estado not in ("acceso_ok",):
+                try:
+                    cw = self.label_video.winfo_width()
+                    ch = self.label_video.winfo_height()
+                    if cw < 10 or ch < 10:
+                        time.sleep(0.04)
+                        continue
+                    
+                    resized = cv2.resize(frame, (cw, ch))
 
-                resized = cv2.resize(frame, (cw, ch))
+                    # Dibujar bounding box
+                    if self._bbox:
+                        x1, y1, x2, y2 = self._bbox
+                        # Si es acceso denegado, pinta el cuadro rojo (BGR: 0, 0, 255), si no, verde
+                        color_bbox = (0, 0, 255) if self._estado == "acceso_deny" else (80, 175, 76)
+                        cv2.rectangle(resized, (x1, y1), (x2, y2), color_bbox, 2) 
+                    
+                    # Dibujar textos superpuestos
+                    msgs = {
+                        "escaneando":  ("POR FAVOR NO SE MUEVA",   "ESCANEANDO ROSTRO..."),
+                        "detectado":   ("ROSTRO DETECTADO",        "Verificando identidad..."),
+                        "sin_rostro":  ("ACERCATE A LA CAMARA",    "No se detecta ningun rostro"),
+                        "sin_camara":  ("CAMARA NO DISPONIBLE",    "Verifique la conexion"),
+                        "acceso_deny": ("ACCESO DENEGADO",         "Intentando de nuevo..."),
+                    }
+                    titulo, sub = msgs.get(self._estado, ("ESCANEANDO...", ""))
 
-                # Dibujar recuadro completo (no esquinas) sobre el frame
-                if self._bbox:
-                    x1, y1, x2, y2 = self._bbox
-                    color_bgr = {
-                        "escaneando":  (76, 175, 80),
-                        "detectado":   (139, 195, 74),
-                        "acceso_ok":   (76, 175, 80),
-                        "acceso_deny": (54,  54, 244),
-                        "sin_rostro":  (158, 158, 158),
-                    }.get(self._estado, (76, 175, 80))
-                    cv2.rectangle(resized, (x1, y1), (x2, y2), color_bgr, 2)
+                    fuente = cv2.FONT_HERSHEY_SIMPLEX
+                    # Obtener tamaños para centrar el texto
+                    (w_titulo, h_titulo), _ = cv2.getTextSize(titulo, fuente, 0.8, 2)
+                    (w_sub, h_sub), _ = cv2.getTextSize(sub, fuente, 0.5, 1)
 
-                rgb   = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-                photo = ImageTk.PhotoImage(image=Image.fromarray(rgb))
-                self._photo = photo
-                self.label_video.after(0, self._pintar_frame)
-            except Exception:
-                pass
+                    pos_titulo = ((cw - w_titulo) // 2, 40)
+                    pos_sub = ((cw - w_sub) // 2, 70)
 
+                    # Si es acceso denegado, el título es rojo
+                    color_titulo = (0, 0, 255) if self._estado == "acceso_deny" else (255, 255, 255)
+
+                    # Título: borde negro
+                    self._dibujar_texto_con_borde(
+                        img=resized, texto=titulo, pos=pos_titulo, 
+                        fuente=fuente, escala=0.8, grosor_borde=5, grosor_texto=2, color_texto=color_titulo)
+                    
+                    # Subtítulo: texto grisáceo, borde negro
+                    self._dibujar_texto_con_borde(
+                        img=resized, texto=sub, pos=pos_sub, 
+                        fuente=fuente, escala=0.5, grosor_borde=3, grosor_texto=1, color_texto=(200, 200, 200))
+
+                    rgb   = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+                    photo = ImageTk.PhotoImage(image=Image.fromarray(rgb))
+                    self._photo = photo
+                    self.label_video.after(0, self._pintar_frame)
+                except Exception:
+                    pass
             time.sleep(1 / 30)
 
     def _hilo_biometria(self):
@@ -160,7 +326,8 @@ class PantallaAcceso:
                 continue
             resultado = self._reconocer(frame)
             try:
-                self.label_video.after(0, lambda r=resultado: self._aplicar_resultado(r))
+                self.label_video.after(
+                    0, lambda r=resultado: self._aplicar_resultado(r))
             except Exception:
                 pass
 
@@ -169,44 +336,76 @@ class PantallaAcceso:
             pequeño = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
             rgb     = cv2.cvtColor(pequeño, cv2.COLOR_BGR2RGB)
             ubs     = face_recognition.face_locations(rgb, model="hog")
+            
             if not ubs:
                 return {"hay_rostro": False}
-            ub      = max(ubs, key=lambda u: (u[2]-u[0]) * (u[1]-u[3]))
+                
+            ub = max(ubs, key=lambda u: (u[2]-u[0]) * (u[1]-u[3]))
+            
+            alto_rostro = ub[2] - ub[0]
+            ancho_rostro = ub[1] - ub[3]
+            area_rostro = alto_rostro * ancho_rostro
+            
+            alto_frame, ancho_frame, _ = pequeño.shape
+            area_frame = alto_frame * ancho_frame
+            
+            if (area_rostro / area_frame) < 0.10: 
+                return {"hay_rostro": False}
+
             ub_orig = (ub[0]*2, ub[1]*2, ub[2]*2, ub[3]*2)
+            
             if not self._encodings:
                 return {"hay_rostro": True, "reconocido": False,
                         "confianza": 0.0, "ubicacion": ub_orig, "nombre": ""}
+                        
             encs = face_recognition.face_encodings(rgb, [ub])
             if not encs:
                 return {"hay_rostro": True, "reconocido": False,
                         "confianza": 0.0, "ubicacion": ub_orig, "nombre": ""}
+                        
             dists = face_recognition.face_distance(self._encodings, encs[0])
             idx   = int(np.argmin(dists))
             dist  = float(dists[idx])
             conf  = round(max(0.0, 1.0 - dist), 3)
+            
             if dist <= 0.50:
                 return {"hay_rostro": True, "reconocido": True,
                         "confianza": conf, "ubicacion": ub_orig,
                         "nombre": self._nombres[idx]}
+                        
             return {"hay_rostro": True, "reconocido": False,
                     "confianza": conf, "ubicacion": ub_orig, "nombre": ""}
+                    
         else:
             gris    = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             cascade = cv2.CascadeClassifier(
                 cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-            # minNeighbors alto para reducir falsos positivos (monitores, fondos)
             rostros = cascade.detectMultiScale(
                 gris, scaleFactor=1.1, minNeighbors=8, minSize=(100, 100))
+                
             if len(rostros) == 0:
                 return {"hay_rostro": False}
-            # Tomar el rostro más grande detectado
+                
             x, y, w, h = max(rostros, key=lambda r: r[2]*r[3])
-            # Formato: (top, right, bottom, left) — igual que face_recognition
+            
+            area_rostro_hc = w * h
+            area_frame_hc = frame.shape[0] * frame.shape[1]
+            
+            if (area_rostro_hc / area_frame_hc) < 0.10:
+                return {"hay_rostro": False}
+            
             return {"hay_rostro": True, "reconocido": False,
-                    "confianza": 0.3, "ubicacion": (y, x+w, y+h, x), "nombre": ""}
+                    "confianza": 0.3, "ubicacion": (y, x+w, y+h, x),
+                    "nombre": ""}
+
+    def _pintar_frame(self):
+        if self._photo is None:
+            return
+        self.label_video.imgtk = self._photo
+        self.label_video.config(image=self._photo, text="")
 
     # ══════════════════════════════════════════
-    #  Resultado
+    #  Resultado biométrico
     # ══════════════════════════════════════════
     def _aplicar_resultado(self, r):
         if self._bloqueado:
@@ -217,9 +416,8 @@ class PantallaAcceso:
             cw = self.label_video.winfo_width()
             ch = self.label_video.winfo_height()
             sx, sy = cw / 640.0, ch / 480.0
-            # El frame ya viene volteado (espejo aplicado antes de encolar)
-            # por lo que las coordenadas son directas, sin corrección extra
-            self._bbox = (int(left*sx), int(top*sy), int(right*sx), int(bottom*sy))
+            self._bbox = (int(left*sx), int(top*sy),
+                          int(right*sx), int(bottom*sy))
             self._frames_perdido = 0
         else:
             self._frames_perdido += 1
@@ -229,102 +427,74 @@ class PantallaAcceso:
         if not r.get("hay_rostro"):
             self._frames_ok = self._frames_deny = 0
             if self._frames_perdido >= FRAMES_PERDER:
-                self._cambiar_estado("sin_rostro", 0.0)
+                self._cambiar_estado("sin_rostro")
             return
 
         if r.get("reconocido"):
             self._frames_deny  = 0
             self._frames_ok   += 1
-            self._cambiar_estado("detectado", r["confianza"])
+            self._cambiar_estado("detectado")
             if self._frames_ok >= FRAMES_CONFIRMAR:
                 self._frames_ok = 0
                 self._bloqueado = True
-                self._cambiar_estado("acceso_ok", r["confianza"], r["nombre"])
-                self._after_reset = self.label_video.after(3000, self._resetear)
+                self._cambiar_estado("acceso_ok", nombre=r.get("nombre", ""))
+                self._after_reset = self.canvas_icono.after(
+                    4000, self._resetear)
         else:
             self._frames_ok    = 0
             self._frames_deny += 1
-            self._cambiar_estado("detectado", r["confianza"])
+            self._cambiar_estado("detectado")
             if self._frames_deny >= FRAMES_CONFIRMAR:
                 self._frames_deny = 0
                 self._bloqueado   = True
-                self._cambiar_estado("acceso_deny", r["confianza"])
-                self._after_reset = self.label_video.after(3000, self._resetear)
+                self._cambiar_estado("acceso_deny")
+                # Se redujo a 2000 ms (2 segundos) para que vuelva a intentar más rápido
+                self._after_reset = self.canvas_icono.after(
+                    2000, self._resetear) 
 
     def _resetear(self):
         self._bloqueado = False
         self._bbox      = None
-        self._cambiar_estado("escaneando", 0.0)
+        self._cambiar_estado("escaneando")
 
-    def _construir_ui(self):
-        pantalla = tk.Frame(self.parent, bg=PALETA["page_bg"])
-        pantalla.pack(fill="both", expand=True)
+    # ══════════════════════════════════════════
+    #  Cambio de estado
+    # ══════════════════════════════════════════
+    def _cambiar_estado(self, estado, nombre=""):
+        if self._estado == estado and estado not in ("acceso_ok", "acceso_deny"):
+            return
+        self._estado = estado
 
-        crear_encabezado(pantalla, self.parent.winfo_toplevel())
-        tk.Frame(pantalla, bg=PALETA["topbar_sistema_fg"],
-                 height=MEDIDAS["alto_linea_sep"]).pack(fill="x")
+        if estado == "acceso_ok":
+            self._mostrar_capa("ok")
+            hora = datetime.now().strftime("%I:%M %p").lower()
+            self.lbl_nombre_ok.config(text=nombre or "Usuario")
+            self.lbl_info_ok.config(text=f"Acceso registrado · {hora}")
+            c = self.canvas_foto
+            c.delete("all")
+            c.create_oval(5, 5, 115, 115,
+                          fill="#ffffff", outline="#c8f0c8", width=3)
+            c.create_text(60, 60, text="👤",
+                          font=("Segoe UI", 40),
+                          fill=PALETA["central_circulo"])
 
-        # Contenedor oscuro — video ocupa todo
-        contenedor = tk.Frame(pantalla, bg="#000000")
-        contenedor.pack(fill="both", expand=True)
+        elif estado == "acceso_deny":
+            # Ahora en lugar de mostrar la pantalla roja, mostramos la cámara
+            self._mostrar_capa("escaneo")
 
-        # Video de fondo
-        self.label_video = tk.Label(
-            contenedor, bg="#000000",
-            text="Iniciando cámara...",
-            font=("Segoe UI", 14),
-            fg=PALETA["topbar_sistema_fg"],
-        )
-        self.label_video.place(x=0, y=0, relwidth=1, relheight=1)
+        else:
+            self._mostrar_capa("escaneo")
+            
 
-        # ── Barra superior superpuesta ────────
-        self.barra_top = tk.Frame(contenedor, bg=PALETA["central_fondo"])
-        self.barra_top.place(x=10, y=10, relwidth=0.98)
-
-        estilo_btn = dict(
-            font=("Segoe UI", 11, "bold"),
-            fg=PALETA["boton_fg"],
-            bg=PALETA["boton_bg"],
-            activebackground=PALETA["boton_hover"],
-            bd=0, padx=15, pady=10,
-            cursor="hand2", relief="flat",
-        )
-
-        tk.Button(self.barra_top, text="← VOLVER",
-                  command=self._volver, **estilo_btn).pack(side="left", padx=5, pady=5)
-
-        # Icono de estado animado (canvas pequeño)
-        self.canvas_icono = tk.Canvas(
-            self.barra_top, width=34, height=34,
-            bg=PALETA["central_fondo"], highlightthickness=0)
-        self.canvas_icono.pack(side="left", padx=(10, 4), pady=5)
-
-        # Texto de estado
-        self.lbl_estado = tk.Label(
-            self.barra_top, text="Buscando rostro...",
-            font=("Segoe UI", 11, "bold"),
-            fg=PALETA["topbar_sistema_fg"],
-            bg=PALETA["central_fondo"],
-            pady=10,
-        )
-        self.lbl_estado.pack(side="left", padx=4)
-
-        self.canvas_barra = tk.Canvas(
-            self.barra_top, width=120, height=8,
-            bg=PALETA["ghost_bg"], highlightthickness=0)
-        self.canvas_barra.pack(side="left", padx=(4, 10), pady=5)
-
+    # ══════════════════════════════════════════
+    #  Animación Mejorada
+    # ══════════════════════════════════════════
     def _iniciar_animacion(self):
         self._animar()
 
     def _animar(self):
         self._angulo = (self._angulo + 4) % 360
-        self._pulso += 0.05 * self._pulso_dir
-        if   self._pulso >= 1.0: self._pulso, self._pulso_dir = 1.0, -1
-        elif self._pulso <= 0.0: self._pulso, self._pulso_dir = 0.0,  1
-
         self._dibujar_icono()
-        self._dibujar_barra()
         try:
             self._after_anim = self.canvas_icono.after(33, self._animar)
         except Exception:
@@ -333,71 +503,62 @@ class PantallaAcceso:
     def _dibujar_icono(self):
         c = self.canvas_icono
         c.delete("all")
-        cx, cy, r = 17, 17, 13
+        
+        self._crear_rect_redondeado(c, 2, 2, 42, 42, 10, fill="#333333")
 
-        if self._estado in ("escaneando", "sin_rostro", "sin_camara"):
+        cx, cy, r = 22, 22, 13
+        grosor = 4
+        
+        if self._estado in ("escaneando", "sin_rostro", "sin_camara", "acceso_deny"):
+            # También mantenemos la animación girando cuando está denegado
             c.create_oval(cx-r, cy-r, cx+r, cy+r,
-                          outline="#cccccc", width=2, fill=PALETA["ghost_bg"])
+                          outline="#555555", width=grosor)
+            
+            # Cambiamos la onda a roja si está denegado
+            color_onda = "#ff0000" if self._estado == "acceso_deny" else PALETA.get("central_onda", "#4caf50")
             c.create_arc(cx-r, cy-r, cx+r, cy+r,
-                         start=self._angulo, extent=230,
-                         style="arc", outline=PALETA["central_onda"], width=2)
+                         start=self._angulo, extent=240,
+                         style="arc", outline=color_onda, width=grosor)
+            
+            rad_start = math.radians(self._angulo)
+            rad_end = math.radians(self._angulo + 240)
+            
+            x_start = cx + r * math.cos(rad_start)
+            y_start = cy - r * math.sin(rad_start)
+            
+            x_end = cx + r * math.cos(rad_end)
+            y_end = cy - r * math.sin(rad_end)
+            
+            cr = grosor / 2.0
+            c.create_oval(x_start-cr, y_start-cr, x_start+cr, y_start+cr, fill=color_onda, outline="")
+            c.create_oval(x_end-cr, y_end-cr, x_end+cr, y_end+cr, fill=color_onda, outline="")
+
         elif self._estado == "detectado":
-            ai = int(40 + self._pulso * 80)
+            color_onda = PALETA.get("central_onda", "#4caf50")
             c.create_oval(cx-r, cy-r, cx+r, cy+r,
-                          outline=f"#{ai:02x}af{ai:02x}", width=3,
-                          fill=PALETA["topbar_btn_bg"])
-            c.create_oval(cx-4, cy-4, cx+4, cy+4,
-                          fill=PALETA["central_onda"], outline="")
-        elif self._estado == "acceso_ok":
-            c.create_oval(cx-r, cy-r, cx+r, cy+r,
-                          outline="#4CAF50", width=2, fill="#e8f5e9")
-            c.create_text(cx, cy, text="✓",
-                          font=("Segoe UI", 12, "bold"), fill="#2e7d32")
-        elif self._estado == "acceso_deny":
-            c.create_oval(cx-r, cy-r, cx+r, cy+r,
-                          outline="#e53935", width=2, fill="#ffebee")
-            c.create_text(cx, cy, text="✕",
-                          font=("Segoe UI", 12, "bold"), fill="#c62828")
+                          outline=color_onda, width=grosor,
+                          fill="#2d4a2d")
+            c.create_oval(cx-5, cy-5, cx+5, cy+5,
+                          fill=color_onda, outline="")
 
-    def _dibujar_barra(self):
-        c = self.canvas_barra
-        c.delete("all")
-        w, h = 120, 8
-        c.create_rectangle(0, 0, w, h, fill=PALETA["ghost_bg"], outline="")
-        fw = int(w * min(max(self._confianza, 0), 1))
-        if fw > 0:
-            col = ("#4CAF50" if self._confianza > 0.6 else
-                   "#FFC107" if self._confianza > 0.3 else "#9E9E9E")
-            c.create_rectangle(0, 0, fw, h, fill=col, outline="")
-
-    def _pintar_frame(self):
-        if self._photo is None: return
-        self.label_video.imgtk = self._photo
-        self.label_video.config(image=self._photo, text="")
-
-    def _cambiar_estado(self, estado, confianza=0.0, nombre=""):
-        self._estado    = estado
-        self._confianza = confianza
-
-        textos = {
-            "escaneando":  ("Buscando rostro...",   PALETA["topbar_sistema_fg"]),
-            "detectado":   ("Rostro detectado",     PALETA["topbar_sistema_fg"]),
-            "acceso_ok":   (f"¡Bienvenido{', '+nombre if nombre else ''}!", "#2e7d32"),
-            "acceso_deny": ("Rostro no reconocido", "#c62828"),
-            "sin_rostro":  ("Acércate a la cámara", "#888888"),
-            "sin_camara":  ("Cámara no disponible", "#888888"),
-        }
-        txt, color = textos.get(estado, ("", PALETA["topbar_sistema_fg"]))
-        self.lbl_estado.config(text=txt, fg=color)
-
+    # ══════════════════════════════════════════
+    #  Limpieza
+    # ══════════════════════════════════════════
+    def ignorar_cierre(self):
+        pass
+        
     def _volver(self):
         self._corriendo = False
         if self._cap:
             self._cap.release()
         for aid in (self._after_anim, self._after_reset):
             if aid:
-                try: self.canvas_icono.after_cancel(aid)
-                except: pass
+                try:
+                    self.canvas_icono.after_cancel(aid)
+                except Exception:
+                    pass
+        ventana_principal = self.parent.winfo_toplevel()
+        ventana_principal.protocol("WM_DELETE_WINDOW", ventana_principal.destroy)
         self.app.mostrar_pantalla("principal")
 
 
