@@ -5,6 +5,13 @@ Cámara a la izquierda con botón de captura, formulario a la derecha.
 Se navega desde Gestión: app.mostrar_pantalla("registro")
 """
 
+import sys
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
@@ -422,3 +429,15 @@ class PantallaRegistro:
 
 def crear_pantalla_registro(parent, app):
     PantallaRegistro(parent, app)
+
+
+if __name__ == "__main__":
+    class _AppDemo:
+        def mostrar_pantalla(self, _nombre):
+            pass
+
+    root = tk.Tk()
+    root.title("SRFC | Registro de usuario")
+    root.geometry("1200x760")
+    PantallaRegistro(root, _AppDemo())
+    root.mainloop()
