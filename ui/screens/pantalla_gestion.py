@@ -69,8 +69,9 @@ class PantallaGestion:
         self.parent = parent
         self.app    = app
         self._todos_usuarios = []
-        self._filtro_rol     = tk.StringVar(value="Todos los roles")
+        self._filtro_rol     = tk.StringVar(value="Rol")
         self._filtro_mes     = tk.StringVar(value="Mes")
+        self._ico_arrow      = None  # se carga en _construir_tabla_usuarios
         inicializar_bd()
         self._construir_ui()
         self.pantalla.after(100, self._cargar_todo)
@@ -182,8 +183,11 @@ class PantallaGestion:
                         highlightthickness=1, highlightbackground=_BORDE)
         card.pack(fill="both", expand=True)
 
+        # Cargar icono flecha
+        self._ico_arrow = self._cargar_icono("arrow_circle_black.png", size=16)
+
         cab = tk.Frame(card, bg=_CARD_BG)
-        cab.pack(fill="x", padx=14, pady=(10, 6))
+        cab.pack(fill="x", padx=16, pady=(10, 6))
 
         tk.Label(cab, text=" USUARIOS ",
                  font=("Segoe UI", 10, "bold"),
@@ -193,19 +197,61 @@ class PantallaGestion:
         filtros = tk.Frame(cab, bg=_CARD_BG)
         filtros.pack(side="right")
 
-        roles = ["Todos los roles", "Alumno", "Maestro", "Admin", "Super Admin"]
-        om_rol = tk.OptionMenu(filtros, self._filtro_rol, *roles,
-                               command=lambda _: self._filtrar_tabla())
-        self._estilo_optionmenu(om_rol)
-        om_rol.pack(side="left", padx=(0, 6))
+        # Botón Rol con icono integrado
+        def _abrir_menu_rol(event, btn):
+            menu_rol = tk.Menu(filtros, tearoff=0,
+                               font=("Segoe UI", 9), bg=_CARD_BG,
+                               activebackground=_VERDE_CLARO,
+                               activeforeground="#ffffff")
+            for opcion in ["Rol", "Alumno", "Maestro", "Admin", "Super Admin"]:
+                menu_rol.add_command(
+                    label=opcion,
+                    command=lambda o=opcion: [self._filtro_rol.set(o),
+                                              btn.config(text=f"  {o}"),
+                                              self._filtrar_tabla()])
+            menu_rol.tk_popup(btn.winfo_rootx(),
+                              btn.winfo_rooty() + btn.winfo_height())
 
-        meses = ["Mes", "Enero", "Febrero", "Marzo", "Abril", "Mayo",
-                 "Junio", "Julio", "Agosto", "Septiembre",
-                 "Octubre", "Noviembre", "Diciembre"]
-        om_mes = tk.OptionMenu(filtros, self._filtro_mes, *meses,
-                               command=lambda _: self._filtrar_tabla())
-        self._estilo_optionmenu(om_mes)
-        om_mes.pack(side="left")
+        btn_rol = tk.Button(filtros, text="  Rol",
+                            image=self._ico_arrow, compound="right",
+                            font=("Segoe UI", 9, "bold"),
+                            fg=_TEXTO_OSCURO, bg=_GRIS_BG,
+                            activebackground=_BORDE,
+                            relief="flat", bd=0, padx=8, pady=5,
+                            highlightthickness=1,
+                            highlightbackground=_BORDE,
+                            cursor="hand2")
+        btn_rol.bind("<Button-1>", lambda e: _abrir_menu_rol(e, btn_rol))
+        btn_rol.pack(side="left", padx=(0, 8))
+
+        # Botón Mes con icono integrado
+        def _abrir_menu_mes(event, btn):
+            menu_mes = tk.Menu(filtros, tearoff=0,
+                               font=("Segoe UI", 9), bg=_CARD_BG,
+                               activebackground=_VERDE_CLARO,
+                               activeforeground="#ffffff")
+            for opcion in ["Mes", "Enero", "Febrero", "Marzo", "Abril", "Mayo",
+                           "Junio", "Julio", "Agosto", "Septiembre",
+                           "Octubre", "Noviembre", "Diciembre"]:
+                menu_mes.add_command(
+                    label=opcion,
+                    command=lambda o=opcion: [self._filtro_mes.set(o),
+                                              btn.config(text=f"  {o}"),
+                                              self._filtrar_tabla()])
+            menu_mes.tk_popup(btn.winfo_rootx(),
+                              btn.winfo_rooty() + btn.winfo_height())
+
+        btn_mes = tk.Button(filtros, text="  Mes",
+                            image=self._ico_arrow, compound="right",
+                            font=("Segoe UI", 9, "bold"),
+                            fg=_TEXTO_OSCURO, bg=_GRIS_BG,
+                            activebackground=_BORDE,
+                            relief="flat", bd=0, padx=8, pady=5,
+                            highlightthickness=1,
+                            highlightbackground=_BORDE,
+                            cursor="hand2")
+        btn_mes.bind("<Button-1>", lambda e: _abrir_menu_mes(e, btn_mes))
+        btn_mes.pack(side="left")
 
         s = ttk.Style()
         s.configure("U.Treeview",
@@ -296,10 +342,10 @@ class PantallaGestion:
         pie = tk.Frame(parent, bg=_GRIS_BG)
         pie.pack(fill="x", padx=24, pady=(6, 8))
 
-        # Cargar iconos (guardamos referencias para evitar GC)
-        self._ico_agregar  = self._cargar_icono("person_add.png")
+        # Cargar iconos de botones
+        self._ico_agregar   = self._cargar_icono("person_add.png")
         self._ico_historial = self._cargar_icono("history.png")
-        self._ico_cerrar   = self._cargar_icono("exit_to_app.png")
+        self._ico_cerrar    = self._cargar_icono("exit_to_app.png")
 
         # CERRAR SESIÓN alineado a la derecha
         tk.Button(pie, text="  CERRAR SESIÓN",
@@ -313,7 +359,7 @@ class PantallaGestion:
 
         # AGREGAR USUARIO y HISTORIAL alineados a la izquierda
         for texto, icono, bg, hover, cmd in [
-            ("  AGREGAR USUARIO", self._ico_agregar,  _VERDE_BTN, _VERDE_HOVER,
+            ("  + AGREGAR USUARIO", self._ico_agregar,  _VERDE_BTN, _VERDE_HOVER,
              lambda: self.app.mostrar_pantalla("agregar_usuario")),
             ("  HISTORIAL",         self._ico_historial, _VERDE_BTN, _VERDE_HOVER,
              lambda: self.app.mostrar_pantalla("historial")),
@@ -330,11 +376,12 @@ class PantallaGestion:
     # ══════════════════════════════════════════════════════════════════════════
     #  HELPER — OptionMenu estilizado
     # ══════════════════════════════════════════════════════════════════════════
-    def _estilo_optionmenu(self, om):
-        om.config(font=("Segoe UI", 8), bg=_GRIS_BG, fg=_TEXTO_OSCURO,
+    def _estilo_optionmenu(self, om, width=8):
+        om.config(font=("Segoe UI", 9, "bold"), bg=_GRIS_BG, fg=_TEXTO_OSCURO,
                   relief="flat", bd=0, highlightthickness=1,
                   highlightbackground=_BORDE, activebackground=_BORDE,
-                  cursor="hand2", pady=3, indicatoron=True)
+                  cursor="hand2", pady=5, width=width, indicatoron=True,
+                  selectcolor=_GRIS_BG)
         om["menu"].config(font=("Segoe UI", 9), bg=_CARD_BG,
                           activebackground=_VERDE_CLARO,
                           activeforeground="#ffffff")
@@ -383,7 +430,7 @@ class PantallaGestion:
         mes_f = self._filtro_mes.get()
         datos = self._todos_usuarios
 
-        if rol_f and rol_f != "Todos los roles":
+        if rol_f and rol_f != "Rol":
             datos = [u for u in datos
                      if (u.get("rol") or "").lower() == rol_f.lower()]
 
