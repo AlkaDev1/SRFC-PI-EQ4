@@ -214,6 +214,21 @@ class ValidacionUsrs:
         )
         # Se mantiene oculto por defecto, se posicionará en _cambiar_estado
 
+        #boton de prueba para entrar en gestión sin pasar por la validación biométrica
+        btn_prueba = tk.Button(self.capa_escaneo, text="Prueba", command=self._entrar_en_gestion)
+        btn_prueba.place(x=14, rely=1.0, anchor="sw", y=-14)
+    def _entrar_en_gestion(self):
+        self._corriendo = False
+        if self._cap:
+            self._cap.release()
+        for aid in (self._after_anim, self._after_reset):
+            if aid:
+                try:
+                    self.canvas_icono.after_cancel(aid)
+                except Exception:
+                    pass
+        self.app.mostrar_pantalla("gestion_real")
+
     # ── Capa acceso OK ────────────────────────
     def _construir_capa_ok(self):
         verde = PALETA["central_circulo"]

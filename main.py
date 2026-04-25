@@ -15,7 +15,7 @@ class App:
         self.contenedor.pack(fill="both", expand=True)
         self.mostrar_pantalla("principal")
 
-    def mostrar_pantalla(self, nombre):
+    def mostrar_pantalla(self, nombre, datos=None):
         for widget in self.contenedor.winfo_children():
             widget.destroy()
 
@@ -39,9 +39,21 @@ class App:
             from ui.screens.pantalla_gestion import crear_pantalla_gestion_real
             crear_pantalla_gestion_real(self.contenedor, self)
 
-        elif nombre == "login":                                     # ← NUEVO
+        elif nombre == "login":
             from ui.screens.pantalla_login import crear_pantalla_login
             crear_pantalla_login(self.contenedor, self)
+
+        elif nombre == "historial":
+            from ui.screens.historial_accesos import crear_pantalla_historial_accesos
+            crear_pantalla_historial_accesos(self.contenedor, self)
+
+        elif nombre == "agregar_usuario":
+            # TODO: crear ui/screens/pantalla_agregar_usuario.py
+            pass
+
+        elif nombre == "editar_usuario":
+            from ui.screens.pantalla_editar_usuario import crear_pantalla_editar_usuario
+            crear_pantalla_editar_usuario(self.contenedor, self, datos)
 
 
 def app():
