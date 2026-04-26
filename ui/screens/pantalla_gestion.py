@@ -359,7 +359,7 @@ class PantallaGestion:
 
         # AGREGAR USUARIO y HISTORIAL alineados a la izquierda
         for texto, icono, bg, hover, cmd in [
-            ("  + AGREGAR USUARIO", self._ico_agregar,  _VERDE_BTN, _VERDE_HOVER,
+            ("  AGREGAR USUARIO", self._ico_agregar,  _VERDE_BTN, _VERDE_HOVER,
              lambda: self.app.mostrar_pantalla("agregar_usuario")),
             ("  HISTORIAL",         self._ico_historial, _VERDE_BTN, _VERDE_HOVER,
              lambda: self.app.mostrar_pantalla("historial")),
