@@ -7,15 +7,29 @@ pyglet.font.add_file(ruta_fuente)
 
 from ui.styles import PALETA, MEDIDAS, configurar_estilos
 
+# ── NUEVO: importar el gestor de temas ────────────────────────────────────────
+# GestorTema es la clase central que controla si el tema es claro u oscuro.
+# Se crea UNA SOLA instancia aquí y todas las pantallas la acceden via app.tema
+from ui.tema import GestorTema
+
 
 class App:
     def __init__(self, root):
         self.root = root
+
+        # ── NUEVO: inicializar el gestor de temas ANTES de mostrar pantallas ──
+        # Esto es importante — las pantallas consultan app.tema al construirse
+        # para saber qué colores usar desde el primer render.
+        self.tema = GestorTema()
+
         self.contenedor = tk.Frame(root)
         self.contenedor.pack(fill="both", expand=True)
         self.mostrar_pantalla("principal")
 
     def mostrar_pantalla(self, nombre, datos=None):
+        # Al destruir los hijos del contenedor, cada pantalla llama
+        # desregistrar() en su método _volver() o _limpiar_tema(),
+        # evitando que el GestorTema intente actualizar widgets eliminados.
         for widget in self.contenedor.winfo_children():
             widget.destroy()
 
@@ -48,9 +62,9 @@ class App:
             crear_pantalla_historial_accesos(self.contenedor, self)
 
         elif nombre == "agregar_usuario":
-            # TODO: crear ui/screens/pantalla_agregar_usuario.py
-            pass
-
+            from ui.screens.pantalla_agregar_usuario import crear_pantalla_agregar_usuario
+            crear_pantalla_agregar_usuario(self.contenedor, self)
+            
         elif nombre == "editar_usuario":
             from ui.screens.pantalla_editar_usuario import crear_pantalla_editar_usuario
             crear_pantalla_editar_usuario(self.contenedor, self, datos)
