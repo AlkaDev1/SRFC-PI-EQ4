@@ -2,6 +2,13 @@
 ui/screens/validacionUsrs.py
 Pantalla de validación biométrica para administradores.
 Si el acceso es correcto, redirige a la pantalla de gestión real.
+
+SOPORTE DE TEMA OSCURO:
+  - Al construirse, obtiene la paleta activa de app.tema
+  - Se registra en GestorTema para recibir cambios automáticos
+  - _aplicar_tema(p) repinta: capa_ok, label_video, canvas_icono
+  - Al destruirse (_volver / _ir_a_gestion_real), se desregistra del GestorTema
+  - La cámara siempre es negra — eso no cambia con el tema
 """
 
 import tkinter as tk
@@ -10,7 +17,7 @@ import queue
 import os
 import cv2
 import numpy as np
-import math 
+import math
 from pathlib import Path
 from PIL import Image, ImageTk
 from datetime import datetime
@@ -33,6 +40,9 @@ class ValidacionUsrs:
     def __init__(self, parent, app):
         self.parent = parent
         self.app    = app
+
+        # ── Obtener paleta inicial del tema activo ────────────────────────────
+        self._p = app.tema.paleta() if hasattr(app, "tema") else _paleta_fallback()
 
         self._estado         = "escaneando"
         self._confianza      = 0.0
@@ -57,6 +67,10 @@ class ValidacionUsrs:
         self._construir_ui()
         self._iniciar_animacion()
         self._abrir_camara()
+
+        # ── Registrar en GestorTema para recibir cambios futuros ──────────────
+        if hasattr(app, "tema"):
+            app.tema.registrar(self._aplicar_tema)
 
     # ══════════════════════════════════════════
     #  Perfiles
@@ -86,15 +100,16 @@ class ValidacionUsrs:
     #  UI
     # ══════════════════════════════════════════
     def _construir_ui(self):
-        self.pantalla = tk.Frame(self.parent, bg="#000000")
+        p = self._p
+        self.pantalla = tk.Frame(self.parent, bg=p["acceso_fondo"])
         self.pantalla.pack(fill="both", expand=True)
 
         ventana_principal = self.parent.winfo_toplevel()
         ventana_principal.protocol("WM_DELETE_WINDOW", self.ignorar_cierre)
 
-        crear_encabezado(self.pantalla, self.parent.winfo_toplevel())
-        
-        self.contenedor = tk.Frame(self.pantalla, bg="#000000")
+        crear_encabezado(self.pantalla, self.app)
+
+        self.contenedor = tk.Frame(self.pantalla, bg=p["acceso_fondo"])
         self.contenedor.pack(fill="both", expand=True)
 
         self._construir_capa_escaneo()
@@ -107,23 +122,19 @@ class ValidacionUsrs:
         return canvas.create_polygon(puntos, smooth=True, **kwargs)
 
     def _crear_boton_volver(self, parent, bg_normal, bg_hover):
-        w, h = 100, 60  
+        w, h = 100, 60
         canvas = tk.Canvas(parent, width=w, height=h, bg=parent["bg"], highlightthickness=0)
 
         rect_id = self._crear_rect_redondeado(
-            canvas, 2, 2, w-2, h-2, 16, 
-            fill=bg_normal,
-            outline="#ffffff",
-            width=2
-        )
+            canvas, 2, 2, w-2, h-2, 16,
+            fill=bg_normal, outline="#ffffff", width=2)
 
         if not hasattr(self, '_img_return'):
             ruta_icono = Path(__file__).resolve().parent.parent.parent / "assets" / "img" / "return_icon.png"
             if ruta_icono.exists():
                 try:
                     self._img_return = tk.PhotoImage(file=str(ruta_icono))
-                except Exception as e:
-                    print(f"[UI] Error cargando return_icon.png: {e}")
+                except Exception:
                     self._img_return = None
             else:
                 self._img_return = None
@@ -142,35 +153,26 @@ class ValidacionUsrs:
         canvas.bind("<Button-1>", on_click)
         canvas.tag_bind(rect_id, "<Button-1>", on_click)
         canvas.tag_bind(content_id, "<Button-1>", on_click)
-
         return canvas
 
-    # --- NUEVO: Función para crear el botón de login manual con el mismo estilo ---
-    # --- MODIFICADO: Función para crear el botón de login manual con imagen ---
     def _crear_boton_login_manual(self, parent, bg_normal, bg_hover):
-        w, h = 100, 60  
+        w, h = 100, 60
         canvas = tk.Canvas(parent, width=w, height=h, bg=parent["bg"], highlightthickness=0)
 
         rect_id = self._crear_rect_redondeado(
-            canvas, 2, 2, w-2, h-2, 16, 
-            fill=bg_normal,
-            outline="#ffffff",
-            width=2
-        )
+            canvas, 2, 2, w-2, h-2, 16,
+            fill=bg_normal, outline="#ffffff", width=2)
 
-        # 1. Cargar la imagen password_icon.png
         if not hasattr(self, '_img_password'):
             ruta_icono = Path(__file__).resolve().parent.parent.parent / "assets" / "img" / "password_icon.png"
             if ruta_icono.exists():
                 try:
                     self._img_password = tk.PhotoImage(file=str(ruta_icono))
-                except Exception as e:
-                    print(f"[UI] Error cargando password_icon.png: {e}")
+                except Exception:
                     self._img_password = None
             else:
                 self._img_password = None
 
-        # 2. Si la imagen se cargó bien, la mostramos. Si no, usamos la llave de respaldo.
         if self._img_password:
             content_id = canvas.create_image(w//2, h//2, image=self._img_password)
         else:
@@ -185,18 +187,18 @@ class ValidacionUsrs:
         canvas.bind("<Button-1>", on_click)
         canvas.tag_bind(rect_id, "<Button-1>", on_click)
         canvas.tag_bind(content_id, "<Button-1>", on_click)
-
         return canvas
 
-    # ── Capa escaneo ─────────────────────────
+    # ── Capa escaneo ──────────────────────────────────────────────────────────
     def _construir_capa_escaneo(self):
-        self.capa_escaneo = tk.Frame(self.contenedor, bg="#000000")
+        p = self._p
+        self.capa_escaneo = tk.Frame(self.contenedor, bg=p["acceso_fondo"])
 
         self.label_video = tk.Label(
-            self.capa_escaneo, bg="#000000",
+            self.capa_escaneo, bg=p["acceso_fondo"],
             text="Iniciando cámara...",
             font=("Segoe UI", 13),
-            fg=PALETA["topbar_sistema_fg"])
+            fg=p["acceso_hud_fg"])
         self.label_video.place(x=0, y=0, relwidth=1, relheight=1)
 
         btn_volver = self._crear_boton_volver(self.capa_escaneo, bg_normal="#333333", bg_hover="#444444")
@@ -204,35 +206,16 @@ class ValidacionUsrs:
 
         self.canvas_icono = tk.Canvas(
             self.capa_escaneo, width=44, height=44,
-            bg="#000000", highlightthickness=0)
-        self.canvas_icono.place(
-            relx=1.0, rely=0.0, anchor="ne", x=-14, y=14)
+            bg=p["acceso_fondo"], highlightthickness=0)
+        self.canvas_icono.place(relx=1.0, rely=0.0, anchor="ne", x=-14, y=14)
 
-        # --- MODIFICADO: Botón de ingreso manual usando el nuevo canvas style ---
         self.btn_login = self._crear_boton_login_manual(
-            self.capa_escaneo, bg_normal="#d32f2f", bg_hover="#b71c1c"
-        )
-        # Se mantiene oculto por defecto, se posicionará en _cambiar_estado
+            self.capa_escaneo, bg_normal="#d32f2f", bg_hover="#b71c1c")
 
-        #boton de prueba para entrar en gestión sin pasar por la validación biométrica
-        #btn_prueba = tk.Button(self.capa_escaneo, text="Prueba", command=self._entrar_en_gestion)
-        ##btn_prueba.place(x=14, rely=1.0, anchor="sw", y=-14)
-    #def _entrar_en_gestion(self):
-        #self._corriendo = False
-        #if self._cap:
-         #   self._cap.release()
-        #for aid in (self._after_anim, self._after_reset):
-         #   if aid:
-          #      try:
-           #         self.canvas_icono.after_cancel(aid)
-            #    except Exception:
-             #       pass
-        #self.app.mostrar_pantalla("gestion_real")
-
-
-    # ── Capa acceso OK ────────────────────────
+    # ── Capa acceso OK ────────────────────────────────────────────────────────
     def _construir_capa_ok(self):
-        verde = PALETA["central_circulo"]
+        p     = self._p
+        verde = p["acceso_ok_bg"]
         self.capa_ok = tk.Frame(self.contenedor, bg=verde)
 
         self.canvas_foto = tk.Canvas(
@@ -240,48 +223,70 @@ class ValidacionUsrs:
             bg=verde, highlightthickness=0)
         self.canvas_foto.place(relx=0.5, rely=0.22, anchor="center")
 
-        badge = tk.Label(self.capa_ok, text="✓",
+        self._badge_ok = tk.Label(self.capa_ok, text="✓",
                          font=("Segoe UI", 14, "bold"),
-                         fg="#ffffff", bg=PALETA["central_onda"],
+                         fg="#ffffff", bg=verde,
                          padx=4, pady=2, relief="flat")
-        badge.place(relx=0.5, rely=0.22, anchor="sw", x=44, y=-4)
+        self._badge_ok.place(relx=0.5, rely=0.22, anchor="sw", x=44, y=-4)
 
-        tk.Label(self.capa_ok, text="ADMINISTRADOR RECONOCIDO",
-                 font=("Segoe UI", 17, "bold"),
-                 fg="#ffffff", bg=verde).place(
-                     relx=0.5, rely=0.52, anchor="center")
+        self._lbl_admin_reconocido = tk.Label(
+            self.capa_ok, text="ADMINISTRADOR RECONOCIDO",
+            font=("Segoe UI", 17, "bold"),
+            fg=p["acceso_ok_texto"], bg=verde)
+        self._lbl_admin_reconocido.place(relx=0.5, rely=0.52, anchor="center")
 
         self.lbl_nombre_ok = tk.Label(
             self.capa_ok, text="",
             font=("Segoe UI", 13, "bold"),
-            fg="#ffffff", bg=verde)
+            fg=p["acceso_ok_texto"], bg=verde)
         self.lbl_nombre_ok.place(relx=0.5, rely=0.63, anchor="center")
 
         self.lbl_info_ok = tk.Label(
             self.capa_ok, text="",
             font=("Segoe UI", 10),
-            fg="#c8eec8", bg=verde)
+            fg=p["acceso_ok_texto"], bg=verde)
         self.lbl_info_ok.place(relx=0.5, rely=0.73, anchor="center")
 
         btn_volver = self._crear_boton_volver(self.capa_ok, bg_normal="#2d7d32", bg_hover="#1b5e20")
         btn_volver.place(x=14, rely=1.0, anchor="sw", y=-14)
 
     def _mostrar_capa(self, capa):
-        # 1. Ignorar orden si la capa ya está en pantalla
         if getattr(self, "_capa_actual", None) == capa:
-            return 
-            
-        # 2. Registrar el cambio de capa
-        self._capa_actual = capa 
-        
-        # 3. Ocultar y mostrar
+            return
+        self._capa_actual = capa
         for c in (self.capa_escaneo, self.capa_ok):
             c.place_forget()
-            
-        mapa = {"escaneo": self.capa_escaneo,
-                "ok":      self.capa_ok}
-        
+        mapa = {"escaneo": self.capa_escaneo, "ok": self.capa_ok}
         mapa[capa].place(x=0, y=0, relwidth=1, relheight=1)
+
+    # ══════════════════════════════════════════
+    #  Soporte de tema
+    # ══════════════════════════════════════════
+    def _aplicar_tema(self, p: dict):
+        """Recibe la nueva paleta y repinta los widgets de esta pantalla.
+
+        Llamado automáticamente por GestorTema cuando el usuario presiona 🌙/☀️.
+        La cámara siempre es negra — solo repintamos los marcos y la capa OK.
+        """
+        self._p = p
+        try:
+            self.pantalla.configure(bg=p["acceso_fondo"])
+            self.contenedor.configure(bg=p["acceso_fondo"])
+
+            # Capa escaneo
+            self.capa_escaneo.configure(bg=p["acceso_fondo"])
+            self.label_video.configure(bg=p["acceso_fondo"], fg=p["acceso_hud_fg"])
+            self.canvas_icono.configure(bg=p["acceso_fondo"])
+
+            # Capa OK
+            self.capa_ok.configure(bg=p["acceso_ok_bg"])
+            self.canvas_foto.configure(bg=p["acceso_ok_bg"])
+            self._badge_ok.configure(bg=p["acceso_ok_bg"])
+            self._lbl_admin_reconocido.configure(bg=p["acceso_ok_bg"], fg=p["acceso_ok_texto"])
+            self.lbl_nombre_ok.configure(bg=p["acceso_ok_bg"], fg=p["acceso_ok_texto"])
+            self.lbl_info_ok.configure(bg=p["acceso_ok_bg"], fg=p["acceso_ok_texto"])
+        except tk.TclError:
+            pass
 
     # ══════════════════════════════════════════
     #  Cámara
@@ -322,14 +327,14 @@ class ValidacionUsrs:
                     if cw < 10 or ch < 10:
                         time.sleep(0.04)
                         continue
-                    
+
                     resized = cv2.resize(frame, (cw, ch))
 
                     if self._bbox:
                         x1, y1, x2, y2 = self._bbox
                         color_bbox = (0, 0, 255) if self._estado == "acceso_deny" else (80, 175, 76)
-                        cv2.rectangle(resized, (x1, y1), (x2, y2), color_bbox, 2) 
-                    
+                        cv2.rectangle(resized, (x1, y1), (x2, y2), color_bbox, 2)
+
                     msgs = {
                         "escaneando":  ("VALIDACION DE GESTION",   "ESCANEANDO ROSTRO..."),
                         "detectado":   ("ROSTRO DETECTADO",        "Verificando permisos..."),
@@ -340,20 +345,19 @@ class ValidacionUsrs:
                     titulo, sub = msgs.get(self._estado, ("ESCANEANDO...", ""))
 
                     fuente = cv2.FONT_HERSHEY_SIMPLEX
-                    (w_titulo, h_titulo), _ = cv2.getTextSize(titulo, fuente, 0.8, 2)
-                    (w_sub, h_sub), _ = cv2.getTextSize(sub, fuente, 0.5, 1)
+                    (w_titulo, _), _ = cv2.getTextSize(titulo, fuente, 0.8, 2)
+                    (w_sub, _), _    = cv2.getTextSize(sub,    fuente, 0.5, 1)
 
                     pos_titulo = ((cw - w_titulo) // 2, 40)
-                    pos_sub = ((cw - w_sub) // 2, 70)
+                    pos_sub    = ((cw - w_sub)    // 2, 70)
 
                     color_titulo = (0, 0, 255) if self._estado == "acceso_deny" else (255, 255, 255)
 
                     self._dibujar_texto_con_borde(
-                        img=resized, texto=titulo, pos=pos_titulo, 
+                        img=resized, texto=titulo, pos=pos_titulo,
                         fuente=fuente, escala=0.8, grosor_borde=5, grosor_texto=2, color_texto=color_titulo)
-                    
                     self._dibujar_texto_con_borde(
-                        img=resized, texto=sub, pos=pos_sub, 
+                        img=resized, texto=sub, pos=pos_sub,
                         fuente=fuente, escala=0.5, grosor_borde=3, grosor_texto=1, color_texto=(200, 200, 200))
 
                     rgb   = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
@@ -376,8 +380,7 @@ class ValidacionUsrs:
                 continue
             resultado = self._reconocer(frame)
             try:
-                self.label_video.after(
-                    0, lambda r=resultado: self._aplicar_resultado(r))
+                self.label_video.after(0, lambda r=resultado: self._aplicar_resultado(r))
             except Exception:
                 pass
 
@@ -386,67 +389,47 @@ class ValidacionUsrs:
             pequeño = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
             rgb     = cv2.cvtColor(pequeño, cv2.COLOR_BGR2RGB)
             ubs     = face_recognition.face_locations(rgb, model="hog")
-            
             if not ubs:
                 return {"hay_rostro": False}
-                
             ub = max(ubs, key=lambda u: (u[2]-u[0]) * (u[1]-u[3]))
-            
-            alto_rostro = ub[2] - ub[0]
+            alto_rostro  = ub[2] - ub[0]
             ancho_rostro = ub[1] - ub[3]
-            area_rostro = alto_rostro * ancho_rostro
-            
+            area_rostro  = alto_rostro * ancho_rostro
             alto_frame, ancho_frame, _ = pequeño.shape
             area_frame = alto_frame * ancho_frame
-            
-            if (area_rostro / area_frame) < 0.10: 
+            if (area_rostro / area_frame) < 0.10:
                 return {"hay_rostro": False}
-
             ub_orig = (ub[0]*2, ub[1]*2, ub[2]*2, ub[3]*2)
-            
             if not self._encodings:
                 return {"hay_rostro": True, "reconocido": False,
                         "confianza": 0.0, "ubicacion": ub_orig, "nombre": ""}
-                        
             encs = face_recognition.face_encodings(rgb, [ub])
             if not encs:
                 return {"hay_rostro": True, "reconocido": False,
                         "confianza": 0.0, "ubicacion": ub_orig, "nombre": ""}
-                        
             dists = face_recognition.face_distance(self._encodings, encs[0])
             idx   = int(np.argmin(dists))
             dist  = float(dists[idx])
             conf  = round(max(0.0, 1.0 - dist), 3)
-            
             if dist <= 0.50:
                 return {"hay_rostro": True, "reconocido": True,
-                        "confianza": conf, "ubicacion": ub_orig,
-                        "nombre": self._nombres[idx]}
-                        
+                        "confianza": conf, "ubicacion": ub_orig, "nombre": self._nombres[idx]}
             return {"hay_rostro": True, "reconocido": False,
                     "confianza": conf, "ubicacion": ub_orig, "nombre": ""}
-                    
         else:
             gris    = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             cascade = cv2.CascadeClassifier(
                 cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-            rostros = cascade.detectMultiScale(
-                gris, scaleFactor=1.1, minNeighbors=8, minSize=(100, 100))
-                
+            rostros = cascade.detectMultiScale(gris, scaleFactor=1.1, minNeighbors=8, minSize=(100, 100))
             if len(rostros) == 0:
                 return {"hay_rostro": False}
-                
             x, y, w, h = max(rostros, key=lambda r: r[2]*r[3])
-            
             area_rostro_hc = w * h
-            area_frame_hc = frame.shape[0] * frame.shape[1]
-            
+            area_frame_hc  = frame.shape[0] * frame.shape[1]
             if (area_rostro_hc / area_frame_hc) < 0.10:
                 return {"hay_rostro": False}
-            
             return {"hay_rostro": True, "reconocido": False,
-                    "confianza": 0.3, "ubicacion": (y, x+w, y+h, x),
-                    "nombre": ""}
+                    "confianza": 0.3, "ubicacion": (y, x+w, y+h, x), "nombre": ""}
 
     def _pintar_frame(self):
         if self._photo is None:
@@ -460,14 +443,12 @@ class ValidacionUsrs:
     def _aplicar_resultado(self, r):
         if self._bloqueado:
             return
-
         if r.get("hay_rostro") and r.get("ubicacion"):
             top, right, bottom, left = r["ubicacion"]
             cw = self.label_video.winfo_width()
             ch = self.label_video.winfo_height()
             sx, sy = cw / 640.0, ch / 480.0
-            self._bbox = (int(left*sx), int(top*sy),
-                          int(right*sx), int(bottom*sy))
+            self._bbox = (int(left*sx), int(top*sy), int(right*sx), int(bottom*sy))
             self._frames_perdido = 0
         else:
             self._frames_perdido += 1
@@ -488,7 +469,6 @@ class ValidacionUsrs:
                 self._frames_ok = 0
                 self._bloqueado = True
                 self._cambiar_estado("acceso_ok", nombre=r.get("nombre", ""))
-                # Se redirecciona a la gestión en lugar de reiniciar la cámara
         else:
             self._frames_ok    = 0
             self._frames_deny += 1
@@ -497,9 +477,7 @@ class ValidacionUsrs:
                 self._frames_deny = 0
                 self._bloqueado   = True
                 self._cambiar_estado("acceso_deny")
-                # MODIFICADO: Cambiado de 2000 a 5000 para dar tiempo a pulsar el botón
-                self._after_reset = self.canvas_icono.after(
-                    5000, self._resetear) 
+                self._after_reset = self.canvas_icono.after(5000, self._resetear)
 
     def _resetear(self):
         self._bloqueado = False
@@ -513,6 +491,7 @@ class ValidacionUsrs:
         if self._estado == estado and estado not in ("acceso_ok", "acceso_deny"):
             return
         self._estado = estado
+        p = self._p
 
         if estado == "acceso_ok":
             self._mostrar_capa("ok")
@@ -520,28 +499,25 @@ class ValidacionUsrs:
             self.lbl_info_ok.config(text="Redirigiendo al panel de gestión...")
             c = self.canvas_foto
             c.delete("all")
-            c.create_oval(5, 5, 115, 115,
-                          fill="#ffffff", outline="#c8f0c8", width=3)
-            c.create_text(60, 60, text="👤",
-                          font=("Segoe UI", 40),
-                          fill=PALETA["central_circulo"])
-            
-            # ¡MAGIA! Redirección automática después de 1.5 segundos
+            c.create_oval(5, 5, 115, 115, fill="#ffffff", outline="#c8f0c8", width=3)
+            c.create_text(60, 60, text="👤", font=("Segoe UI", 40), fill=p["acceso_ok_bg"])
             self.pantalla.after(1500, self._ir_a_gestion_real)
 
         elif estado == "acceso_deny":
             self._mostrar_capa("escaneo")
-            # --- MODIFICADO: Mostrar el botón de login manual en la parte inferior derecha ---
             if hasattr(self, 'btn_login'):
                 self.btn_login.place(relx=1.0, rely=1.0, anchor="se", x=-14, y=-14)
         else:
             self._mostrar_capa("escaneo")
-            # NUEVO: Ocultar el botón si regresa a escanear
             if hasattr(self, 'btn_login'):
                 self.btn_login.place_forget()
-            
+
+    # ══════════════════════════════════════════
+    #  Navegación
+    # ══════════════════════════════════════════
     def _ir_a_gestion_real(self):
-        """Detiene los procesos actuales y salta a la pantalla de gestión."""
+        if hasattr(self.app, "tema"):
+            self.app.tema.desregistrar(self._aplicar_tema)
         self._corriendo = False
         if self._cap:
             self._cap.release()
@@ -551,12 +527,11 @@ class ValidacionUsrs:
                     self.canvas_icono.after_cancel(aid)
                 except Exception:
                     pass
-        # Ejecutamos la transición configurada en el main.py
         self.app.mostrar_pantalla("gestion_real")
 
-    # NUEVO: Función para redirigir a Login Manual
     def _ir_a_login(self):
-        """Detiene la cámara y redirige a la pantalla de login manual."""
+        if hasattr(self.app, "tema"):
+            self.app.tema.desregistrar(self._aplicar_tema)
         self._corriendo = False
         if self._cap:
             self._cap.release()
@@ -566,7 +541,6 @@ class ValidacionUsrs:
                     self.canvas_icono.after_cancel(aid)
                 except Exception:
                     pass
-        # Nota: Asegúrate de que "login" sea el nombre correcto registrado en tu App para esta pantalla
         self.app.mostrar_pantalla("login")
 
     # ══════════════════════════════════════════
@@ -586,59 +560,50 @@ class ValidacionUsrs:
     def _dibujar_icono(self):
         c = self.canvas_icono
         c.delete("all")
-        
-        self._crear_rect_redondeado(c, 2, 2, 42, 42, 10, fill="#333333")
+        p = self._p
 
+        self._crear_rect_redondeado(c, 2, 2, 42, 42, 10, fill="#333333")
         cx, cy, r = 22, 22, 13
         grosor = 4
-        
+
         if self._estado in ("escaneando", "sin_rostro", "sin_camara", "acceso_deny"):
-            c.create_oval(cx-r, cy-r, cx+r, cy+r,
-                          outline="#555555", width=grosor)
-            
-            color_onda = "#ff0000" if self._estado == "acceso_deny" else PALETA.get("central_onda", "#4caf50")
+            c.create_oval(cx-r, cy-r, cx+r, cy+r, outline="#555555", width=grosor)
+            color_onda = "#ff0000" if self._estado == "acceso_deny" else p["acceso_barra_ok"]
             c.create_arc(cx-r, cy-r, cx+r, cy+r,
                          start=self._angulo, extent=240,
                          style="arc", outline=color_onda, width=grosor)
-            
             rad_start = math.radians(self._angulo)
-            rad_end = math.radians(self._angulo + 240)
-            
+            rad_end   = math.radians(self._angulo + 240)
             x_start = cx + r * math.cos(rad_start)
             y_start = cy - r * math.sin(rad_start)
-            
-            x_end = cx + r * math.cos(rad_end)
-            y_end = cy - r * math.sin(rad_end)
-            
+            x_end   = cx + r * math.cos(rad_end)
+            y_end   = cy - r * math.sin(rad_end)
             cr = grosor / 2.0
             c.create_oval(x_start-cr, y_start-cr, x_start+cr, y_start+cr, fill=color_onda, outline="")
-            c.create_oval(x_end-cr, y_end-cr, x_end+cr, y_end+cr, fill=color_onda, outline="")
+            c.create_oval(x_end-cr,   y_end-cr,   x_end+cr,   y_end+cr,   fill=color_onda, outline="")
 
         elif self._estado == "detectado":
-            color_onda = PALETA.get("central_onda", "#4caf50")
-            c.create_oval(cx-r, cy-r, cx+r, cy+r,
-                          outline=color_onda, width=grosor,
-                          fill="#2d4a2d")
-            c.create_oval(cx-5, cy-5, cx+5, cy+5,
-                          fill=color_onda, outline="")
+            color_onda = p["acceso_barra_ok"]
+            c.create_oval(cx-r, cy-r, cx+r, cy+r, outline=color_onda, width=grosor, fill="#2d4a2d")
+            c.create_oval(cx-5, cy-5, cx+5, cy+5, fill=color_onda, outline="")
 
     # ══════════════════════════════════════════
     #  Limpieza
     # ══════════════════════════════════════════
     def ignorar_cierre(self):
         print("Cerrando forzosamente desde validación biométrica...")
+        if hasattr(self.app, "tema"):
+            self.app.tema.desregistrar(self._aplicar_tema)
         self._corriendo = False
         if self._cap:
-            self._cap.release() # Liberamos la cámara educadamente
-    
-        # Destruimos la ventana
+            self._cap.release()
         ventana_principal = self.parent.winfo_toplevel()
         ventana_principal.destroy()
-    
-        # Matamos el proceso de Python de raíz para que OpenCV no se quede colgado
         os._exit(0)
-        
+
     def _volver(self):
+        if hasattr(self.app, "tema"):
+            self.app.tema.desregistrar(self._aplicar_tema)
         self._corriendo = False
         if self._cap:
             self._cap.release()
@@ -653,9 +618,20 @@ class ValidacionUsrs:
         self.app.mostrar_pantalla("principal")
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+#  FALLBACK — colores originales si no hay GestorTema
+# ──────────────────────────────────────────────────────────────────────────────
+def _paleta_fallback() -> dict:
+    return {
+        "acceso_fondo":      "#000000",
+        "acceso_ok_bg":      "#43A047",
+        "acceso_ok_texto":   "#ffffff",
+        "acceso_deny_texto": "#f44336",
+        "acceso_hud_fg":     "#ffffff",
+        "acceso_barra_ok":   "#4CAF50",
+    }
+
+
 def crear_pantalla_gestion(parent, app):
-    """
-    Función de entrada que main.py espera encontrar.
-    Construye la clase ValidacionUsrs.
-    """
+    """Función de entrada que main.py espera encontrar."""
     ValidacionUsrs(parent, app)
