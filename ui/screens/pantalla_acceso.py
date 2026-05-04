@@ -20,6 +20,7 @@ import os
 import cv2
 import numpy as np
 import math
+import platform
 from pathlib import Path
 from PIL import Image, ImageTk
 from datetime import datetime
@@ -33,6 +34,10 @@ try:
 except ImportError:
     FR_DISPONIBLE = False
 
+# Índice de cámara: 1 en RPi (webcam USB), 0 en laptop
+_ES_RASPBERRY = platform.machine() in ("aarch64", "armv7l")
+_CAM_INDEX    = 1 if _ES_RASPBERRY else 0
+
 FRAMES_CONFIRMAR = 8
 FRAMES_PERDER    = 8
 
@@ -43,7 +48,6 @@ class PantallaAcceso:
         self.parent = parent
         self.app    = app
 
-        # ── Obtener paleta inicial del tema activo ────────────────────────────
         self._p = app.tema.paleta() if hasattr(app, "tema") else _paleta_fallback()
 
         self._estado         = "escaneando"
@@ -71,7 +75,6 @@ class PantallaAcceso:
         self._iniciar_animacion()
         self._abrir_camara()
 
-        # ── Registrar en GestorTema para recibir cambios futuros ──────────────
         if hasattr(app, "tema"):
             app.tema.registrar(self._aplicar_tema)
 
@@ -147,7 +150,6 @@ class PantallaAcceso:
         canvas.tag_bind(content_id, "<Button-1>", on_click)
         return canvas
 
-    # ── Capa escaneo ──────────────────────────────────────────────────────────
     def _construir_capa_escaneo(self):
         p = self._p
         self.capa_escaneo = tk.Frame(self.contenedor, bg=p["acceso_fondo"])
@@ -167,7 +169,6 @@ class PantallaAcceso:
             bg=p["acceso_fondo"], highlightthickness=0)
         self.canvas_icono.place(relx=1.0, rely=1.0, anchor="se", x=-14, y=-14)
 
-    # ── Capa acceso OK ────────────────────────────────────────────────────────
     def _construir_capa_ok(self):
         p    = self._p
         verde = p["acceso_ok_bg"]
@@ -238,9 +239,7 @@ class PantallaAcceso:
     #  Cámara
     # ══════════════════════════════════════════
     def _abrir_camara(self):
-        import platform
-        _idx = 1 if platform.machine() in ("aarch64", "armv7l") else 0
-        self._cap = cv2.VideoCapture(_idx)
+        self._cap = cv2.VideoCapture(_CAM_INDEX)
         if not self._cap.isOpened():
             self._cambiar_estado("sin_camara")
             return
@@ -286,7 +285,7 @@ class PantallaAcceso:
                         "detectado":   ("ROSTRO DETECTADO",        "Verificando identidad..."),
                         "sin_rostro":  ("ACERCATE A LA CAMARA",    "No se detecta ningun rostro"),
                         "sin_camara":  ("CAMARA NO DISPONIBLE",    "Verifique la conexion"),
-                        "acceso_deny": ("ACCESO DENEGADO",         "No eres administrador..."),
+                        "acceso_deny": ("ACCESO DENEGADO",         "No autorizado"),
                     }
                     titulo, sub = msgs.get(self._estado, ("ESCANEANDO...", ""))
 
@@ -444,12 +443,11 @@ class PantallaAcceso:
         p = self._p
 
         if estado == "acceso_ok":
-            # Registrar acceso en historial
+            # ── GPIO: solenoide + LED verde + beep OK ──
+            threading.Thread(target=self._gpio_acceso_ok, daemon=True).start()
+            # ── BD: registrar acceso ──
             if cod:
-                threading.Thread(
-                    target=self._registrar_acceso_bd,
-                    args=(cod,), daemon=True
-                ).start()
+                threading.Thread(target=self._registrar_acceso_bd, args=(cod,), daemon=True).start()
 
             self._mostrar_capa("ok")
             hora = datetime.now().strftime("%I:%M %p").lower()
@@ -459,10 +457,31 @@ class PantallaAcceso:
             c.delete("all")
             c.create_oval(5, 5, 115, 115, fill="#ffffff", outline="#c8f0c8", width=3)
             c.create_text(60, 60, text="👤", font=("Segoe UI", 40), fill=p["acceso_ok_bg"])
+
         elif estado == "acceso_deny":
+            # ── GPIO: LED rojo + beep DENY ──
+            threading.Thread(target=self._gpio_acceso_deny, daemon=True).start()
             self._mostrar_capa("escaneo")
+
         else:
             self._mostrar_capa("escaneo")
+
+    # ══════════════════════════════════════════
+    #  GPIO
+    # ══════════════════════════════════════════
+    def _gpio_acceso_ok(self):
+        try:
+            from core.gpio import acceso_concedido
+            acceso_concedido()
+        except Exception as e:
+            print(f"[GPIO] Error acceso_concedido: {e}")
+
+    def _gpio_acceso_deny(self):
+        try:
+            from core.gpio import acceso_denegado
+            acceso_denegado()
+        except Exception as e:
+            print(f"[GPIO] Error acceso_denegado: {e}")
 
     def _registrar_acceso_bd(self, cod: str):
         try:
@@ -535,6 +554,14 @@ class PantallaAcceso:
                     self.canvas_icono.after_cancel(aid)
                 except Exception:
                     pass
+
+        # Apagar GPIO al salir
+        try:
+            from core.gpio import apagar_todo
+            apagar_todo()
+        except Exception:
+            pass
+
         ventana_principal = self.parent.winfo_toplevel()
         ventana_principal.protocol("WM_DELETE_WINDOW", ventana_principal.destroy)
         self.app.mostrar_pantalla("principal")
