@@ -8,7 +8,6 @@ SRFC_Project/
 ├── data/                # Persistencia y archivos locales
 │   ├── profiles/        # Fotos de referencia de los alumnos
 │   └── SRFC.db          # Base de datos SQLite
-├── src/                 # Utilidades y soporte técnico
 ├── ui/                  # Interfaz de Usuario (Frontend)
 │   ├── components/      # Widgets reutilizables (Botones, Inputs)
 │   ├── screens/         # Ventanas (Login, Registro, Dashboard)

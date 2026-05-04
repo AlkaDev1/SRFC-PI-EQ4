@@ -1,15 +1,108 @@
 """
 ui/screens/pantalla_gestion.py
-Pantalla de Gestión — tabs: Estadísticas | Usuarios | Historial
+Rediseño según mockup — Hernández Vázquez Melany Guadalupe
+
+SOPORTE DE TEMA OSCURO:
+  - Botones Rol/Mes usan arrow_circle_black.png (claro) y arrow_drop_down.png (oscuro)
+  - Los menús leen self._p al abrirse para respetar el tema activo
+  - _aplicar_tema() repinta: fondos, tarjetas, tabla, botones de filtro y acciones
+  - Al destruirse se desregistra del GestorTema
 """
 
 import tkinter as tk
 from tkinter import ttk
 from datetime import datetime
+from pathlib import Path
+
+try:
+    from PIL import Image, ImageTk
+    _PIL_OK = True
+except ImportError:
+    _PIL_OK = False
 
 from ui.styles import PALETA, FUENTES, MEDIDAS
 from ui.components.barra_superior import crear_encabezado
-from core.database import obtener_usuarios, obtener_accesos, inicializar_bd
+from core.database import (listar_usuarios as obtener_usuarios,
+                            listar_accesos as obtener_accesos,
+                            inicializar_bd)
+
+_RAIZ = Path(__file__).resolve().parents[2]
+
+# ── Datos de prueba ───────────────────────────────────────────────────────────
+_USUARIOS_DEMO = [
+    {"cod_institucional": "20203455", "nombre": "Melany",
+     "apellido_paterno": "Suarez",    "apellido_materno": "Hernandez",
+     "carrera": "Ing. Software",      "rol": "Alumno",
+     "fecha_registro": "2026-03-24",  "hora_registro": "8:41 p.m.", "status": "Activo"},
+    {"cod_institucional": "20203456", "nombre": "Carlos",
+     "apellido_paterno": "Cabrera",   "apellido_materno": "Alcaraz",
+     "carrera": "Ing. Mecanicánico y Electricista", "rol": "Alumno",
+     "fecha_registro": "2026-03-24",  "hora_registro": "8:41 p.m.", "status": "Inactivo"},
+    {"cod_institucional": "10198822", "nombre": "José",
+     "apellido_paterno": "Rodriguez", "apellido_materno": "Jacobo",
+     "carrera": "Ing. Mecatrónica",   "rol": "Maestro",
+     "fecha_registro": "2026-03-24",  "hora_registro": "8:41 p.m.", "status": "Activo"},
+    {"cod_institucional": "20181992", "nombre": "Jesus",
+     "apellido_paterno": "Salazar",   "apellido_materno": "Lopez",
+     "carrera": "Ing. Tecnología Electrónicas", "rol": "Admin",
+     "fecha_registro": "2026-03-24",  "hora_registro": "8:41 p.m.", "status": "Activo"},
+    {"cod_institucional": "20181992", "nombre": "Miguel",
+     "apellido_paterno": "Mendoza",   "apellido_materno": "Garcia",
+     "carrera": "Ing. Software",      "rol": "Super Admin",
+     "fecha_registro": "2026-03-24",  "hora_registro": "8:41 p.m.", "status": "Activo"},
+]
+
+# ── Paleta modo claro ─────────────────────────────────────────────────────────
+_C = {
+    "gris_bg":      "#f5f5f5",
+    "card_bg":      "#ffffff",
+    "texto_oscuro": "#1a1a1a",
+    "texto_gris":   "#757575",
+    "borde":        "#e0e0e0",
+    "verde":        "#2e7d32",
+    "verde_claro":  "#4caf50",
+    "verde_btn":    "#43a047",
+    "verde_hover":  "#388e3c",
+    "rojo":         "#c62828",
+    "rojo_claro":   "#ef5350",
+    "fila_par":     "#f9f9f9",
+    "fila_impar":   "#ffffff",
+    "sel_tree":     "#e8f5e9",
+    "sel_tree_fg":  "#2e7d32",
+    "filtro_bg":    "#f5f5f5",
+    "filtro_borde": "#e0e0e0",
+    "filtro_fg":    "#1a1a1a",
+    "flecha_img":   "arrow_circle_black.png",
+}
+
+# ── Paleta modo oscuro ────────────────────────────────────────────────────────
+_O = {
+    "gris_bg":      "#071E07",
+    "card_bg":      "#0d2a0d",
+    "texto_oscuro": "#d0f0d0",
+    "texto_gris":   "#7aaa7a",
+    "borde":        "#1a3a1a",
+    "verde":        "#2D531A",
+    "verde_claro":  "#477023",
+    "verde_btn":    "#2D531A",
+    "verde_hover":  "#477023",
+    "rojo":         "#7f1d1d",
+    "rojo_claro":   "#f87171",
+    "fila_par":     "#0d2a0d",
+    "fila_impar":   "#071E07",
+    "sel_tree":     "#1a3a1a",
+    "sel_tree_fg":  "#4ade80",
+    "filtro_bg":    "#1a3a1a",
+    "filtro_borde": "#1a3a1a",
+    "filtro_fg":    "#d0f0d0",
+    "flecha_img":   "arrow_drop_down.png",
+}
+
+
+def _paleta(app) -> dict:
+    if hasattr(app, "tema") and app.tema.es_oscuro():
+        return _O
+    return _C
 
 
 class PantallaGestion:
@@ -17,304 +110,457 @@ class PantallaGestion:
     def __init__(self, parent, app):
         self.parent = parent
         self.app    = app
-        self._todos_usuarios = []
+        self._p     = _paleta(app)
+        self._todos_usuarios      = []
+        self._filtro_rol          = tk.StringVar(value="Rol")
+        self._filtro_mes          = tk.StringVar(value="Mes")
+        self._ico_flecha          = None
+        self._widgets_repintables = []
+        self._btns_accion         = []
         inicializar_bd()
         self._construir_ui()
-        # Cargar datos después de que tkinter procese el layout
         self.pantalla.after(100, self._cargar_todo)
 
-    # ══════════════════════════════════════════
-    #  UI
-    # ══════════════════════════════════════════
+        if hasattr(app, "tema"):
+            app.tema.registrar(self._on_tema_cambio)
+        self.pantalla.bind("<Destroy>", self._limpiar_tema)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  SOPORTE DE TEMA
+    # ══════════════════════════════════════════════════════════════════════════
+    def _on_tema_cambio(self, paleta_nueva: dict):
+        self._p = _O if self.app.tema.es_oscuro() else _C
+        self._aplicar_tema()
+
+    def _aplicar_tema(self):
+        p = self._p
+        try:
+            self.pantalla.configure(bg=p["gris_bg"])
+            self._wrap.configure(bg=p["gris_bg"])
+            self._canvas_scroll.configure(bg=p["gris_bg"])
+            self._inner.configure(bg=p["gris_bg"])
+
+            for widget, bg_k, fg_k in self._widgets_repintables:
+                try:
+                    if not widget.winfo_exists():
+                        continue
+                    widget.configure(bg=p[bg_k])
+                    if fg_k:
+                        widget.configure(fg=p[fg_k])
+                except tk.TclError:
+                    pass
+
+            # Recargar icono de flecha y actualizar botones de filtro
+            self._recargar_ico_flecha()
+            for btn in (self._btn_rol, self._btn_mes):
+                try:
+                    btn.configure(bg=p["filtro_bg"], fg=p["filtro_fg"],
+                                  highlightbackground=p["filtro_borde"],
+                                  activebackground=p["borde"],
+                                  image=self._ico_flecha)
+                except tk.TclError:
+                    pass
+
+            # Botones de acciones rápidas
+            for btn, tipo in self._btns_accion:
+                try:
+                    if not btn.winfo_exists():
+                        continue
+                    if tipo == "verde":
+                        btn.configure(bg=p["verde_btn"],
+                                      activebackground=p["verde_hover"])
+                except tk.TclError:
+                    pass
+
+            # Treeview
+            s = ttk.Style()
+            s.configure("U.Treeview",
+                        background=p["card_bg"], foreground=p["texto_oscuro"],
+                        fieldbackground=p["card_bg"])
+            s.configure("U.Treeview.Heading",
+                        background=p["verde"], foreground="#ffffff")
+            s.map("U.Treeview",
+                  background=[("selected", p["sel_tree"])],
+                  foreground=[("selected", p["sel_tree_fg"])])
+            self.tree_usuarios.tag_configure("par",   background=p["fila_par"])
+            self.tree_usuarios.tag_configure("impar", background=p["fila_impar"])
+
+        except tk.TclError:
+            pass
+
+    def _limpiar_tema(self, event=None):
+        if hasattr(self.app, "tema"):
+            self.app.tema.desregistrar(self._on_tema_cambio)
+
+    def _reg(self, widget, bg_k, fg_k=None):
+        self._widgets_repintables.append((widget, bg_k, fg_k))
+
+    def _recargar_ico_flecha(self):
+        """Carga el icono correcto según el tema activo."""
+        if not _PIL_OK:
+            self._ico_flecha = None
+            return
+        try:
+            ruta = _RAIZ / "assets" / "img" / self._p["flecha_img"]
+            img  = Image.open(ruta).convert("RGBA").resize((16, 16), Image.LANCZOS)
+            self._ico_flecha = ImageTk.PhotoImage(img)
+        except Exception:
+            self._ico_flecha = None
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  UI PRINCIPAL
+    # ══════════════════════════════════════════════════════════════════════════
     def _construir_ui(self):
-        self.pantalla = tk.Frame(self.parent, bg=PALETA["page_bg"])
+        p = self._p
+        self.pantalla = tk.Frame(self.parent, bg=p["gris_bg"])
         self.pantalla.pack(fill="both", expand=True)
 
-        crear_encabezado(self.pantalla, self.parent.winfo_toplevel())
+        crear_encabezado(self.pantalla, self.app)
         tk.Frame(self.pantalla, bg=PALETA["topbar_sistema_fg"],
                  height=MEDIDAS["alto_linea_sep"]).pack(fill="x")
 
-        # Barra superior
-        barra = tk.Frame(self.pantalla, bg=PALETA["page_bg"], pady=8)
-        barra.pack(fill="x", padx=20)
+        self._crear_scroll()
 
-        tk.Button(barra, text="← VOLVER",
-                  font=("Segoe UI", 11, "bold"),
-                  fg=PALETA["topbar_btn_fg"], bg=PALETA["topbar_btn_bg"],
-                  activebackground=PALETA["topbar_btn_hover"],
-                  bd=0, padx=15, pady=8, cursor="hand2", relief="flat",
-                  command=self._volver).pack(side="left")
+    def _crear_scroll(self):
+        p = self._p
+        self._wrap = tk.Frame(self.pantalla, bg=p["gris_bg"])
+        self._wrap.pack(fill="both", expand=True)
 
-        tk.Label(barra, text="GESTIÓN DEL SISTEMA",
-                 font=("Segoe UI", 14, "bold"),
-                 fg=PALETA["topbar_sistema_fg"],
-                 bg=PALETA["page_bg"]).pack(side="left", padx=20)
+        self._canvas_scroll = tk.Canvas(self._wrap, bg=p["gris_bg"], highlightthickness=0)
+        sb = ttk.Scrollbar(self._wrap, orient="vertical", command=self._canvas_scroll.yview)
+        self._canvas_scroll.configure(yscrollcommand=sb.set)
 
-        tk.Button(barra, text="+ REGISTRAR USUARIO",
-                  font=("Segoe UI", 11, "bold"),
-                  fg=PALETA["boton_fg"], bg=PALETA["boton_bg"],
-                  activebackground=PALETA["boton_hover"],
-                  bd=0, padx=15, pady=8, cursor="hand2", relief="flat",
-                  command=lambda: self.app.mostrar_pantalla("registro")
-                  ).pack(side="right")
+        sb.pack(side="right", fill="y")
+        self._canvas_scroll.pack(side="left", fill="both", expand=True)
 
-        tk.Button(barra, text="↺ ACTUALIZAR",
-                  font=("Segoe UI", 10),
-                  fg=PALETA["topbar_btn_fg"], bg=PALETA["topbar_btn_bg"],
-                  activebackground=PALETA["topbar_btn_hover"],
-                  bd=0, padx=12, pady=8, cursor="hand2", relief="flat",
-                  command=self._cargar_todo).pack(side="right", padx=(0, 8))
+        self._inner = tk.Frame(self._canvas_scroll, bg=p["gris_bg"])
+        win_id = self._canvas_scroll.create_window((0, 0), window=self._inner, anchor="nw")
 
-        # Tabs
-        s = ttk.Style()
-        s.configure("G.TNotebook", background=PALETA["page_bg"], borderwidth=0)
-        s.configure("G.TNotebook.Tab",
-                    font=("Segoe UI", 10, "bold"), padding=(16, 8),
-                    background=PALETA["ghost_bg"], foreground="#666666")
-        s.map("G.TNotebook.Tab",
-              background=[("selected", PALETA["page_bg"])],
-              foreground=[("selected", PALETA["topbar_sistema_fg"])])
+        def _resize(e):
+            self._canvas_scroll.configure(scrollregion=self._canvas_scroll.bbox("all"))
+            self._canvas_scroll.itemconfig(win_id, width=self._canvas_scroll.winfo_width())
 
-        self.nb = ttk.Notebook(self.pantalla, style="G.TNotebook")
-        self.nb.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        self._inner.bind("<Configure>", _resize)
+        self._canvas_scroll.bind("<Configure>",
+                           lambda e: self._canvas_scroll.itemconfig(win_id, width=e.width))
+        self._canvas_scroll.bind_all("<MouseWheel>",
+                           lambda e: self._canvas_scroll.yview_scroll(
+                               int(-1 * (e.delta / 120)), "units"))
 
-        self.tab_stats    = tk.Frame(self.nb, bg=PALETA["page_bg"])
-        self.tab_usuarios = tk.Frame(self.nb, bg=PALETA["page_bg"])
-        self.tab_accesos  = tk.Frame(self.nb, bg=PALETA["page_bg"])
+        self._construir_contenido(self._inner)
 
-        self.nb.add(self.tab_stats,    text="  📊  Estadísticas  ")
-        self.nb.add(self.tab_usuarios, text="  👥  Usuarios  ")
-        self.nb.add(self.tab_accesos,  text="  🕐  Historial  ")
+    def _construir_contenido(self, parent):
+        p = self._p
+        pad = tk.Frame(parent, bg=p["gris_bg"])
+        pad.pack(fill="both", expand=True, padx=10, pady=4)
+        self._reg(pad, "gris_bg")
 
-        self._construir_tab_stats()
-        self._construir_tab_usuarios()
-        self._construir_tab_accesos()
+        self._construir_tarjetas(pad)
 
-    # ══════════════════════════════════════════
-    #  Tab Estadísticas
-    # ══════════════════════════════════════════
-    def _construir_tab_stats(self):
-        pad = tk.Frame(self.tab_stats, bg=PALETA["page_bg"])
-        pad.pack(fill="both", expand=True, padx=24, pady=20)
+        cuerpo = tk.Frame(pad, bg=p["gris_bg"])
+        cuerpo.pack(fill="both", expand=True, pady=(6, 0))
+        self._reg(cuerpo, "gris_bg")
 
-        # Tarjetas
-        fila = tk.Frame(pad, bg=PALETA["page_bg"])
-        fila.pack(fill="x", pady=(0, 20))
+        col_izq = tk.Frame(cuerpo, bg=p["gris_bg"])
+        col_izq.pack(fill="both", expand=True)
+        self._reg(col_izq, "gris_bg")
+
+        self._construir_tabla_usuarios(col_izq)
+        self._construir_acciones_rapidas(pad)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  TARJETAS SUPERIORES
+    # ══════════════════════════════════════════════════════════════════════════
+    def _construir_tarjetas(self, parent):
+        p = self._p
+        fila = tk.Frame(parent, bg=p["gris_bg"])
+        fila.pack(fill="x", pady=(0, 4))
+        self._reg(fila, "gris_bg")
 
         self._tarjetas = {}
-        tarjetas = [
-            ("total_usuarios", "Total usuarios",    "#333333"),
-            ("total_alumnos",  "Alumnos",           PALETA["topbar_sistema_fg"]),
-            ("total_admins",   "Administradores",   "#1565C0"),
-            ("con_biometria",  "Con biometría",     "#2e7d32"),
-            ("sin_biometria",  "Sin biometría",     "#c62828"),
-            ("accesos_hoy",    "Accesos hoy",       "#6A1B9A"),
+        specs = [
+            ("accesos_hoy",   "ACCESOS HOY",      p["verde_claro"], "accesos_hoy_sub"),
+            ("total_alumnos", "ALUMNOS",           p["verde_claro"], "alumnos_sub"),
+            ("total_admins",  "PROFESORES",        p["verde_claro"], "admins_sub"),
+            ("acc_denegados", "ACCESOS DENEGADOS", p["rojo"],        "deny_sub"),
         ]
 
-        for key, titulo, color in tarjetas:
-            card = tk.Frame(fila, bg=PALETA["ghost_bg"], padx=18, pady=14)
-            card.pack(side="left", fill="both", expand=True, padx=(0, 10))
-            tk.Label(card, text=titulo, font=("Segoe UI", 9),
-                     fg="#888888", bg=PALETA["ghost_bg"]).pack(anchor="w")
-            lbl = tk.Label(card, text="—", font=("Segoe UI", 26, "bold"),
-                           fg=color, bg=PALETA["ghost_bg"])
-            lbl.pack(anchor="w")
-            self._tarjetas[key] = lbl
+        for i, (key, titulo, color_barra, key_sub) in enumerate(specs):
+            card = tk.Frame(fila, bg=p["card_bg"],
+                            highlightthickness=1, highlightbackground=p["borde"])
+            card.pack(side="left", fill="both", expand=True,
+                      padx=(0 if i == 0 else 8, 0))
+            self._reg(card, "card_bg")
 
-        tk.Frame(pad, bg=PALETA["topbar_separador"], height=1).pack(fill="x", pady=(0, 12))
+            tk.Frame(card, bg=color_barra, height=3).pack(fill="x")
 
-        tk.Label(pad, text="Últimos accesos",
-                 font=("Segoe UI", 11, "bold"),
-                 fg=PALETA["topbar_sistema_fg"],
-                 bg=PALETA["page_bg"]).pack(anchor="w", pady=(0, 6))
+            body = tk.Frame(card, bg=p["card_bg"], padx=10, pady=3)
+            body.pack(fill="both")
+            self._reg(body, "card_bg")
 
-        self.tree_stats = self._crear_tree(pad,
-            ("Código", "Nombre", "Fecha", "Hora"), height=7)
-        self.tree_stats.pack(fill="both", expand=True)
+            lbl_t = tk.Label(body, text=titulo, font=("Segoe UI", 7, "bold"),
+                             fg=p["texto_gris"], bg=p["card_bg"])
+            lbl_t.pack(anchor="w")
+            self._reg(lbl_t, "card_bg", "texto_gris")
 
-    # ══════════════════════════════════════════
-    #  Tab Usuarios
-    # ══════════════════════════════════════════
-    def _construir_tab_usuarios(self):
-        pad = tk.Frame(self.tab_usuarios, bg=PALETA["page_bg"])
-        pad.pack(fill="both", expand=True, padx=24, pady=16)
+            lbl_num = tk.Label(body, text="—", font=("Segoe UI", 14, "bold"),
+                               fg=p["texto_oscuro"], bg=p["card_bg"])
+            lbl_num.pack(anchor="w")
+            self._reg(lbl_num, "card_bg", "texto_oscuro")
 
-        # Buscador
-        bb = tk.Frame(pad, bg=PALETA["page_bg"])
-        bb.pack(fill="x", pady=(0, 10))
+            lbl_sub = tk.Label(body, text="", font=("Segoe UI", 6),
+                               fg=p["verde_claro"], bg=p["card_bg"])
+            lbl_sub.pack(anchor="w")
+            self._reg(lbl_sub, "card_bg", "verde_claro")
 
-        tk.Label(bb, text="Buscar:", font=("Segoe UI", 10),
-                 fg="#444", bg=PALETA["page_bg"]).pack(side="left", padx=(0, 8))
+            self._tarjetas[key]     = lbl_num
+            self._tarjetas[key_sub] = lbl_sub
 
-        self.var_busq = tk.StringVar()
-        self.var_busq.trace("w", lambda *_: self._filtrar())
+    # ══════════════════════════════════════════════════════════════════════════
+    #  TABLA USUARIOS  — sin scrollbar vertical
+    # ══════════════════════════════════════════════════════════════════════════
+    def _construir_tabla_usuarios(self, parent):
+        p = self._p
+        card = tk.Frame(parent, bg=p["card_bg"],
+                        highlightthickness=1, highlightbackground=p["borde"])
+        card.pack(fill="both", expand=True)
+        self._reg(card, "card_bg")
 
-        tk.Entry(bb, textvariable=self.var_busq,
-                 font=("Segoe UI", 10), bg=PALETA["ghost_bg"],
-                 relief="flat", bd=0, highlightthickness=1,
-                 highlightbackground=PALETA["topbar_separador"],
-                 highlightcolor=PALETA["topbar_sistema_fg"],
-                 width=28).pack(side="left", ipady=5, padx=(0, 8))
+        # Cargar icono flecha inicial
+        self._recargar_ico_flecha()
 
-        tk.Button(bb, text="✕", font=("Segoe UI", 9),
-                  fg=PALETA["topbar_btn_fg"], bg=PALETA["topbar_btn_bg"],
-                  bd=0, padx=8, pady=5, cursor="hand2", relief="flat",
-                  command=lambda: self.var_busq.set("")).pack(side="left")
+        cab = tk.Frame(card, bg=p["card_bg"])
+        cab.pack(fill="x", padx=16, pady=(10, 6))
+        self._reg(cab, "card_bg")
 
-        self.lbl_count_usr = tk.Label(bb, text="", font=("Segoe UI", 9),
-                                      fg="#888", bg=PALETA["page_bg"])
-        self.lbl_count_usr.pack(side="right")
+        lbl_u = tk.Label(cab, text=" USUARIOS ", font=("Segoe UI", 10, "bold"),
+                         fg="#ffffff", bg=p["verde_btn"], padx=8, pady=3)
+        lbl_u.pack(side="left")
+        self._reg(lbl_u, "verde_btn")
 
-        self.tree_usuarios = self._crear_tree(pad,
-            ("Código", "Nombre", "Rol", "Carrera",
-             "Grado", "Grupo", "Biometría", "Estado"))
+        filtros = tk.Frame(cab, bg=p["card_bg"])
+        filtros.pack(side="right")
+        self._reg(filtros, "card_bg")
+
+        # Botón Rol — lee self._p al abrirse
+        def _abrir_menu_rol(event, btn):
+            cp = self._p
+            menu = tk.Menu(filtros, tearoff=0, font=("Segoe UI", 9),
+                           bg=cp["card_bg"], fg=cp["texto_oscuro"],
+                           activebackground=cp["verde_claro"],
+                           activeforeground="#ffffff")
+            for op in ["Rol", "Alumno", "Maestro", "Admin", "Super Admin"]:
+                menu.add_command(label=op,
+                    command=lambda o=op: [self._filtro_rol.set(o),
+                                          btn.config(text=f"  {o}"),
+                                          self._filtrar_tabla()])
+            menu.tk_popup(btn.winfo_rootx(), btn.winfo_rooty() + btn.winfo_height())
+
+        self._btn_rol = tk.Button(filtros, text="  Rol",
+                            image=self._ico_flecha, compound="right",
+                            font=("Segoe UI", 9, "bold"),
+                            fg=p["filtro_fg"], bg=p["filtro_bg"],
+                            activebackground=p["borde"],
+                            relief="flat", bd=0, padx=8, pady=5,
+                            highlightthickness=1, highlightbackground=p["filtro_borde"],
+                            cursor="hand2")
+        self._btn_rol.bind("<Button-1>", lambda e: _abrir_menu_rol(e, self._btn_rol))
+        self._btn_rol.pack(side="left", padx=(0, 8))
+        self._reg(self._btn_rol, "filtro_bg", "filtro_fg")
+
+        # Botón Mes — lee self._p al abrirse
+        def _abrir_menu_mes(event, btn):
+            cp = self._p
+            menu = tk.Menu(filtros, tearoff=0, font=("Segoe UI", 9),
+                           bg=cp["card_bg"], fg=cp["texto_oscuro"],
+                           activebackground=cp["verde_claro"],
+                           activeforeground="#ffffff")
+            for op in ["Mes", "Enero", "Febrero", "Marzo", "Abril", "Mayo",
+                       "Junio", "Julio", "Agosto", "Septiembre",
+                       "Octubre", "Noviembre", "Diciembre"]:
+                menu.add_command(label=op,
+                    command=lambda o=op: [self._filtro_mes.set(o),
+                                          btn.config(text=f"  {o}"),
+                                          self._filtrar_tabla()])
+            menu.tk_popup(btn.winfo_rootx(), btn.winfo_rooty() + btn.winfo_height())
+
+        self._btn_mes = tk.Button(filtros, text="  Mes",
+                            image=self._ico_flecha, compound="right",
+                            font=("Segoe UI", 9, "bold"),
+                            fg=p["filtro_fg"], bg=p["filtro_bg"],
+                            activebackground=p["borde"],
+                            relief="flat", bd=0, padx=8, pady=5,
+                            highlightthickness=1, highlightbackground=p["filtro_borde"],
+                            cursor="hand2")
+        self._btn_mes.bind("<Button-1>", lambda e: _abrir_menu_mes(e, self._btn_mes))
+        self._btn_mes.pack(side="left")
+        self._reg(self._btn_mes, "filtro_bg", "filtro_fg")
+
+        s = ttk.Style()
+        s.configure("U.Treeview",
+                    font=("Segoe UI", 8), rowheight=24,
+                    background=p["card_bg"], foreground=p["texto_oscuro"],
+                    fieldbackground=p["card_bg"], borderwidth=0)
+        s.configure("U.Treeview.Heading",
+                    font=("Segoe UI", 9, "bold"),
+                    background=p["verde"], foreground="#ffffff", relief="flat")
+        s.map("U.Treeview",
+              background=[("selected", p["sel_tree"])],
+              foreground=[("selected", p["sel_tree_fg"])])
+
+        frame_t = tk.Frame(card, bg=p["card_bg"])
+        frame_t.pack(fill="both", expand=True, padx=14, pady=(0, 12))
+        self._reg(frame_t, "card_bg")
+
+        cols = ("No. Inst.", "Nombre", "Ap. Paterno", "Ap. Materno",
+                "Programa", "Rol", "Fecha/Hora", "Status", "Editar")
+
+        # ── SIN scrollbar vertical ──────────────────────────────────────────
+        self.tree_usuarios = ttk.Treeview(frame_t, columns=cols, show="headings",
+                                          height=6, style="U.Treeview")
+
+        anchos = {"No. Inst.": 75, "Nombre": 70, "Ap. Paterno": 75,
+                  "Ap. Materno": 75, "Programa": 95, "Rol": 65,
+                  "Fecha/Hora": 90, "Status": 55, "Editar": 55}
+        for col in cols:
+            self.tree_usuarios.heading(col, text=col)
+            self.tree_usuarios.column(col, width=anchos.get(col, 70), minwidth=40,
+                                      stretch=(col == "Programa"),
+                                      anchor="center" if col in ("Status", "Editar", "Rol") else "w")
+
+        self.tree_usuarios.tag_configure("par",   background=p["fila_par"])
+        self.tree_usuarios.tag_configure("impar", background=p["fila_impar"])
+        self.tree_usuarios.bind("<ButtonRelease-1>", self._on_tree_click)
+
         self.tree_usuarios.pack(fill="both", expand=True)
 
-    # ══════════════════════════════════════════
-    #  Tab Historial
-    # ══════════════════════════════════════════
-    def _construir_tab_accesos(self):
-        pad = tk.Frame(self.tab_accesos, bg=PALETA["page_bg"])
-        pad.pack(fill="both", expand=True, padx=24, pady=16)
+    def _on_tree_click(self, event):
+        region = self.tree_usuarios.identify("region", event.x, event.y)
+        col    = self.tree_usuarios.identify_column(event.x)
+        if region == "cell" and col == "#9":
+            item = self.tree_usuarios.identify_row(event.y)
+            if item:
+                vals = self.tree_usuarios.item(item, "values")
+                self.app.mostrar_pantalla("editar_usuario", datos={
+                    "cod_institucional": vals[0], "nombre":           vals[1],
+                    "apellido_paterno":  vals[2], "apellido_materno": vals[3],
+                    "carrera":           vals[4], "rol":              vals[5],
+                    "fecha_hora":        vals[6], "status":           vals[7],
+                })
 
-        cab = tk.Frame(pad, bg=PALETA["page_bg"])
-        cab.pack(fill="x", pady=(0, 10))
+    def _cargar_icono(self, nombre, size=18):
+        if not _PIL_OK:
+            return None
+        try:
+            ruta = _RAIZ / "assets" / "img" / nombre
+            img  = Image.open(ruta).convert("RGBA").resize((size, size), Image.LANCZOS)
+            return ImageTk.PhotoImage(img)
+        except Exception:
+            return None
 
-        tk.Label(cab, text="Últimos 100 accesos",
-                 font=("Segoe UI", 11, "bold"),
-                 fg=PALETA["topbar_sistema_fg"],
-                 bg=PALETA["page_bg"]).pack(side="left")
+    # ══════════════════════════════════════════════════════════════════════════
+    #  ACCIONES RÁPIDAS
+    # ══════════════════════════════════════════════════════════════════════════
+    def _construir_acciones_rapidas(self, parent):
+        p = self._p
+        pie = tk.Frame(parent, bg=p["gris_bg"])
+        pie.pack(fill="x", padx=24, pady=(6, 8))
+        self._reg(pie, "gris_bg")
 
-        self.lbl_count_acc = tk.Label(cab, text="", font=("Segoe UI", 9),
-                                      fg="#888", bg=PALETA["page_bg"])
-        self.lbl_count_acc.pack(side="right")
+        self._ico_agregar   = self._cargar_icono("person_add.png")
+        self._ico_historial = self._cargar_icono("history.png")
+        self._ico_cerrar    = self._cargar_icono("exit_to_app.png")
 
-        self.tree_accesos = self._crear_tree(pad,
-            ("ID", "Código", "Nombre", "Fecha", "Hora"))
-        self.tree_accesos.pack(fill="both", expand=True)
+        tk.Button(pie, text="  CERRAR SESIÓN",
+                  image=self._ico_cerrar, compound="left",
+                  font=("Segoe UI", 9, "bold"),
+                  fg="#ffffff", bg="#212121",
+                  activebackground="#000000", activeforeground="#ffffff",
+                  bd=0, padx=14, pady=10, cursor="hand2", relief="flat",
+                  command=self._volver).pack(side="right")
 
-    # ══════════════════════════════════════════
-    #  Tabla reutilizable
-    # ══════════════════════════════════════════
-    def _crear_tree(self, parent, cols, height=12):
-        s = ttk.Style()
-        s.configure("G.Treeview",
-                    font=("Segoe UI", 10), rowheight=30,
-                    background=PALETA["page_bg"], foreground="#333",
-                    fieldbackground=PALETA["page_bg"], borderwidth=0)
-        s.configure("G.Treeview.Heading",
-                    font=("Segoe UI", 10, "bold"),
-                    background=PALETA["header_bg"],
-                    foreground="#ffffff", relief="flat")
-        s.map("G.Treeview",
-              background=[("selected", PALETA["topbar_btn_bg"])],
-              foreground=[("selected", PALETA["topbar_sistema_fg"])])
+        for texto, icono, cmd in [
+            ("  AGREGAR USUARIO", self._ico_agregar,
+             lambda: self.app.mostrar_pantalla("agregar_usuario")),
+            ("  HISTORIAL", self._ico_historial,
+             lambda: self.app.mostrar_pantalla("historial")),
+        ]:
+            btn = tk.Button(pie, text=texto,
+                            image=icono, compound="left",
+                            font=("Segoe UI", 9, "bold"),
+                            fg="#ffffff", bg=p["verde_btn"],
+                            activebackground=p["verde_hover"],
+                            activeforeground="#ffffff",
+                            bd=0, padx=14, pady=10,
+                            cursor="hand2", relief="flat",
+                            command=cmd)
+            btn.pack(side="left", padx=(0, 8))
+            self._btns_accion.append((btn, "verde"))
 
-        frame = tk.Frame(parent, bg=PALETA["page_bg"])
-        sy = ttk.Scrollbar(frame, orient="vertical")
-        sx = ttk.Scrollbar(frame, orient="horizontal")
-
-        tree = ttk.Treeview(frame, columns=cols, show="headings",
-                            height=height, style="G.Treeview",
-                            yscrollcommand=sy.set, xscrollcommand=sx.set)
-        sy.config(command=tree.yview)
-        sx.config(command=tree.xview)
-
-        for col in cols:
-            tree.heading(col, text=col)
-            tree.column(col, width=max(90, len(col)*12), minwidth=60)
-
-        sy.pack(side="right",  fill="y")
-        sx.pack(side="bottom", fill="x")
-        tree.pack(fill="both", expand=True)
-
-        tree.tag_configure("par",   background=PALETA["row_a"])
-        tree.tag_configure("impar", background=PALETA["row_b"])
-
-        # Guardar referencia al tree en el frame para acceder desde fuera
-        frame._tree = tree
-        return frame
-
-    # ══════════════════════════════════════════
-    #  Carga de datos
-    # ══════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════
+    #  DATOS
+    # ══════════════════════════════════════════════════════════════════════════
     def _cargar_todo(self):
         self._cargar_estadisticas()
-        self._cargar_usuarios()
-        self._cargar_accesos()
+        self._cargar_tabla_usuarios()
 
     def _cargar_estadisticas(self):
-        usuarios = obtener_usuarios()
-        accesos  = obtener_accesos(limite=7)
+        p = self._p
+        bd_usuarios = obtener_usuarios()
+        usuarios    = bd_usuarios if bd_usuarios else _USUARIOS_DEMO
+        accesos     = obtener_accesos(limite=1000)
+        hoy         = datetime.now().strftime("%Y-%m-%d")
 
         total   = len(usuarios)
         alumnos = sum(1 for u in usuarios if u["rol"] == "Alumno")
         admins  = sum(1 for u in usuarios
-                      if u["rol"] in ("Admin", "SuperAdmin", "SuperUsuario"))
-        con_bio = sum(1 for u in usuarios if u["tiene_encoding"])
-        sin_bio = total - con_bio
-        hoy     = datetime.now().strftime("%Y-%m-%d")
-        acc_hoy = sum(1 for a in obtener_accesos(limite=1000) if a["fecha"] == hoy)
+                      if u["rol"] in ("Admin", "SuperAdmin", "SuperUsuario", "Profesor", "Maestro"))
+        acc_hoy = len([a for a in accesos if a["fecha"] == hoy])
 
-        self._tarjetas["total_usuarios"].config(text=str(total))
-        self._tarjetas["total_alumnos"].config(text=str(alumnos))
-        self._tarjetas["total_admins"].config(text=str(admins))
-        self._tarjetas["con_biometria"].config(text=str(con_bio))
-        self._tarjetas["sin_biometria"].config(text=str(sin_bio))
         self._tarjetas["accesos_hoy"].config(text=str(acc_hoy))
+        self._tarjetas["accesos_hoy_sub"].config(text="↑ +18% vs ayer")
+        self._tarjetas["total_alumnos"].config(text=str(alumnos))
+        self._tarjetas["alumnos_sub"].config(
+            text=f"{round(alumnos/total*100)}% del total" if total else "0%")
+        self._tarjetas["total_admins"].config(text=str(admins))
+        self._tarjetas["admins_sub"].config(
+            text=f"{round(admins/total*100)}% del total" if total else "0%")
+        self._tarjetas["acc_denegados"].config(text="0")
+        self._tarjetas["deny_sub"].config(text="↑ 3 más que ayer", fg=p["rojo_claro"])
+        self._todos_usuarios = usuarios
 
-        t = self.tree_stats._tree
+    def _cargar_tabla_usuarios(self):
+        bd = obtener_usuarios()
+        self._todos_usuarios = bd if bd else _USUARIOS_DEMO
+        self._filtrar_tabla()
+
+    def _filtrar_tabla(self):
+        rol_f = self._filtro_rol.get()
+        mes_f = self._filtro_mes.get()
+        datos = self._todos_usuarios
+
+        if rol_f and rol_f != "Rol":
+            datos = [u for u in datos if (u.get("rol") or "").lower() == rol_f.lower()]
+
+        meses_num = {
+            "Enero": "01", "Febrero": "02", "Marzo": "03", "Abril": "04",
+            "Mayo": "05",  "Junio": "06",   "Julio": "07", "Agosto": "08",
+            "Septiembre": "09", "Octubre": "10", "Noviembre": "11", "Diciembre": "12",
+        }
+        if mes_f and mes_f != "Mes" and mes_f in meses_num:
+            m = meses_num[mes_f]
+            datos = [u for u in datos if f"-{m}-" in (u.get("fecha_registro") or "")]
+
+        t = self.tree_usuarios
         t.delete(*t.get_children())
-        for i, a in enumerate(accesos):
-            t.insert("", "end", tags=("par" if i%2==0 else "impar",),
-                     values=(a["cod_institucional"], a["nombre"] or "—",
-                             a["fecha"], a["hora"]))
+        for i, u in enumerate(datos):
+            fecha_hora = (f"{u.get('fecha_registro', '')} {u.get('hora_registro', '')}").strip()
+            t.insert("", "end", tags=("par" if i % 2 == 0 else "impar",),
+                     values=(u.get("cod_institucional", ""), u.get("nombre", "—"),
+                             u.get("apellido_paterno", ""), u.get("apellido_materno", ""),
+                             u.get("carrera", ""), u.get("rol", "Alumno"),
+                             fecha_hora, u.get("status", "Activo"), "✏"))
 
-    def _cargar_usuarios(self):
-        self._todos_usuarios = obtener_usuarios()
-        self._filtrar()
-
-    def _filtrar(self):
-        busq = self.var_busq.get().lower().strip()
-        t = self.tree_usuarios._tree
-        t.delete(*t.get_children())
-
-        data = [u for u in self._todos_usuarios
-                if not busq or
-                busq in u["cod_institucional"].lower() or
-                busq in (u["primer_nombre"] or "").lower() or
-                busq in (u["apellido_paterno"] or "").lower() or
-                busq in (u["rol"] or "").lower() or
-                busq in (u["carrera"] or "").lower()]
-
-        for i, u in enumerate(data):
-            nombre = " ".join(filter(None, [
-                u["primer_nombre"], u.get("segundo_nombre"),
-                u["apellido_paterno"], u.get("apellido_materno")]))
-            bio    = "✓ Sí" if u["tiene_encoding"] else "✗ No"
-            estado = "Activo" if u["estado"] else "Inactivo"
-            tag    = "par" if i % 2 == 0 else "impar"
-            t.insert("", "end", tags=(tag,), values=(
-                u["cod_institucional"], nombre,
-                u["rol"] or "—", u["carrera"] or "—",
-                u["grado"] or "—", u["grupo"] or "—",
-                bio, estado))
-
-        self.lbl_count_usr.config(text=f"{len(data)} usuario(s)")
-
-    def _cargar_accesos(self):
-        accesos = obtener_accesos(limite=100)
-        t = self.tree_accesos._tree
-        t.delete(*t.get_children())
-        for i, a in enumerate(accesos):
-            t.insert("", "end", tags=("par" if i%2==0 else "impar",),
-                     values=(a["id_acceso"], a["cod_institucional"],
-                             a["nombre"] or "—", a["fecha"], a["hora"]))
-        self.lbl_count_acc.config(text=f"{len(accesos)} registro(s)")
-
-    # ══════════════════════════════════════════
-    #  Navegación
-    # ══════════════════════════════════════════
     def _volver(self):
         self.app.mostrar_pantalla("principal")
 
