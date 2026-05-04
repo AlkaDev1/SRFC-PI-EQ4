@@ -1,4 +1,5 @@
 from tkinter import ttk
+import platform
 
 PALETA = {
 
@@ -77,12 +78,15 @@ FUENTES = {
     "titulo_pantalla":      ("Segoe UI", 30, "bold"),
 }
 
+# Detecta si es Raspberry Pi
+_ES_RASPBERRY = platform.machine() in ("aarch64", "armv7l")
+
 MEDIDAS = {
-    # Ventana
-    "ancho_ventana":        800,
-    "alto_ventana":         480,
-    "min_ancho":            800,
-    "min_alto":             480,
+    # Ventana — 800x480 en RPi, 1024x614 en laptop (misma proporción)
+    "ancho_ventana":        800 if _ES_RASPBERRY else 1280,
+"alto_ventana":         480 if _ES_RASPBERRY else 768,
+"min_ancho":            800 if _ES_RASPBERRY else 1280,
+"min_alto":             480 if _ES_RASPBERRY else 768,
 
     # Barra superior
     "alto_topbar":          75,
@@ -91,7 +95,7 @@ MEDIDAS = {
     # Botones principales
     "alto_boton":           200,
     "ancho_boton":          30,
-    "margen_boton":         13,    # Espacio entre botones
+    "margen_boton":         13,
     "padding_boton_x":      24,
     "padding_boton_y":      14,
 }
