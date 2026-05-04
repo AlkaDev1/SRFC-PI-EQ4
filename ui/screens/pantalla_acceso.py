@@ -44,7 +44,6 @@ class PantallaAcceso:
         self.app    = app
 
         # ── Obtener paleta inicial del tema activo ────────────────────────────
-        # Si app.tema existe usamos su paleta, si no usamos los colores originales
         self._p = app.tema.paleta() if hasattr(app, "tema") else _paleta_fallback()
 
         self._estado         = "escaneando"
@@ -61,6 +60,7 @@ class PantallaAcceso:
 
         self._nombres    = []
         self._encodings  = []
+        self._cods       = []
         self._cargar_perfiles()
 
         self._cap       = None
@@ -76,28 +76,17 @@ class PantallaAcceso:
             app.tema.registrar(self._aplicar_tema)
 
     # ══════════════════════════════════════════
-    #  Perfiles
+    #  Perfiles — carga desde BD
     # ══════════════════════════════════════════
     def _cargar_perfiles(self):
-        if not FR_DISPONIBLE:
-            return
-        base    = os.path.dirname(os.path.dirname(
-                  os.path.dirname(os.path.abspath(__file__))))
-        carpeta = os.path.join(base, "data", "profiles")
-        os.makedirs(carpeta, exist_ok=True)
-        for archivo in os.listdir(carpeta):
-            if not archivo.lower().endswith((".jpg", ".jpeg", ".png")):
-                continue
-            ruta   = os.path.join(carpeta, archivo)
-            nombre = os.path.splitext(archivo)[0].replace("_", " ").title()
-            try:
-                img  = face_recognition.load_image_file(ruta)
-                encs = face_recognition.face_encodings(img)
-                if encs:
-                    self._encodings.append(encs[0])
-                    self._nombres.append(nombre)
-            except Exception as e:
-                print(f"[PERFIL] {archivo}: {e}")
+        from core.database import inicializar_bd, cargar_todos_encodings
+        inicializar_bd()
+        perfiles = cargar_todos_encodings()
+        for p in perfiles:
+            self._encodings.append(p["encoding"])
+            self._nombres.append(p["nombre"])
+            self._cods.append(p["cod"])
+        print(f"[ACCESO] {len(self._encodings)} perfiles cargados desde BD")
 
     # ══════════════════════════════════════════
     #  UI
@@ -229,23 +218,13 @@ class PantallaAcceso:
     #  Soporte de tema
     # ══════════════════════════════════════════
     def _aplicar_tema(self, p: dict):
-        """Recibe la nueva paleta y repinta los widgets de esta pantalla.
-
-        Llamado automáticamente por GestorTema cuando el usuario presiona 🌙/☀️.
-        La cámara siempre es negra — solo repintamos los marcos y la capa OK.
-        """
         self._p = p
         try:
-            # Fondo general
             self.pantalla.configure(bg=p["acceso_fondo"])
             self.contenedor.configure(bg=p["acceso_fondo"])
-
-            # Capa escaneo
             self.capa_escaneo.configure(bg=p["acceso_fondo"])
             self.label_video.configure(bg=p["acceso_fondo"], fg=p["acceso_hud_fg"])
             self.canvas_icono.configure(bg=p["acceso_fondo"])
-
-            # Capa OK
             self.capa_ok.configure(bg=p["acceso_ok_bg"])
             self.canvas_foto.configure(bg=p["acceso_ok_bg"])
             self._badge_ok.configure(bg=p["acceso_ok_bg"])
@@ -307,7 +286,7 @@ class PantallaAcceso:
                         "detectado":   ("ROSTRO DETECTADO",        "Verificando identidad..."),
                         "sin_rostro":  ("ACERCATE A LA CAMARA",    "No se detecta ningun rostro"),
                         "sin_camara":  ("CAMARA NO DISPONIBLE",    "Verifique la conexion"),
-                        "acceso_deny": ("ACCESO DENEGADO",         "Intentando de nuevo..."),
+                        "acceso_deny": ("ACCESO DENEGADO",         "No eres administrador..."),
                     }
                     titulo, sub = msgs.get(self._estado, ("ESCANEANDO...", ""))
 
@@ -369,20 +348,21 @@ class PantallaAcceso:
             ub_orig = (ub[0]*2, ub[1]*2, ub[2]*2, ub[3]*2)
             if not self._encodings:
                 return {"hay_rostro": True, "reconocido": False,
-                        "confianza": 0.0, "ubicacion": ub_orig, "nombre": ""}
+                        "confianza": 0.0, "ubicacion": ub_orig, "nombre": "", "cod": ""}
             encs = face_recognition.face_encodings(rgb, [ub])
             if not encs:
                 return {"hay_rostro": True, "reconocido": False,
-                        "confianza": 0.0, "ubicacion": ub_orig, "nombre": ""}
+                        "confianza": 0.0, "ubicacion": ub_orig, "nombre": "", "cod": ""}
             dists = face_recognition.face_distance(self._encodings, encs[0])
             idx   = int(np.argmin(dists))
             dist  = float(dists[idx])
             conf  = round(max(0.0, 1.0 - dist), 3)
             if dist <= 0.50:
                 return {"hay_rostro": True, "reconocido": True,
-                        "confianza": conf, "ubicacion": ub_orig, "nombre": self._nombres[idx]}
+                        "confianza": conf, "ubicacion": ub_orig,
+                        "nombre": self._nombres[idx], "cod": self._cods[idx]}
             return {"hay_rostro": True, "reconocido": False,
-                    "confianza": conf, "ubicacion": ub_orig, "nombre": ""}
+                    "confianza": conf, "ubicacion": ub_orig, "nombre": "", "cod": ""}
         else:
             gris    = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             cascade = cv2.CascadeClassifier(
@@ -396,7 +376,7 @@ class PantallaAcceso:
             if (area_rostro_hc / area_frame_hc) < 0.10:
                 return {"hay_rostro": False}
             return {"hay_rostro": True, "reconocido": False,
-                    "confianza": 0.3, "ubicacion": (y, x+w, y+h, x), "nombre": ""}
+                    "confianza": 0.3, "ubicacion": (y, x+w, y+h, x), "nombre": "", "cod": ""}
 
     def _pintar_frame(self):
         if self._photo is None:
@@ -435,7 +415,9 @@ class PantallaAcceso:
             if self._frames_ok >= FRAMES_CONFIRMAR:
                 self._frames_ok = 0
                 self._bloqueado = True
-                self._cambiar_estado("acceso_ok", nombre=r.get("nombre", ""))
+                self._cambiar_estado("acceso_ok",
+                                     nombre=r.get("nombre", ""),
+                                     cod=r.get("cod", ""))
                 self._after_reset = self.canvas_icono.after(4000, self._resetear)
         else:
             self._frames_ok    = 0
@@ -455,13 +437,20 @@ class PantallaAcceso:
     # ══════════════════════════════════════════
     #  Cambio de estado
     # ══════════════════════════════════════════
-    def _cambiar_estado(self, estado, nombre=""):
+    def _cambiar_estado(self, estado, nombre="", cod=""):
         if self._estado == estado and estado not in ("acceso_ok", "acceso_deny"):
             return
         self._estado = estado
         p = self._p
 
         if estado == "acceso_ok":
+            # Registrar acceso en historial
+            if cod:
+                threading.Thread(
+                    target=self._registrar_acceso_bd,
+                    args=(cod,), daemon=True
+                ).start()
+
             self._mostrar_capa("ok")
             hora = datetime.now().strftime("%I:%M %p").lower()
             self.lbl_nombre_ok.config(text=nombre or "Usuario")
@@ -474,6 +463,14 @@ class PantallaAcceso:
             self._mostrar_capa("escaneo")
         else:
             self._mostrar_capa("escaneo")
+
+    def _registrar_acceso_bd(self, cod: str):
+        try:
+            from core.database import registrar_acceso
+            registrar_acceso(cod)
+            print(f"[ACCESO] Acceso registrado para: {cod}")
+        except Exception as e:
+            print(f"[ACCESO] Error registrando acceso: {e}")
 
     # ══════════════════════════════════════════
     #  Animación
@@ -526,7 +523,6 @@ class PantallaAcceso:
         pass
 
     def _volver(self):
-        # Desregistrar del GestorTema antes de salir
         if hasattr(self.app, "tema"):
             self.app.tema.desregistrar(self._aplicar_tema)
 
