@@ -238,9 +238,9 @@ class PantallaAcceso:
     #  Cámara
     # ══════════════════════════════════════════
     def _abrir_camara(self):
-        self._cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-        if not self._cap.isOpened():
-            self._cap = cv2.VideoCapture(0)
+        import platform
+        _idx = 1 if platform.machine() in ("aarch64", "armv7l") else 0
+        self._cap = cv2.VideoCapture(_idx)
         if not self._cap.isOpened():
             self._cambiar_estado("sin_camara")
             return

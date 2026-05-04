@@ -298,7 +298,9 @@ class PantallaAgregarUsuario:
 
         detector = cv2.CascadeClassifier(
             cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-        cam = cv2.VideoCapture(0)
+        import platform
+        _idx = 1 if platform.machine() in ("aarch64", "armv7l") else 0
+        cam = cv2.VideoCapture(_idx)
         if not cam.isOpened():
             self.pantalla.after(0, lambda: messagebox.showerror(
                 "Error de camara", "No se pudo abrir la camara (index 0)."))
