@@ -1,26 +1,69 @@
 """
 ui/screens/pantalla_editar_usuario.py
-Pantalla de Edición de Usuario — pantalla completa 800x480
+Pantalla de Edición de Usuario — 800x480
+
+CAMBIOS:
+  1. crear_encabezado recibe self.app para que ☀️/🌙 funcione
+  2. Layout con grid — header (fijo) | form (expande) | pie (fijo)
+     Todos los campos y botones Rol/Status siempre visibles sin estirar
+  3. Soporte completo de tema oscuro — registrado en GestorTema
+  4. Dropdowns Rol/Status reemplazados por tk.Button + tk.Menu
+     con arrow_circle_black.png (claro) / arrow_drop_down.png (oscuro)
 """
 
 import tkinter as tk
-from tkinter import ttk
-from datetime import datetime
+from pathlib import Path
+
+try:
+    from PIL import Image, ImageTk
+    _PIL_OK = True
+except ImportError:
+    _PIL_OK = False
 
 from ui.components.barra_superior import crear_encabezado
 from ui.styles import PALETA
 
-# ── Colores ────────────────────────────────────────────────────────────────────
-_BG_APP       = "#f3f4f5"
-_BG_CARD      = "#ffffff"
-_VERDE        = "#2e7d32"
-_VERDE_BTN    = "#43a047"
-_VERDE_HOVER  = "#388e3c"
-_ROJO         = "#c62828"
-_ROJO_CLARO   = "#ef5350"
-_TEXTO_OSCURO = "#1a1a1a"
-_TEXTO_GRIS   = "#757575"
-_BORDE        = "#e0e0e0"
+_RAIZ = Path(__file__).resolve().parents[2]
+
+# ── Paleta modo claro ─────────────────────────────────────────────────────────
+_C = {
+    "bg_app":       "#f3f4f5",
+    "card_bg":      "#ffffff",
+    "texto_oscuro": "#1a1a1a",
+    "texto_gris":   "#757575",
+    "borde":        "#e0e0e0",
+    "verde_btn":    "#43a047",
+    "verde_hover":  "#388e3c",
+    "campo_bg":     "#f5f5f5",
+    "campo_dis":    "#ebebeb",
+    "filtro_bg":    "#f5f5f5",
+    "filtro_borde": "#43a047",
+    "filtro_fg":    "#1a1a1a",
+    "flecha_img":   "arrow_circle_black.png",
+}
+
+# ── Paleta modo oscuro ────────────────────────────────────────────────────────
+_O = {
+    "bg_app":       "#071E07",
+    "card_bg":      "#0d2a0d",
+    "texto_oscuro": "#d0f0d0",
+    "texto_gris":   "#7aaa7a",
+    "borde":        "#1a3a1a",
+    "verde_btn":    "#2D531A",
+    "verde_hover":  "#477023",
+    "campo_bg":     "#1a3a1a",
+    "campo_dis":    "#071E07",
+    "filtro_bg":    "#1a3a1a",
+    "filtro_borde": "#477023",
+    "filtro_fg":    "#d0f0d0",
+    "flecha_img":   "arrow_drop_down.png",
+}
+
+
+def _paleta(app) -> dict:
+    if hasattr(app, "tema") and app.tema.es_oscuro():
+        return _O
+    return _C
 
 
 class PantallaEditarUsuario:
@@ -29,146 +72,316 @@ class PantallaEditarUsuario:
         self.parent = parent
         self.app    = app
         self.datos  = datos or {}
+        self._p     = _paleta(app)
+        self._ico_flecha          = None
+        self._widgets_repintables = []
+        self._entradas            = {}
+        self._btn_rol             = None
+        self._btn_status          = None
+        self._btn_guardar         = None
+
         self._construir_ui()
 
+        if hasattr(app, "tema"):
+            app.tema.registrar(self._on_tema_cambio)
+        self.pantalla.bind("<Destroy>", self._limpiar_tema)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  TEMA
+    # ══════════════════════════════════════════════════════════════════════════
+    def _on_tema_cambio(self, _):
+        self._p = _O if self.app.tema.es_oscuro() else _C
+        self._aplicar_tema()
+
+    def _aplicar_tema(self):
+        p = self._p
+        try:
+            self.pantalla.configure(bg=p["bg_app"])
+            self._encab_frame.configure(bg=p["bg_app"])
+            self._card.configure(bg=p["card_bg"])
+            self._card_barra.configure(bg=p["verde_btn"])
+            self._form.configure(bg=p["card_bg"])
+            self._pie.configure(bg=p["bg_app"])
+
+            for widget, bg_k, fg_k in self._widgets_repintables:
+                try:
+                    if not widget.winfo_exists():
+                        continue
+                    widget.configure(bg=p[bg_k])
+                    if fg_k:
+                        widget.configure(fg=p[fg_k])
+                except tk.TclError:
+                    pass
+
+            # Entradas
+            for key, entry in self._entradas.items():
+                try:
+                    editable = entry.cget("state") != "disabled"
+                    if editable:
+                        entry.configure(bg=p["campo_bg"], fg=p["texto_oscuro"],
+                                        highlightbackground=p["borde"],
+                                        insertbackground=p["texto_oscuro"])
+                    else:
+                        entry.configure(disabledbackground=p["campo_dis"],
+                                        disabledforeground=p["texto_gris"],
+                                        highlightbackground=p["borde"])
+                except tk.TclError:
+                    pass
+
+            # Botones dropdown
+            self._recargar_ico_flecha()
+            for btn in (self._btn_rol, self._btn_status):
+                if btn is None:
+                    continue
+                try:
+                    btn.configure(bg=p["filtro_bg"], fg=p["filtro_fg"],
+                                  highlightbackground=p["filtro_borde"],
+                                  activebackground=p["borde"],
+                                  image=self._ico_flecha)
+                except tk.TclError:
+                    pass
+
+            # Botón guardar
+            if self._btn_guardar:
+                try:
+                    self._btn_guardar.configure(bg=p["verde_btn"],
+                                                 activebackground=p["verde_hover"])
+                except tk.TclError:
+                    pass
+
+                self._cuerpo.configure(bg=p["bg_app"])
+                # Forzar redibujado limpio del card
+                self._card.update_idletasks()
+
+        except tk.TclError:
+            pass
+
+    def _limpiar_tema(self, event=None):
+        if hasattr(self.app, "tema"):
+            self.app.tema.desregistrar(self._on_tema_cambio)
+
+    def _reg(self, widget, bg_k, fg_k=None):
+        self._widgets_repintables.append((widget, bg_k, fg_k))
+
+    def _recargar_ico_flecha(self):
+        if not _PIL_OK:
+            self._ico_flecha = None
+            return
+        try:
+            ruta = _RAIZ / "assets" / "img" / self._p["flecha_img"]
+            img  = Image.open(ruta).convert("RGBA").resize((16, 16), Image.LANCZOS)
+            self._ico_flecha = ImageTk.PhotoImage(img)
+        except Exception:
+            self._ico_flecha = None
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  UI — grid de 3 filas: encabezado | card | pie
+    # ══════════════════════════════════════════════════════════════════════════
     def _construir_ui(self):
-        self.pantalla = tk.Frame(self.parent, bg=_BG_APP)
+        p = self._p
+        self.pantalla = tk.Frame(self.parent, bg=p["bg_app"])
         self.pantalla.pack(fill="both", expand=True)
 
-        crear_encabezado(self.pantalla, self.parent.winfo_toplevel())
+        # Header — IMPORTANTE: pasar self.app para que ☀️/🌙 funcione
+        crear_encabezado(self.pantalla, self.app)
         tk.Frame(self.pantalla, bg=PALETA["topbar_sistema_fg"], height=3).pack(fill="x")
 
-        # ── Contenedor central ─────────────────────────────────────────────
-        cont = tk.Frame(self.pantalla, bg=_BG_APP)
-        cont.pack(fill="both", expand=True, padx=20, pady=6)
+        # Cuerpo con grid
+        self._cuerpo = tk.Frame(self.pantalla, bg=p["bg_app"])
+        cuerpo = self._cuerpo
+        cuerpo.pack(fill="both", expand=True, padx=20, pady=6)
+        cuerpo.rowconfigure(1, weight=1)   # card expande
+        cuerpo.columnconfigure(0, weight=1)
 
-        # Título
-        encab = tk.Frame(cont, bg=_BG_APP)
-        encab.pack(fill="x", pady=(0, 6))
+        # ── Fila 0: encabezado (título + número) ──────────────────────────────
+        self._encab_frame = tk.Frame(cuerpo, bg=p["bg_app"])
+        self._encab_frame.grid(row=0, column=0, sticky="ew", pady=(0, 6))
 
-        tk.Label(encab, text="EDITAR USUARIO",
-                 font=("Segoe UI", 16, "bold"),
-                 fg=_TEXTO_OSCURO, bg=_BG_APP).pack(side="left")
+        lbl_titulo = tk.Label(self._encab_frame, text="EDITAR USUARIO",
+                              font=("Segoe UI", 16, "bold"),
+                              fg=p["texto_oscuro"], bg=p["bg_app"])
+        lbl_titulo.pack(side="left")
+        self._reg(lbl_titulo, "bg_app", "texto_oscuro")
 
-        # No. Institucional como subtítulo
         cod = self.datos.get("cod_institucional", "")
         if cod:
-            tk.Label(encab, text=f"  #{cod}",
-                     font=("Segoe UI", 12),
-                     fg=_TEXTO_GRIS, bg=_BG_APP).pack(side="left", pady=(4, 0))
+            lbl_cod = tk.Label(self._encab_frame, text=f"  #{cod}",
+                               font=("Segoe UI", 12),
+                               fg=p["texto_gris"], bg=p["bg_app"])
+            lbl_cod.pack(side="left", pady=(4, 0))
+            self._reg(lbl_cod, "bg_app", "texto_gris")
 
-        # ── Card de formulario ─────────────────────────────────────────────
-        card = tk.Frame(cont, bg=_BG_CARD,
-                        highlightthickness=1, highlightbackground=_BORDE)
-        card.pack(fill="both", expand=True)
+        # ── Fila 1: card con formulario ───────────────────────────────────────
+        self._card = tk.Frame(cuerpo, bg=p["card_bg"])
 
-        # Barra verde superior del card
-        tk.Frame(card, bg=_VERDE_BTN, height=4).pack(fill="x")
+        self._card.grid(row=1, column=0, sticky="nsew")
 
-        form = tk.Frame(card, bg=_BG_CARD)
-        form.pack(fill="both", expand=True, padx=20, pady=8)
+        self._card_barra = tk.Frame(self._card, bg=p["verde_btn"], height=4)
+        self._card_barra.pack(fill="x")
 
-        # ── Campos del formulario en grid 2 columnas ───────────────────────
+        self._form = tk.Frame(self._card, bg=p["card_bg"])
+        self._form.pack(fill="both", expand=True, padx=20, pady=8)
+
+        self._recargar_ico_flecha()
+        self._construir_campos()
+
+        # ── Fila 2: pie con botones ───────────────────────────────────────────
+        self._pie = tk.Frame(cuerpo, bg=p["bg_app"])
+        self._pie.grid(row=2, column=0, sticky="ew", pady=(8, 4))
+
+        self._btn_guardar = tk.Button(
+            self._pie, text="GUARDAR CAMBIOS",
+            font=("Segoe UI", 10, "bold"),
+            fg="#ffffff", bg=p["verde_btn"],
+            activebackground=p["verde_hover"], activeforeground="#ffffff",
+            bd=0, padx=20, pady=8, relief="flat", cursor="hand2",
+            command=self._guardar)
+        self._btn_guardar.pack(side="left", padx=(0, 10))
+
+        tk.Button(
+            self._pie, text="CANCELAR",
+            font=("Segoe UI", 10, "bold"),
+            fg="#ffffff", bg="#424242",
+            activebackground="#212121", activeforeground="#ffffff",
+            bd=0, padx=20, pady=8, relief="flat", cursor="hand2",
+            command=self._cancelar).pack(side="left")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  CAMPOS DEL FORMULARIO
+    # ══════════════════════════════════════════════════════════════════════════
+    def _construir_campos(self):
+        p    = self._p
+        form = self._form
+
+        # Configurar 2 columnas iguales
+        form.columnconfigure(0, weight=1)
+        form.columnconfigure(1, weight=1)
+
         campos = [
-            ("No. Institucional", "cod_institucional", False),  # False = no editable
-            ("Nombre",            "nombre",            True),
-            ("Apellido Paterno",  "apellido_paterno",  True),
-            ("Apellido Materno",  "apellido_materno",  True),
-            ("Programa / Carrera","carrera",            True),
-            ("Fecha y Hora",      "fecha_hora",         False),
+            (0, 0, "No. Institucional", "cod_institucional", False),
+            (0, 1, "Nombre",            "nombre",            True),
+            (1, 0, "Apellido Paterno",  "apellido_paterno",  True),
+            (1, 1, "Apellido Materno",  "apellido_materno",  True),
+            (2, 0, "Programa / Carrera","carrera",            True),
+            (2, 1, "Fecha y Hora",      "fecha_hora",         False),
         ]
 
-        self._entradas = {}
+        for row, col, label, key, editable in campos:
+            padx = (0, 12) if col == 0 else (12, 0)
+            sub = tk.Frame(form, bg=p["card_bg"])
+            sub.grid(row=row, column=col, padx=padx, pady=3, sticky="ew")
+            self._reg(sub, "card_bg")
 
-        for i, (label, key, editable) in enumerate(campos):
-            col = i % 2
-            row = i // 2
-            form.columnconfigure(col, weight=1)
-
-            sub = tk.Frame(form, bg=_BG_CARD)
-            sub.grid(row=row, column=col,
-                     padx=(0, 20 if col == 0 else 0),
-                     pady=4, sticky="ew")
-
-            tk.Label(sub, text=label,
-                     font=("Segoe UI", 8),
-                     fg=_TEXTO_GRIS, bg=_BG_CARD).pack(anchor="w")
+            lbl = tk.Label(sub, text=label, font=("Segoe UI", 8),
+                           fg=p["texto_gris"], bg=p["card_bg"])
+            lbl.pack(anchor="w")
+            self._reg(lbl, "card_bg", "texto_gris")
 
             valor = self.datos.get(key, "")
-            e = tk.Entry(sub,
-                         font=("Segoe UI", 10),
-                         fg=_TEXTO_OSCURO if editable else _TEXTO_GRIS,
-                         bg="#f5f5f5" if editable else "#ebebeb",
+            bg_e  = p["campo_bg"] if editable else p["campo_dis"]
+            fg_e  = p["texto_oscuro"] if editable else p["texto_gris"]
+
+            e = tk.Entry(sub, font=("Segoe UI", 10),
+                         fg=fg_e, bg=bg_e,
                          relief="flat", bd=0,
                          highlightthickness=1,
-                         highlightbackground=_BORDE)
+                         highlightbackground=p["borde"],
+                         insertbackground=p["texto_oscuro"])
             e.insert(0, valor)
             if not editable:
                 e.config(state="disabled",
-                         disabledforeground=_TEXTO_GRIS,
-                         disabledbackground="#ebebeb")
+                         disabledforeground=p["texto_gris"],
+                         disabledbackground=p["campo_dis"])
             e.pack(fill="x", ipady=6, pady=(2, 0))
             self._entradas[key] = e
 
-        # ── Fila: Rol + Status ─────────────────────────────────────────────
-        fila_extra = tk.Frame(form, bg=_BG_CARD)
+        # ── Fila 3: Rol + Status ───────────────────────────────────────────────
+        fila_extra = tk.Frame(form, bg=p["card_bg"])
         fila_extra.grid(row=3, column=0, columnspan=2, sticky="ew", pady=4)
         fila_extra.columnconfigure(0, weight=1)
         fila_extra.columnconfigure(1, weight=1)
+        self._reg(fila_extra, "card_bg")
 
         # Rol
-        sub_rol = tk.Frame(fila_extra, bg=_BG_CARD)
-        sub_rol.grid(row=0, column=0, padx=(0, 20), sticky="ew")
-        tk.Label(sub_rol, text="Rol",
-                 font=("Segoe UI", 8), fg=_TEXTO_GRIS, bg=_BG_CARD).pack(anchor="w")
+        sub_rol = tk.Frame(fila_extra, bg=p["card_bg"])
+        sub_rol.grid(row=0, column=0, padx=(0, 12), sticky="ew")
+        self._reg(sub_rol, "card_bg")
+
+        lbl_rol = tk.Label(sub_rol, text="Rol", font=("Segoe UI", 8),
+                           fg=p["texto_gris"], bg=p["card_bg"])
+        lbl_rol.pack(anchor="w")
+        self._reg(lbl_rol, "card_bg", "texto_gris")
 
         self._rol_var = tk.StringVar(value=self.datos.get("rol", "Alumno"))
         roles = ["Alumno", "Maestro", "Admin", "Super Admin"]
-        om_rol = tk.OptionMenu(sub_rol, self._rol_var, *roles)
-        om_rol.config(font=("Segoe UI", 10), bg="#f5f5f5", fg=_TEXTO_OSCURO,
-                      relief="flat", bd=0, highlightthickness=1,
-                      highlightbackground=_BORDE, activebackground=_BORDE,
-                      cursor="hand2")
-        om_rol["menu"].config(font=("Segoe UI", 9), bg=_BG_CARD,
-                              activebackground=_VERDE_BTN,
-                              activeforeground="#ffffff")
-        om_rol.pack(fill="x", ipady=4, pady=(2, 0))
+
+        def _abrir_rol(event, btn):
+            cp = self._p
+            menu = tk.Menu(sub_rol, tearoff=0, font=("Segoe UI", 9),
+                           bg=cp["card_bg"], fg=cp["texto_oscuro"],
+                           activebackground=cp["verde_btn"],
+                           activeforeground="#ffffff")
+            for op in roles:
+                menu.add_command(label=op,
+                    command=lambda o=op: [self._rol_var.set(o),
+                                          btn.config(text=f"  {o}")])
+            menu.tk_popup(btn.winfo_rootx(),
+                          btn.winfo_rooty() + btn.winfo_height())
+
+        self._btn_rol = tk.Button(
+            sub_rol, text=f"  {self._rol_var.get()}",
+            image=self._ico_flecha, compound="right",
+            font=("Segoe UI", 10), anchor="w",
+            fg=p["filtro_fg"], bg=p["filtro_bg"],
+            activebackground=p["borde"],
+            relief="flat", bd=0, padx=8, pady=6,
+            highlightthickness=1, highlightbackground=p["filtro_borde"],
+            cursor="hand2")
+        self._btn_rol.bind("<Button-1>", lambda e: _abrir_rol(e, self._btn_rol))
+        self._btn_rol.pack(fill="x", pady=(2, 0))
 
         # Status
-        sub_status = tk.Frame(fila_extra, bg=_BG_CARD)
-        sub_status.grid(row=0, column=1, sticky="ew")
-        tk.Label(sub_status, text="Status",
-                 font=("Segoe UI", 8), fg=_TEXTO_GRIS, bg=_BG_CARD).pack(anchor="w")
+        sub_status = tk.Frame(fila_extra, bg=p["card_bg"])
+        sub_status.grid(row=0, column=1, padx=(12, 0), sticky="ew")
+        self._reg(sub_status, "card_bg")
+
+        lbl_status = tk.Label(sub_status, text="Status", font=("Segoe UI", 8),
+                              fg=p["texto_gris"], bg=p["card_bg"])
+        lbl_status.pack(anchor="w")
+        self._reg(lbl_status, "card_bg", "texto_gris")
 
         self._status_var = tk.StringVar(value=self.datos.get("status", "Activo"))
-        om_status = tk.OptionMenu(sub_status, self._status_var, "Activo", "Inactivo")
-        om_status.config(font=("Segoe UI", 10), bg="#f5f5f5", fg=_TEXTO_OSCURO,
-                         relief="flat", bd=0, highlightthickness=1,
-                         highlightbackground=_BORDE, activebackground=_BORDE,
-                         cursor="hand2")
-        om_status["menu"].config(font=("Segoe UI", 9), bg=_BG_CARD,
-                                 activebackground=_VERDE_BTN,
-                                 activeforeground="#ffffff")
-        om_status.pack(fill="x", ipady=4, pady=(2, 0))
+        statuses = ["Activo", "Inactivo"]
 
-        # ── Botones ────────────────────────────────────────────────────────
-        pie = tk.Frame(cont, bg=_BG_APP)
-        pie.pack(fill="x", pady=(6, 0))
+        def _abrir_status(event, btn):
+            cp = self._p
+            menu = tk.Menu(sub_status, tearoff=0, font=("Segoe UI", 9),
+                           bg=cp["card_bg"], fg=cp["texto_oscuro"],
+                           activebackground=cp["verde_btn"],
+                           activeforeground="#ffffff")
+            for op in statuses:
+                menu.add_command(label=op,
+                    command=lambda o=op: [self._status_var.set(o),
+                                          btn.config(text=f"  {o}")])
+            menu.tk_popup(btn.winfo_rootx(),
+                          btn.winfo_rooty() + btn.winfo_height())
 
-        tk.Button(pie, text="GUARDAR CAMBIOS",
-                  font=("Segoe UI", 10, "bold"),
-                  fg="#ffffff", bg=_VERDE_BTN,
-                  activebackground=_VERDE_HOVER, activeforeground="#ffffff",
-                  bd=0, padx=20, pady=8, relief="flat", cursor="hand2",
-                  command=self._guardar).pack(side="left", padx=(0, 10))
+        self._btn_status = tk.Button(
+            sub_status, text=f"  {self._status_var.get()}",
+            image=self._ico_flecha, compound="right",
+            font=("Segoe UI", 10), anchor="w",
+            fg=p["filtro_fg"], bg=p["filtro_bg"],
+            activebackground=p["borde"],
+            relief="flat", bd=0, padx=8, pady=6,
+            highlightthickness=1, highlightbackground=p["filtro_borde"],
+            cursor="hand2")
+        self._btn_status.bind("<Button-1>",
+                              lambda e: _abrir_status(e, self._btn_status))
+        self._btn_status.pack(fill="x", pady=(2, 0))
 
-        tk.Button(pie, text="CANCELAR",
-                  font=("Segoe UI", 10, "bold"),
-                  fg="#ffffff", bg="#424242",
-                  activebackground="#212121", activeforeground="#ffffff",
-                  bd=0, padx=20, pady=8, relief="flat", cursor="hand2",
-                  command=self._cancelar).pack(side="left")
-
+    # ══════════════════════════════════════════════════════════════════════════
+    #  ACCIONES
+    # ══════════════════════════════════════════════════════════════════════════
     def _guardar(self):
         datos_actualizados = {
             "cod_institucional": self.datos.get("cod_institucional", ""),
@@ -180,9 +393,8 @@ class PantallaEditarUsuario:
             "status":            self._status_var.get(),
         }
         print("[EDITAR USUARIO] Guardando:", datos_actualizados)
-        # TODO: llamar función de BD para actualizar el usuario
-        # from core.database import actualizar_usuario
-        # actualizar_usuario(datos_actualizados)
+        # TODO: from core.database import actualizar_usuario
+        #       actualizar_usuario(datos_actualizados)
         self.app.mostrar_pantalla("gestion_real")
 
     def _cancelar(self):
