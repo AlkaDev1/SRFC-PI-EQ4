@@ -98,6 +98,9 @@ class PantallaAvisoPrivacidad:
             self._card.configure(bg=p["card_bg"], highlightbackground=p["borde"])
             self._pie.configure(bg=p["bg_app"])
             self._frame_botones.configure(bg=p["bg_app"])
+            self._titulo_frame.configure(bg=p["card_bg"])
+            self._sep.configure(bg=p["borde"])
+            self._frame_scroll.configure(bg=p["card_bg"])
             self._titulo.configure(bg=p["card_bg"], fg=p["texto_titulo"])
             self._texto.configure(bg=p["card_bg"], fg=p["texto_gris"])
             
@@ -124,7 +127,7 @@ class PantallaAvisoPrivacidad:
                 image=self._iconos_btn["aceptar_normal"]
             )
             # Forzar actualización
-            self._btn_aceptar.update_idletasks()
+            self._btn_aceptar.update()
 
             for widget, bg_k, fg_k in self._widgets_repintables:
                 try:
@@ -199,8 +202,8 @@ class PantallaAvisoPrivacidad:
         self._card.pack(fill="both", expand=True)
 
         # ── Título con icono ──
-        titulo_frame = tk.Frame(self._card, bg=p["card_bg"])
-        titulo_frame.pack(fill="x", padx=16, pady=(16, 12))
+        self._titulo_frame = tk.Frame(self._card, bg=p["card_bg"])
+        self._titulo_frame.pack(fill="x", padx=16, pady=(16, 12))
 
         self._icono_candado = None
         ruta_candado = self._raiz / "assets" / "img" / "lock_icon.png"
@@ -209,7 +212,7 @@ class PantallaAvisoPrivacidad:
                 img_pil = Image.open(ruta_candado).resize((24, 24), Image.Resampling.LANCZOS)
                 self._icono_candado = ImageTk.PhotoImage(img_pil)
                 self._titulo = tk.Label(
-                    titulo_frame,
+                    self._titulo_frame,
                     text="Aviso de Privacidad",
                     font=FUENTES.get("modal_titulo", ("Segoe UI", 16, "bold")),
                     bg=p["card_bg"],
@@ -219,7 +222,7 @@ class PantallaAvisoPrivacidad:
                 )
             except Exception:
                 self._titulo = tk.Label(
-                    titulo_frame,
+                    self._titulo_frame,
                     text="🔒 Aviso de Privacidad",
                     font=FUENTES.get("modal_titulo", ("Segoe UI", 16, "bold")),
                     bg=p["card_bg"],
@@ -227,7 +230,7 @@ class PantallaAvisoPrivacidad:
                 )
         else:
             self._titulo = tk.Label(
-                titulo_frame,
+                self._titulo_frame,
                 text="🔒 Aviso de Privacidad",
                 font=FUENTES.get("modal_titulo", ("Segoe UI", 16, "bold")),
                 bg=p["card_bg"],
@@ -236,19 +239,19 @@ class PantallaAvisoPrivacidad:
         self._titulo.pack(side="left")
 
         # ── Separador ──
-        sep = tk.Frame(self._card, bg=p["borde"], height=1)
-        sep.pack(fill="x", padx=0, pady=0)
+        self._sep = tk.Frame(self._card, bg=p["borde"], height=1)
+        self._sep.pack(fill="x", padx=0, pady=0)
 
         # ── Frame con scrollbar ──
-        frame_scroll = tk.Frame(self._card, bg=p["card_bg"])
-        frame_scroll.pack(fill="both", expand=True, padx=16, pady=12)
+        self._frame_scroll = tk.Frame(self._card, bg=p["card_bg"])
+        self._frame_scroll.pack(fill="both", expand=True, padx=16, pady=12)
 
-        scrollbar = tk.Scrollbar(frame_scroll)
+        scrollbar = tk.Scrollbar(self._frame_scroll)
         scrollbar.pack(side="right", fill="y")
 
         # ── Texto del aviso ──
         self._texto = tk.Text(
-            frame_scroll,
+            self._frame_scroll,
             font=("Segoe UI", 10),
             fg=p["texto_gris"],
             bg=p["card_bg"],
