@@ -65,7 +65,6 @@ class PantallaAcceso:
         self._nombres    = []
         self._encodings  = []
         self._cods       = []
-        self._cargar_perfiles()
 
         self._cap       = None
         self._corriendo = False
@@ -73,6 +72,9 @@ class PantallaAcceso:
 
         self._construir_ui()
         self._iniciar_animacion()
+        
+        # Cargar perfiles en paralelo
+        threading.Thread(target=self._cargar_perfiles, daemon=True).start()
         self._abrir_camara()
 
         if hasattr(app, "tema"):
@@ -82,14 +84,18 @@ class PantallaAcceso:
     #  Perfiles — carga desde BD
     # ══════════════════════════════════════════
     def _cargar_perfiles(self):
-        from core.database import inicializar_bd, cargar_todos_encodings
-        inicializar_bd()
-        perfiles = cargar_todos_encodings()
-        for p in perfiles:
-            self._encodings.append(p["encoding"])
-            self._nombres.append(p["nombre"])
-            self._cods.append(p["cod"])
-        print(f"[ACCESO] {len(self._encodings)} perfiles cargados desde BD")
+        """Carga perfiles en hilo separado para no bloquear UI"""
+        try:
+            from core.database import inicializar_bd, cargar_todos_encodings
+            inicializar_bd()
+            perfiles = cargar_todos_encodings()
+            for p in perfiles:
+                self._encodings.append(p["encoding"])
+                self._nombres.append(p["nombre"])
+                self._cods.append(p["cod"])
+            print(f"[ACCESO] {len(self._encodings)} perfiles cargados desde BD")
+        except Exception as e:
+            print(f"[ACCESO] Error cargando perfiles: {e}")
 
     # ══════════════════════════════════════════
     #  UI
@@ -239,14 +245,17 @@ class PantallaAcceso:
     #  Cámara
     # ══════════════════════════════════════════
     def _abrir_camara(self):
+        """Abre cámara de forma rápida - configuración minimal"""
         self._cap = cv2.VideoCapture(_CAM_INDEX)
         if not self._cap.isOpened():
             self._cambiar_estado("sin_camara")
             return
-        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
-        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        
+        # Configuración minimal para iniciar rápido
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        
         self._corriendo = True
-        threading.Thread(target=self._hilo_camara,    daemon=True).start()
+        threading.Thread(target=self._hilo_camara, daemon=True).start()
         threading.Thread(target=self._hilo_biometria, daemon=True).start()
 
     def _dibujar_texto_con_borde(self, img, texto, pos, fuente, escala, grosor_borde, grosor_texto, color_texto):
