@@ -41,6 +41,11 @@ _CAM_INDEX    = 1 if _ES_RASPBERRY else 0
 FRAMES_CONFIRMAR = 8
 FRAMES_PERDER    = 8
 
+# ─ Optimización de rendimiento ─
+RES_PROCESAMIENTO = (320, 240)  # Procesar a baja resolución
+SKIP_FRAMES = 3                 # Procesar cada 3 frames
+MAX_FRAMES_COLA = 4             # Buffer más grande
+
 
 class PantallaAcceso:
 
@@ -65,16 +70,17 @@ class PantallaAcceso:
         self._nombres    = []
         self._encodings  = []
         self._cods       = []
+        self._cargar_perfiles()
 
-        self._cap       = None
-        self._corriendo = False
-        self._cola_bio  = queue.Queue(maxsize=2)
+        self._cap              = None
+        self._corriendo        = False
+        self._cola_bio         = queue.Queue(maxsize=MAX_FRAMES_COLA)
+        self._contador_frames  = 0
+        self._cache_encodings  = None
+        self._ultimo_frame_id  = -1
 
         self._construir_ui()
         self._iniciar_animacion()
-        
-        # Cargar perfiles en paralelo
-        threading.Thread(target=self._cargar_perfiles, daemon=True).start()
         self._abrir_camara()
 
         if hasattr(app, "tema"):
@@ -84,18 +90,17 @@ class PantallaAcceso:
     #  Perfiles — carga desde BD
     # ══════════════════════════════════════════
     def _cargar_perfiles(self):
-        """Carga perfiles en hilo separado para no bloquear UI"""
-        try:
-            from core.database import inicializar_bd, cargar_todos_encodings
-            inicializar_bd()
-            perfiles = cargar_todos_encodings()
-            for p in perfiles:
-                self._encodings.append(p["encoding"])
-                self._nombres.append(p["nombre"])
-                self._cods.append(p["cod"])
-            print(f"[ACCESO] {len(self._encodings)} perfiles cargados desde BD")
-        except Exception as e:
-            print(f"[ACCESO] Error cargando perfiles: {e}")
+        from core.database import inicializar_bd, cargar_todos_encodings
+        inicializar_bd()
+        perfiles = cargar_todos_encodings()
+        for p in perfiles:
+            self._encodings.append(p["encoding"])
+            self._nombres.append(p["nombre"])
+            self._cods.append(p["cod"])
+        # Cache para face_recognition.face_distance
+        if self._encodings and FR_DISPONIBLE:
+            self._cache_encodings = np.array(self._encodings)
+        print(f"[ACCESO] {len(self._encodings)} perfiles cargados desde BD")
 
     # ══════════════════════════════════════════
     #  UI
@@ -245,17 +250,19 @@ class PantallaAcceso:
     #  Cámara
     # ══════════════════════════════════════════
     def _abrir_camara(self):
-        """Abre cámara de forma rápida - configuración minimal"""
         self._cap = cv2.VideoCapture(_CAM_INDEX)
         if not self._cap.isOpened():
             self._cambiar_estado("sin_camara")
             return
         
-        # Configuración minimal para iniciar rápido
-        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        # ─ Optimizar configuración de cámara ─
+        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
+        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        self._cap.set(cv2.CAP_PROP_FPS, 30)
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimizar buffer para baja latencia
         
         self._corriendo = True
-        threading.Thread(target=self._hilo_camara, daemon=True).start()
+        threading.Thread(target=self._hilo_camara,    daemon=True).start()
         threading.Thread(target=self._hilo_biometria, daemon=True).start()
 
     def _dibujar_texto_con_borde(self, img, texto, pos, fuente, escala, grosor_borde, grosor_texto, color_texto):
@@ -264,25 +271,31 @@ class PantallaAcceso:
 
     def _hilo_camara(self):
         import time
+        self._contador_frames = 0
         while self._corriendo:
             ok, frame = self._cap.read()
             if not ok:
                 break
             frame = cv2.flip(frame, 1)
-            try:
-                self._cola_bio.put_nowait(frame.copy())
-            except queue.Full:
-                pass
+            self._contador_frames += 1
+            
+            # ─ Enviar a biometría cada SKIP_FRAMES ─
+            if self._contador_frames % SKIP_FRAMES == 0:
+                try:
+                    self._cola_bio.put_nowait(frame.copy())
+                except queue.Full:
+                    pass
 
             if self._estado not in ("acceso_ok",):
                 try:
                     cw = self.label_video.winfo_width()
                     ch = self.label_video.winfo_height()
                     if cw < 10 or ch < 10:
-                        time.sleep(0.04)
+                        time.sleep(0.01)  # Dormir menos
                         continue
 
-                    resized = cv2.resize(frame, (cw, ch))
+                    # ─ Usar interpolación más rápida ─
+                    resized = cv2.resize(frame, (cw, ch), interpolation=cv2.INTER_LINEAR)
 
                     if self._bbox:
                         x1, y1, x2, y2 = self._bbox
@@ -317,21 +330,19 @@ class PantallaAcceso:
                     rgb   = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
                     photo = ImageTk.PhotoImage(image=Image.fromarray(rgb))
                     self._photo = photo
+                    # ─ Dibujar solo si cambió (evitar redraws innecesarios) ─
                     self.label_video.after(0, self._pintar_frame)
                 except Exception:
                     pass
-            time.sleep(1 / 30)
+            time.sleep(0.01)  # ~100 FPS captura, display limita
 
     def _hilo_biometria(self):
-        cnt = 0
         while self._corriendo:
             try:
-                frame = self._cola_bio.get(timeout=0.5)
+                frame = self._cola_bio.get(timeout=1.0)
             except queue.Empty:
                 continue
-            cnt += 1
-            if cnt % 4 != 0:
-                continue
+            
             resultado = self._reconocer(frame)
             try:
                 self.label_video.after(0, lambda r=resultado: self._aplicar_resultado(r))
@@ -340,9 +351,10 @@ class PantallaAcceso:
 
     def _reconocer(self, frame):
         if FR_DISPONIBLE:
-            pequeño = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+            # ─ Procesar a resolución baja para más velocidad ─
+            pequeño = cv2.resize(frame, RES_PROCESAMIENTO, interpolation=cv2.INTER_LINEAR)
             rgb     = cv2.cvtColor(pequeño, cv2.COLOR_BGR2RGB)
-            ubs     = face_recognition.face_locations(rgb, model="hog")
+            ubs     = face_recognition.face_locations(rgb, model="hog", number_of_times_to_upsample=0)
             if not ubs:
                 return {"hay_rostro": False}
             ub = max(ubs, key=lambda u: (u[2]-u[0]) * (u[1]-u[3]))
@@ -353,15 +365,24 @@ class PantallaAcceso:
             area_frame = alto_frame * ancho_frame
             if (area_rostro / area_frame) < 0.10:
                 return {"hay_rostro": False}
-            ub_orig = (ub[0]*2, ub[1]*2, ub[2]*2, ub[3]*2)
+            # ─ Escalar ubicación de vuelta a resolución original ─
+            scale_y = frame.shape[0] / pequeño.shape[0]
+            scale_x = frame.shape[1] / pequeño.shape[1]
+            ub_orig = (int(ub[0]*scale_y), int(ub[1]*scale_x), int(ub[2]*scale_y), int(ub[3]*scale_x))
+            
             if not self._encodings:
                 return {"hay_rostro": True, "reconocido": False,
                         "confianza": 0.0, "ubicacion": ub_orig, "nombre": "", "cod": ""}
-            encs = face_recognition.face_encodings(rgb, [ub])
+            encs = face_recognition.face_encodings(rgb, [ub], num_jitters=1)  # num_jitters=1 es más rápido
             if not encs:
                 return {"hay_rostro": True, "reconocido": False,
                         "confianza": 0.0, "ubicacion": ub_orig, "nombre": "", "cod": ""}
-            dists = face_recognition.face_distance(self._encodings, encs[0])
+            
+            # ─ Usar cache de encodings si está disponible ─
+            if self._cache_encodings is not None:
+                dists = face_recognition.face_distance(self._cache_encodings, encs[0])
+            else:
+                dists = face_recognition.face_distance(self._encodings, encs[0])
             idx   = int(np.argmin(dists))
             dist  = float(dists[idx])
             conf  = round(max(0.0, 1.0 - dist), 3)
@@ -375,7 +396,8 @@ class PantallaAcceso:
             gris    = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             cascade = cv2.CascadeClassifier(
                 cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-            rostros = cascade.detectMultiScale(gris, scaleFactor=1.1, minNeighbors=8, minSize=(100, 100))
+            # ─ Parámetros optimizados para velocidad ─
+            rostros = cascade.detectMultiScale(gris, scaleFactor=1.3, minNeighbors=5, minSize=(80, 80))
             if len(rostros) == 0:
                 return {"hay_rostro": False}
             x, y, w, h = max(rostros, key=lambda r: r[2]*r[3])
