@@ -190,7 +190,7 @@ class _Central(tk.Frame):
         zona_ancho = W - zona_izq - 20
         tx  = zona_izq + zona_ancho // 2
         ty  = int(H * 0.28)
-        tam = max(26, int(H * 0.175))
+        tam = max(20, int(H * 0.13))
         sub = max(10, int(H * 0.058))
 
         color_titulo = BLANCO if es_oscuro else "#1B5E20"
