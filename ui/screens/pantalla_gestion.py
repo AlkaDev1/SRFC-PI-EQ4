@@ -317,7 +317,7 @@ class PantallaGestion:
             self._tarjetas[key_sub] = lbl_sub
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  TABLA USUARIOS  — sin scrollbar vertical
+    #  TABLA USUARIOS
     # ══════════════════════════════════════════════════════════════════════════
     def _construir_tabla_usuarios(self, parent):
         p = self._p
@@ -342,7 +342,7 @@ class PantallaGestion:
         filtros.pack(side="right")
         self._reg(filtros, "card_bg")
 
-        # Botón Rol — lee self._p al abrirse
+        # Botón Rol
         def _abrir_menu_rol(event, btn):
             cp = self._p
             menu = tk.Menu(filtros, tearoff=0, font=("Segoe UI", 9),
@@ -368,7 +368,7 @@ class PantallaGestion:
         self._btn_rol.pack(side="left", padx=(0, 8))
         self._reg(self._btn_rol, "filtro_bg", "filtro_fg")
 
-        # Botón Mes — lee self._p al abrirse
+        # Botón Mes
         def _abrir_menu_mes(event, btn):
             cp = self._p
             menu = tk.Menu(filtros, tearoff=0, font=("Segoe UI", 9),
@@ -415,18 +415,33 @@ class PantallaGestion:
         cols = ("No. Inst.", "Nombre", "Ap. Paterno", "Ap. Materno",
                 "Programa", "Rol", "Fecha/Hora", "Status", "Editar")
 
-        # ── SIN scrollbar vertical ──────────────────────────────────────────
+        # ── FIX: stretch=True en todas las columnas para distribuir espacio ──
         self.tree_usuarios = ttk.Treeview(frame_t, columns=cols, show="headings",
                                           height=6, style="U.Treeview")
 
-        anchos = {"No. Inst.": 75, "Nombre": 70, "Ap. Paterno": 75,
-                  "Ap. Materno": 75, "Programa": 95, "Rol": 65,
-                  "Fecha/Hora": 90, "Status": 55, "Editar": 55}
+        # Anchos mínimos proporcionales; stretch=True en todas para que la
+        # tabla llene el ancho disponible sin colapsar columnas.
+        anchos = {
+            "No. Inst.":   80,
+            "Nombre":      80,
+            "Ap. Paterno": 90,
+            "Ap. Materno": 90,
+            "Programa":   110,
+            "Rol":         70,
+            "Fecha/Hora":  95,
+            "Status":      60,
+            "Editar":      50,
+        }
+        centradas = {"Status", "Editar", "Rol"}
         for col in cols:
             self.tree_usuarios.heading(col, text=col)
-            self.tree_usuarios.column(col, width=anchos.get(col, 70), minwidth=40,
-                                      stretch=(col == "Programa"),
-                                      anchor="center" if col in ("Status", "Editar", "Rol") else "w")
+            self.tree_usuarios.column(
+                col,
+                width=anchos.get(col, 80),
+                minwidth=40,
+                stretch=True,                          # ← CORRECCIÓN
+                anchor="center" if col in centradas else "w",
+            )
 
         self.tree_usuarios.tag_configure("par",   background=p["fila_par"])
         self.tree_usuarios.tag_configure("impar", background=p["fila_impar"])
@@ -442,10 +457,14 @@ class PantallaGestion:
             if item:
                 vals = self.tree_usuarios.item(item, "values")
                 self.app.mostrar_pantalla("editar_usuario", datos={
-                    "cod_institucional": vals[0], "nombre":           vals[1],
-                    "apellido_paterno":  vals[2], "apellido_materno": vals[3],
-                    "carrera":           vals[4], "rol":              vals[5],
-                    "fecha_hora":        vals[6], "status":           vals[7],
+                    "cod_institucional": vals[0],
+                    "nombre":            vals[1],
+                    "apellido_paterno":  vals[2],
+                    "apellido_materno":  vals[3],
+                    "carrera":           vals[4],
+                    "rol":               vals[5],
+                    "fecha_hora":        vals[6],
+                    "status":            vals[7],
                 })
 
     def _cargar_icono(self, nombre, size=18):
@@ -512,10 +531,11 @@ class PantallaGestion:
         hoy         = datetime.now().strftime("%Y-%m-%d")
 
         total   = len(usuarios)
-        alumnos = sum(1 for u in usuarios if u["rol"] == "Alumno")
+        alumnos = sum(1 for u in usuarios if u.get("rol", "") == "Alumno")
         admins  = sum(1 for u in usuarios
-                      if u["rol"] in ("Admin", "SuperAdmin", "SuperUsuario", "Profesor", "Maestro"))
-        acc_hoy = len([a for a in accesos if a["fecha"] == hoy])
+                      if u.get("rol", "") in ("Admin", "SuperAdmin", "SuperUsuario",
+                                              "Profesor", "Maestro"))
+        acc_hoy = len([a for a in accesos if a.get("fecha") == hoy])
 
         self._tarjetas["accesos_hoy"].config(text=str(acc_hoy))
         self._tarjetas["accesos_hoy_sub"].config(text="↑ +18% vs ayer")
@@ -554,12 +574,24 @@ class PantallaGestion:
         t = self.tree_usuarios
         t.delete(*t.get_children())
         for i, u in enumerate(datos):
-            fecha_hora = (f"{u.get('fecha_registro', '')} {u.get('hora_registro', '')}").strip()
-            t.insert("", "end", tags=("par" if i % 2 == 0 else "impar",),
-                     values=(u.get("cod_institucional", ""), u.get("nombre", "—"),
-                             u.get("apellido_paterno", ""), u.get("apellido_materno", ""),
-                             u.get("carrera", ""), u.get("rol", "Alumno"),
-                             fecha_hora, u.get("status", "Activo"), "✏"))
+            fecha_hora = (
+                f"{u.get('fecha_registro', '')} {u.get('hora_registro', '')}".strip()
+            )
+            t.insert(
+                "", "end",
+                tags=("par" if i % 2 == 0 else "impar",),
+                values=(
+                    u.get("cod_institucional", ""),
+                    u.get("nombre", "—"),           # primer_nombre → "nombre"
+                    u.get("apellido_paterno", ""),
+                    u.get("apellido_materno", ""),
+                    u.get("carrera", ""),
+                    u.get("rol", "Alumno"),
+                    fecha_hora,
+                    u.get("status", "Activo"),
+                    "✏",
+                ),
+            )
 
     def _volver(self):
         self.app.mostrar_pantalla("principal")

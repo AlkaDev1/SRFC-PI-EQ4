@@ -164,23 +164,96 @@ def registrar_usuario(datos: dict) -> tuple:
 
 
 def listar_usuarios() -> list:
+    """
+    Devuelve lista de dicts con las claves que espera PantallaGestion:
+      cod_institucional, nombre, apellido_paterno, apellido_materno,
+      carrera, rol, fecha_registro, hora_registro, status
+    """
     con = obtener_conexion()
-    if not con: return []
+    if not con:
+        return []
     try:
         rows = con.execute("""
-            SELECT u.cod_institucional,
-                   u.primer_nombre || ' ' || u.apellido_paterno AS nombre_completo,
-                   r.nombre  AS rol,
-                   a.carrera, a.grado, a.grupo,
-                   CASE WHEN re.cod_institucional IS NOT NULL THEN 1 ELSE 0 END AS tiene_encoding
+            SELECT
+                u.cod_institucional,
+                u.primer_nombre          AS nombre,
+                u.apellido_paterno       AS apellido_paterno,
+                COALESCE(u.apellido_materno, '') AS apellido_materno,
+                COALESCE(a.carrera, '')  AS carrera,
+                COALESCE(r.nombre, 'Sin rol') AS rol,
+                DATE(u.fecha_registro)   AS fecha_registro,
+                TIME(u.fecha_registro)   AS hora_registro,
+                CASE WHEN u.estado = 1 THEN 'Activo' ELSE 'Inactivo' END AS status,
+                CASE WHEN re.cod_institucional IS NOT NULL THEN 1 ELSE 0 END AS tiene_encoding
             FROM Usuarios u
-            LEFT JOIN Roles r            ON u.id_rol = r.id_rol
-            LEFT JOIN Alumnos_Detalle a  ON u.cod_institucional = a.cod_institucional
+            LEFT JOIN Roles r             ON u.id_rol = r.id_rol
+            LEFT JOIN Alumnos_Detalle a   ON u.cod_institucional = a.cod_institucional
             LEFT JOIN Rostros_encoding re ON u.cod_institucional = re.cod_institucional
-            WHERE u.estado = 1
+            WHERE u.estado IN (0, 1)
             ORDER BY u.fecha_registro DESC
         """).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def actualizar_usuario(datos: dict) -> tuple:
+    """
+    Actualiza nombre, apellidos, carrera, rol y status de un usuario.
+
+    datos esperados:
+      cod_institucional, nombre, apellido_paterno, apellido_materno,
+      carrera, rol, status
+    Retorna (bool, str)
+    """
+    con = obtener_conexion()
+    if not con:
+        return False, "No se pudo conectar a la base de datos."
+    try:
+        # Resolver id_rol a partir del nombre del rol
+        row_rol = con.execute(
+            "SELECT id_rol FROM Roles WHERE nombre = ?",
+            (datos.get("rol", "Alumno"),)
+        ).fetchone()
+
+        if not row_rol:
+            return False, f"Rol '{datos.get('rol')}' no encontrado en la base de datos."
+
+        id_rol = row_rol["id_rol"]
+        estado = 1 if datos.get("status", "Activo") == "Activo" else 0
+
+        # Actualizar tabla Usuarios
+        con.execute("""
+            UPDATE Usuarios
+            SET primer_nombre       = ?,
+                apellido_paterno    = ?,
+                apellido_materno    = ?,
+                id_rol              = ?,
+                estado              = ?,
+                fecha_actualizacion = CURRENT_TIMESTAMP,
+                usuario_actualizacion = 'Sistema'
+            WHERE cod_institucional = ?
+        """, (
+            datos.get("nombre", ""),
+            datos.get("apellido_paterno", ""),
+            datos.get("apellido_materno", ""),
+            id_rol,
+            estado,
+            datos["cod_institucional"],
+        ))
+
+        # Actualizar carrera en Alumnos_Detalle (INSERT OR REPLACE por si no existe)
+        con.execute("""
+            INSERT INTO Alumnos_Detalle (cod_institucional, carrera)
+            VALUES (?, ?)
+            ON CONFLICT(cod_institucional) DO UPDATE SET carrera = excluded.carrera
+        """, (datos["cod_institucional"], datos.get("carrera", "")))
+
+        con.commit()
+        return True, "Usuario actualizado correctamente."
+    except sqlite3.Error as e:
+        con.rollback()
+        return False, f"Error al actualizar: {e}"
     finally:
         con.close()
 

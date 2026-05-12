@@ -9,9 +9,11 @@ CAMBIOS:
   3. Soporte completo de tema oscuro — registrado en GestorTema
   4. Dropdowns Rol/Status reemplazados por tk.Button + tk.Menu
      con arrow_circle_black.png (claro) / arrow_drop_down.png (oscuro)
+  5. _guardar() llama a actualizar_usuario() de core/database — ya no es TODO
 """
 
 import tkinter as tk
+from tkinter import messagebox
 from pathlib import Path
 
 try:
@@ -22,6 +24,7 @@ except ImportError:
 
 from ui.components.barra_superior import crear_encabezado
 from ui.styles import PALETA
+from core.database import actualizar_usuario
 
 _RAIZ = Path(__file__).resolve().parents[2]
 
@@ -150,7 +153,6 @@ class PantallaEditarUsuario:
                     pass
 
                 self._cuerpo.configure(bg=p["bg_app"])
-                # Forzar redibujado limpio del card
                 self._card.update_idletasks()
 
         except tk.TclError:
@@ -182,18 +184,16 @@ class PantallaEditarUsuario:
         self.pantalla = tk.Frame(self.parent, bg=p["bg_app"])
         self.pantalla.pack(fill="both", expand=True)
 
-        # Header — IMPORTANTE: pasar self.app para que ☀️/🌙 funcione
         crear_encabezado(self.pantalla, self.app)
         tk.Frame(self.pantalla, bg=PALETA["topbar_sistema_fg"], height=3).pack(fill="x")
 
-        # Cuerpo con grid
         self._cuerpo = tk.Frame(self.pantalla, bg=p["bg_app"])
         cuerpo = self._cuerpo
         cuerpo.pack(fill="both", expand=True, padx=20, pady=6)
-        cuerpo.rowconfigure(1, weight=1)   # card expande
+        cuerpo.rowconfigure(1, weight=1)
         cuerpo.columnconfigure(0, weight=1)
 
-        # ── Fila 0: encabezado (título + número) ──────────────────────────────
+        # ── Fila 0: título + número institucional ─────────────────────────────
         self._encab_frame = tk.Frame(cuerpo, bg=p["bg_app"])
         self._encab_frame.grid(row=0, column=0, sticky="ew", pady=(0, 6))
 
@@ -213,7 +213,6 @@ class PantallaEditarUsuario:
 
         # ── Fila 1: card con formulario ───────────────────────────────────────
         self._card = tk.Frame(cuerpo, bg=p["card_bg"])
-
         self._card.grid(row=1, column=0, sticky="nsew")
 
         self._card_barra = tk.Frame(self._card, bg=p["verde_btn"], height=4)
@@ -253,7 +252,6 @@ class PantallaEditarUsuario:
         p    = self._p
         form = self._form
 
-        # Configurar 2 columnas iguales
         form.columnconfigure(0, weight=1)
         form.columnconfigure(1, weight=1)
 
@@ -302,7 +300,7 @@ class PantallaEditarUsuario:
         fila_extra.columnconfigure(1, weight=1)
         self._reg(fila_extra, "card_bg")
 
-        # Rol
+        # ── Rol ───────────────────────────────────────────────────────────────
         sub_rol = tk.Frame(fila_extra, bg=p["card_bg"])
         sub_rol.grid(row=0, column=0, padx=(0, 12), sticky="ew")
         self._reg(sub_rol, "card_bg")
@@ -312,8 +310,11 @@ class PantallaEditarUsuario:
         lbl_rol.pack(anchor="w")
         self._reg(lbl_rol, "card_bg", "texto_gris")
 
-        self._rol_var = tk.StringVar(value=self.datos.get("rol", "Alumno"))
-        roles = ["Alumno", "Maestro", "Admin", "Super Admin"]
+        # FIX: normalizar el valor que llega para que coincida con las opciones
+        rol_inicial = self._normalizar_rol(self.datos.get("rol", "Alumno"))
+        self._rol_var = tk.StringVar(value=rol_inicial)
+        roles = ["Alumno", "Maestro", "Admin", "Super Admin", "SuperAdmin",
+                 "SuperUsuario"]
 
         def _abrir_rol(event, btn):
             cp = self._p
@@ -321,7 +322,7 @@ class PantallaEditarUsuario:
                            bg=cp["card_bg"], fg=cp["texto_oscuro"],
                            activebackground=cp["verde_btn"],
                            activeforeground="#ffffff")
-            for op in roles:
+            for op in ["Alumno", "Maestro", "Admin", "Super Admin"]:
                 menu.add_command(label=op,
                     command=lambda o=op: [self._rol_var.set(o),
                                           btn.config(text=f"  {o}")])
@@ -340,7 +341,7 @@ class PantallaEditarUsuario:
         self._btn_rol.bind("<Button-1>", lambda e: _abrir_rol(e, self._btn_rol))
         self._btn_rol.pack(fill="x", pady=(2, 0))
 
-        # Status
+        # ── Status ────────────────────────────────────────────────────────────
         sub_status = tk.Frame(fila_extra, bg=p["card_bg"])
         sub_status.grid(row=0, column=1, padx=(12, 0), sticky="ew")
         self._reg(sub_status, "card_bg")
@@ -350,7 +351,8 @@ class PantallaEditarUsuario:
         lbl_status.pack(anchor="w")
         self._reg(lbl_status, "card_bg", "texto_gris")
 
-        self._status_var = tk.StringVar(value=self.datos.get("status", "Activo"))
+        status_inicial = self.datos.get("status", "Activo")
+        self._status_var = tk.StringVar(value=status_inicial)
         statuses = ["Activo", "Inactivo"]
 
         def _abrir_status(event, btn):
@@ -380,22 +382,51 @@ class PantallaEditarUsuario:
         self._btn_status.pack(fill="x", pady=(2, 0))
 
     # ══════════════════════════════════════════════════════════════════════════
+    #  HELPERS
+    # ══════════════════════════════════════════════════════════════════════════
+    @staticmethod
+    def _normalizar_rol(rol: str) -> str:
+        """Normaliza variantes de rol para que coincidan con el menú."""
+        mapa = {
+            "superadmin":    "Super Admin",
+            "super admin":   "Super Admin",
+            "superusuario":  "Super Admin",
+            "admin":         "Admin",
+            "alumno":        "Alumno",
+            "maestro":       "Maestro",
+            "profesor":      "Maestro",
+        }
+        return mapa.get((rol or "Alumno").lower().strip(), rol or "Alumno")
+
+    # ══════════════════════════════════════════════════════════════════════════
     #  ACCIONES
     # ══════════════════════════════════════════════════════════════════════════
     def _guardar(self):
         datos_actualizados = {
             "cod_institucional": self.datos.get("cod_institucional", ""),
-            "nombre":            self._entradas["nombre"].get(),
-            "apellido_paterno":  self._entradas["apellido_paterno"].get(),
-            "apellido_materno":  self._entradas["apellido_materno"].get(),
-            "carrera":           self._entradas["carrera"].get(),
+            "nombre":            self._entradas["nombre"].get().strip(),
+            "apellido_paterno":  self._entradas["apellido_paterno"].get().strip(),
+            "apellido_materno":  self._entradas["apellido_materno"].get().strip(),
+            "carrera":           self._entradas["carrera"].get().strip(),
             "rol":               self._rol_var.get(),
             "status":            self._status_var.get(),
         }
-        print("[EDITAR USUARIO] Guardando:", datos_actualizados)
-        # TODO: from core.database import actualizar_usuario
-        #       actualizar_usuario(datos_actualizados)
-        self.app.mostrar_pantalla("gestion_real")
+
+        # Validación mínima
+        if not datos_actualizados["nombre"]:
+            messagebox.showwarning("Campo requerido", "El nombre no puede estar vacío.")
+            return
+        if not datos_actualizados["apellido_paterno"]:
+            messagebox.showwarning("Campo requerido",
+                                   "El apellido paterno no puede estar vacío.")
+            return
+
+        ok, msg = actualizar_usuario(datos_actualizados)
+        if ok:
+            messagebox.showinfo("Guardado", msg)
+            self.app.mostrar_pantalla("gestion_real")
+        else:
+            messagebox.showerror("Error al guardar", msg)
 
     def _cancelar(self):
         self.app.mostrar_pantalla("gestion_real")

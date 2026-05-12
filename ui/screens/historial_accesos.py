@@ -421,7 +421,7 @@ class PantallaHistorialAccesos:
     # ══════════════════════════════════════════════════════════════════════════
     def _cerrar(self):
         if hasattr(self.app, "mostrar_pantalla"):
-            self.app.mostrar_pantalla("gestion")
+            self.app.mostrar_pantalla("gestion_real")
         else:
             self.parent.winfo_toplevel().destroy()
 
