@@ -28,7 +28,6 @@ import tkinter as tk
 from pathlib import Path
 from ui.components.barra_superior import crear_encabezado
 from ui.styles import FUENTES, MEDIDAS
-from ui.components.aviso_privacidad import mostrar_aviso
 from PIL import Image, ImageTk, ImageDraw
 
 # ── Paleta modo claro ─────────────────────────────────────────────────────────
@@ -254,8 +253,7 @@ class _Botones(tk.Frame):
         self._btn_gestion = _Btn(self._fila, _ICONO_GESTION, "GESTIÓN",
                                   lambda: app.mostrar_pantalla("gestion"), es_oscuro, bg)
         self._btn_aviso   = _Btn(self._fila, _ICONO_AVISO_PRIVACIDAD, "AVISO DE\nPRIVACIDAD",
-                                  lambda: mostrar_aviso(
-                                      parent.winfo_toplevel(), al_aceptar=lambda: None),
+                                  lambda: app.mostrar_pantalla("aviso_privacidad"),
                                   es_oscuro, bg)
 
         # Forzar repintado inicial después de que Tkinter termine de construir

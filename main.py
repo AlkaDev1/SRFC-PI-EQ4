@@ -65,6 +65,10 @@ class App:
             from ui.screens.pantalla_editar_usuario import crear_pantalla_editar_usuario
             crear_pantalla_editar_usuario(self.contenedor, self, datos)
 
+        elif nombre == "aviso_privacidad":
+            from ui.screens.pantalla_aviso_privacidad import crear_pantalla_aviso_privacidad
+            crear_pantalla_aviso_privacidad(self.contenedor, self)
+
 
 def app():
     root = tk.Tk()
