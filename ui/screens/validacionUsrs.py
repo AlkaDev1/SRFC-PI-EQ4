@@ -18,6 +18,7 @@ import os
 import cv2
 import numpy as np
 import math
+import time
 from pathlib import Path
 from PIL import Image, ImageTk
 from datetime import datetime
@@ -33,6 +34,8 @@ except ImportError:
 
 FRAMES_CONFIRMAR = 8
 FRAMES_PERDER    = 8
+SKIP_FRAMES      = 2      # Procesar cada 2 frames (más responsive)
+MAX_FRAMES_COLA  = 4      # Buffer optimizado
 
 
 class ValidacionUsrs:
@@ -58,30 +61,40 @@ class ValidacionUsrs:
 
         self._nombres    = []
         self._encodings  = []
-        self._cargar_perfiles()
-
+        self._cargar_perfiles_lista = []  # Flag para cargar perfiles en background
+        
         self._cap       = None
         self._corriendo = False
-        self._cola_bio  = queue.Queue(maxsize=2)
+        self._cola_bio  = queue.Queue(maxsize=MAX_FRAMES_COLA)
+        self._contador_frames = 0
 
+        # ── Construir UI PRIMERO (sin bloqueos) ────────────────────────────────
         self._construir_ui()
         self._iniciar_animacion()
+        
+        # ── Cargar perfiles EN BACKGROUND (no bloquea UI) ────────────────────────
+        threading.Thread(target=self._cargar_perfiles, daemon=True).start()
+        
+        # ── Abrir cámara AHORA (ella sola optimiza su inicio) ────────────────────
         self._abrir_camara()
 
-        # ── Registrar en GestorTema para recibir cambios futuros ──────────────
+        # ── Registrar en GestorTema ──────────────────────────────────────────────
         if hasattr(app, "tema"):
             app.tema.registrar(self._aplicar_tema)
 
     # ══════════════════════════════════════════
-    #  Perfiles
+    #  Perfiles — carga asincrónica
     # ══════════════════════════════════════════
     def _cargar_perfiles(self):
+        """Carga perfiles en background sin bloquear UI."""
         if not FR_DISPONIBLE:
             return
         base    = os.path.dirname(os.path.dirname(
                   os.path.dirname(os.path.abspath(__file__))))
         carpeta = os.path.join(base, "data", "profiles")
         os.makedirs(carpeta, exist_ok=True)
+        
+        perfiles_temp = []
         for archivo in os.listdir(carpeta):
             if not archivo.lower().endswith((".jpg", ".jpeg", ".png")):
                 continue
@@ -91,10 +104,15 @@ class ValidacionUsrs:
                 img  = face_recognition.load_image_file(ruta)
                 encs = face_recognition.face_encodings(img)
                 if encs:
-                    self._encodings.append(encs[0])
-                    self._nombres.append(nombre)
+                    perfiles_temp.append((encs[0], nombre))
+                    print(f"[PERFIL] Cargado: {nombre}")
             except Exception as e:
-                print(f"[PERFIL] {archivo}: {e}")
+                print(f"[PERFIL] Error {archivo}: {e}")
+        
+        # ── Actualizar listas (thread-safe) ──────────────────────────────────
+        self._encodings = [p[0] for p in perfiles_temp]
+        self._nombres   = [p[1] for p in perfiles_temp]
+        print(f"[ACCESO] {len(self._encodings)} perfiles listos para reconocimiento")
 
     # ══════════════════════════════════════════
     #  UI
@@ -289,7 +307,7 @@ class ValidacionUsrs:
             pass
 
     # ══════════════════════════════════════════
-    #  Cámara
+    #  Cámara — inicio rápido
     # ══════════════════════════════════════════
     def _abrir_camara(self):
         self._cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
@@ -298,37 +316,48 @@ class ValidacionUsrs:
         if not self._cap.isOpened():
             self._cambiar_estado("sin_camara")
             return
+        
+        # ── Configuración MÍNIMA para inicio rápido ──────────────────────────────
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)        # Latencia baja
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        # No setear FPS, resolution ni otras props innecesarias
+        
         self._corriendo = True
-        threading.Thread(target=self._hilo_camara,    daemon=True).start()
-        threading.Thread(target=self._hilo_biometria, daemon=True).start()
+        threading.Thread(target=self._hilo_camara,    daemon=True, name="cam_capture").start()
+        threading.Thread(target=self._hilo_biometria, daemon=True, name="bio_recognition").start()
 
     def _dibujar_texto_con_borde(self, img, texto, pos, fuente, escala, grosor_borde, grosor_texto, color_texto):
         cv2.putText(img, texto, pos, fuente, escala, (0, 0, 0), grosor_borde, cv2.LINE_AA)
         cv2.putText(img, texto, pos, fuente, escala, color_texto, grosor_texto, cv2.LINE_AA)
 
     def _hilo_camara(self):
-        import time
+        self._contador_frames = 0
         while self._corriendo:
             ok, frame = self._cap.read()
             if not ok:
                 break
+            
             frame = cv2.flip(frame, 1)
-            try:
-                self._cola_bio.put_nowait(frame.copy())
-            except queue.Full:
-                pass
+            self._contador_frames += 1
+            
+            # ── Enviar a biometría cada N frames ─────────────────────────────────
+            if self._contador_frames % SKIP_FRAMES == 0:
+                try:
+                    self._cola_bio.put_nowait(frame.copy())
+                except queue.Full:
+                    pass
 
+            # ── Renderizar en pantalla si no está en acceso_ok ─────────────────────
             if self._estado not in ("acceso_ok",):
                 try:
                     cw = self.label_video.winfo_width()
                     ch = self.label_video.winfo_height()
                     if cw < 10 or ch < 10:
-                        time.sleep(0.04)
                         continue
 
-                    resized = cv2.resize(frame, (cw, ch))
+                    # ── Resize rápido ────────────────────────────────────────────────
+                    resized = cv2.resize(frame, (cw, ch), interpolation=cv2.INTER_LINEAR)
 
                     if self._bbox:
                         x1, y1, x2, y2 = self._bbox
@@ -366,18 +395,14 @@ class ValidacionUsrs:
                     self.label_video.after(0, self._pintar_frame)
                 except Exception:
                     pass
-            time.sleep(1 / 30)
 
     def _hilo_biometria(self):
-        cnt = 0
         while self._corriendo:
             try:
-                frame = self._cola_bio.get(timeout=0.5)
+                frame = self._cola_bio.get(timeout=1.0)
             except queue.Empty:
                 continue
-            cnt += 1
-            if cnt % 4 != 0:
-                continue
+            
             resultado = self._reconocer(frame)
             try:
                 self.label_video.after(0, lambda r=resultado: self._aplicar_resultado(r))
@@ -386,9 +411,10 @@ class ValidacionUsrs:
 
     def _reconocer(self, frame):
         if FR_DISPONIBLE:
-            pequeño = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+            # ── Procesamiento a baja resolución (más rápido) ──────────────────────
+            pequeño = cv2.resize(frame, (320, 240), interpolation=cv2.INTER_LINEAR)
             rgb     = cv2.cvtColor(pequeño, cv2.COLOR_BGR2RGB)
-            ubs     = face_recognition.face_locations(rgb, model="hog")
+            ubs     = face_recognition.face_locations(rgb, model="hog", number_of_times_to_upsample=0)
             if not ubs:
                 return {"hay_rostro": False}
             ub = max(ubs, key=lambda u: (u[2]-u[0]) * (u[1]-u[3]))
@@ -399,14 +425,22 @@ class ValidacionUsrs:
             area_frame = alto_frame * ancho_frame
             if (area_rostro / area_frame) < 0.10:
                 return {"hay_rostro": False}
-            ub_orig = (ub[0]*2, ub[1]*2, ub[2]*2, ub[3]*2)
+            
+            # ── Escalar ubicación de vuelta a original ───────────────────────────
+            scale_y = frame.shape[0] / pequeño.shape[0]
+            scale_x = frame.shape[1] / pequeño.shape[1]
+            ub_orig = (int(ub[0]*scale_y), int(ub[1]*scale_x), int(ub[2]*scale_y), int(ub[3]*scale_x))
+            
             if not self._encodings:
                 return {"hay_rostro": True, "reconocido": False,
                         "confianza": 0.0, "ubicacion": ub_orig, "nombre": ""}
-            encs = face_recognition.face_encodings(rgb, [ub])
+            
+            # ── Encoding rápido (num_jitters=1) ──────────────────────────────────
+            encs = face_recognition.face_encodings(rgb, [ub], num_jitters=1)
             if not encs:
                 return {"hay_rostro": True, "reconocido": False,
                         "confianza": 0.0, "ubicacion": ub_orig, "nombre": ""}
+            
             dists = face_recognition.face_distance(self._encodings, encs[0])
             idx   = int(np.argmin(dists))
             dist  = float(dists[idx])
@@ -417,10 +451,11 @@ class ValidacionUsrs:
             return {"hay_rostro": True, "reconocido": False,
                     "confianza": conf, "ubicacion": ub_orig, "nombre": ""}
         else:
+            # ── Fallback con Cascade (sin face_recognition) ───────────────────────
             gris    = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             cascade = cv2.CascadeClassifier(
                 cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-            rostros = cascade.detectMultiScale(gris, scaleFactor=1.1, minNeighbors=8, minSize=(100, 100))
+            rostros = cascade.detectMultiScale(gris, scaleFactor=1.3, minNeighbors=5, minSize=(80, 80))
             if len(rostros) == 0:
                 return {"hay_rostro": False}
             x, y, w, h = max(rostros, key=lambda r: r[2]*r[3])
