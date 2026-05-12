@@ -211,9 +211,9 @@ class _Central(tk.Frame):
                            linea_x1 + int(zona_ancho * 0.60), linea_y + 3,
                            fill="#2D531A" if es_oscuro else "#A5D6A7", outline="")
 
-        badge_y  = linea_y + 12
-        badge_h  = int(sub * 2.4)
-        badge_w  = int(zona_ancho * 0.82)
+        badge_y  = linea_y + 8
+        badge_h  = int(sub * 2.2)
+        badge_w  = int(zona_ancho * 0.95)
         badge_x1 = zona_izq
         badge_x2 = badge_x1 + badge_w
 
@@ -225,7 +225,7 @@ class _Central(tk.Frame):
                badge_h // 2, color_badge_bg, color_badge_borde)
         c.create_text((badge_x1 + badge_x2) // 2, badge_y + badge_h // 2,
                       text="Sistema de Control Biométrico",
-                      font=("Segoe UI", sub, "bold"),
+                      font=("Segoe UI", int(sub * 0.95), "bold"),
                       fill=color_badge_texto, anchor="center")
 
 
