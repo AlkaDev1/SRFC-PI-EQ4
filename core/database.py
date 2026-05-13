@@ -263,7 +263,7 @@ def actualizar_usuario(datos: dict) -> tuple:
 # ══════════════════════════════════════════════
 def cargar_todos_encodings() -> list:
     """
-    Retorna lista de dicts {cod, nombre, encoding} listos para reconocimiento.
+    Retorna lista de dicts {cod, nombre, encoding, id_rol, rol} listos para reconocimiento.
     """
     con = obtener_conexion()
     if not con: return []
@@ -271,9 +271,12 @@ def cargar_todos_encodings() -> list:
         rows = con.execute("""
             SELECT re.cod_institucional,
                    u.primer_nombre || ' ' || u.apellido_paterno AS nombre,
-                   re.face_encoding
+                   re.face_encoding,
+                   u.id_rol,
+                   COALESCE(r.nombre, 'Sin rol') AS rol
             FROM Rostros_encoding re
             JOIN Usuarios u ON re.cod_institucional = u.cod_institucional
+            LEFT JOIN Roles r ON u.id_rol = r.id_rol
             WHERE u.estado = 1
         """).fetchall()
         resultado = []
@@ -283,6 +286,8 @@ def cargar_todos_encodings() -> list:
                     "cod":      r["cod_institucional"],
                     "nombre":   r["nombre"],
                     "encoding": _blob_a_enc(r["face_encoding"]),
+                    "id_rol":   r["id_rol"],
+                    "rol":      r["rol"],
                 })
             except Exception as e:
                 print(f"[DB] Error decodificando {r['cod_institucional']}: {e}")

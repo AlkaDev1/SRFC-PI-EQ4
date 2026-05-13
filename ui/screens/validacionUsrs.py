@@ -58,9 +58,12 @@ class ValidacionUsrs:
         self._angulo         = 0
         self._after_anim     = None
         self._after_reset    = None
+        self._pantalla_destino = "gestion_real"  # Destino por defecto
 
         self._nombres    = []
         self._encodings  = []
+        self._id_roles   = []
+        self._roles      = []
         self._cargar_perfiles_lista = []  # Flag para cargar perfiles en background
         
         self._cap       = None
@@ -87,31 +90,17 @@ class ValidacionUsrs:
     # ══════════════════════════════════════════
     def _cargar_perfiles(self):
         """Carga perfiles en background sin bloquear UI."""
-        if not FR_DISPONIBLE:
-            return
-        base    = os.path.dirname(os.path.dirname(
-                  os.path.dirname(os.path.abspath(__file__))))
-        carpeta = os.path.join(base, "data", "profiles")
-        os.makedirs(carpeta, exist_ok=True)
+        from core.database import inicializar_bd, cargar_todos_encodings
+        inicializar_bd()
         
-        perfiles_temp = []
-        for archivo in os.listdir(carpeta):
-            if not archivo.lower().endswith((".jpg", ".jpeg", ".png")):
-                continue
-            ruta   = os.path.join(carpeta, archivo)
-            nombre = os.path.splitext(archivo)[0].replace("_", " ").title()
-            try:
-                img  = face_recognition.load_image_file(ruta)
-                encs = face_recognition.face_encodings(img)
-                if encs:
-                    perfiles_temp.append((encs[0], nombre))
-                    print(f"[PERFIL] Cargado: {nombre}")
-            except Exception as e:
-                print(f"[PERFIL] Error {archivo}: {e}")
+        perfiles = cargar_todos_encodings()
+        for p in perfiles:
+            self._encodings.append(p["encoding"])
+            self._nombres.append(p["nombre"])
+            self._id_roles.append(p["id_rol"])
+            self._roles.append(p["rol"])
+            print(f"[PERFIL] Cargado: {p['nombre']} - Rol: {p['rol']}")
         
-        # ── Actualizar listas (thread-safe) ──────────────────────────────────
-        self._encodings = [p[0] for p in perfiles_temp]
-        self._nombres   = [p[1] for p in perfiles_temp]
         print(f"[ACCESO] {len(self._encodings)} perfiles listos para reconocimiento")
 
     # ══════════════════════════════════════════
@@ -433,13 +422,13 @@ class ValidacionUsrs:
             
             if not self._encodings:
                 return {"hay_rostro": True, "reconocido": False,
-                        "confianza": 0.0, "ubicacion": ub_orig, "nombre": ""}
+                        "confianza": 0.0, "ubicacion": ub_orig, "nombre": "", "id_rol": None, "rol": None}
             
             # ── Encoding rápido (num_jitters=1) ──────────────────────────────────
             encs = face_recognition.face_encodings(rgb, [ub], num_jitters=1)
             if not encs:
                 return {"hay_rostro": True, "reconocido": False,
-                        "confianza": 0.0, "ubicacion": ub_orig, "nombre": ""}
+                        "confianza": 0.0, "ubicacion": ub_orig, "nombre": "", "id_rol": None, "rol": None}
             
             dists = face_recognition.face_distance(self._encodings, encs[0])
             idx   = int(np.argmin(dists))
@@ -447,9 +436,10 @@ class ValidacionUsrs:
             conf  = round(max(0.0, 1.0 - dist), 3)
             if dist <= 0.50:
                 return {"hay_rostro": True, "reconocido": True,
-                        "confianza": conf, "ubicacion": ub_orig, "nombre": self._nombres[idx]}
+                        "confianza": conf, "ubicacion": ub_orig, "nombre": self._nombres[idx],
+                        "id_rol": self._id_roles[idx], "rol": self._roles[idx]}
             return {"hay_rostro": True, "reconocido": False,
-                    "confianza": conf, "ubicacion": ub_orig, "nombre": ""}
+                    "confianza": conf, "ubicacion": ub_orig, "nombre": "", "id_rol": None, "rol": None}
         else:
             # ── Fallback con Cascade (sin face_recognition) ───────────────────────
             gris    = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -464,7 +454,7 @@ class ValidacionUsrs:
             if (area_rostro_hc / area_frame_hc) < 0.10:
                 return {"hay_rostro": False}
             return {"hay_rostro": True, "reconocido": False,
-                    "confianza": 0.3, "ubicacion": (y, x+w, y+h, x), "nombre": ""}
+                    "confianza": 0.3, "ubicacion": (y, x+w, y+h, x), "nombre": "", "id_rol": None, "rol": None}
 
     def _pintar_frame(self):
         if self._photo is None:
@@ -503,7 +493,8 @@ class ValidacionUsrs:
             if self._frames_ok >= FRAMES_CONFIRMAR:
                 self._frames_ok = 0
                 self._bloqueado = True
-                self._cambiar_estado("acceso_ok", nombre=r.get("nombre", ""))
+                self._cambiar_estado("acceso_ok", nombre=r.get("nombre", ""), 
+                                     id_rol=r.get("id_rol"), rol=r.get("rol"))
         else:
             self._frames_ok    = 0
             self._frames_deny += 1
@@ -517,12 +508,18 @@ class ValidacionUsrs:
     def _resetear(self):
         self._bloqueado = False
         self._bbox      = None
+        # Restaurar colores de la capa OK al original
+        p = self._p
+        self.capa_ok.configure(bg=p["acceso_ok_bg"])
+        self.canvas_foto.configure(bg=p["acceso_ok_bg"])
+        self._badge_ok.configure(bg=p["acceso_ok_bg"], text="✓")
+        self._lbl_admin_reconocido.configure(bg=p["acceso_ok_bg"], text="ADMINISTRADOR RECONOCIDO")
         self._cambiar_estado("escaneando")
 
     # ══════════════════════════════════════════
     #  Cambio de estado
     # ══════════════════════════════════════════
-    def _cambiar_estado(self, estado, nombre=""):
+    def _cambiar_estado(self, estado, nombre="", id_rol=None, rol=None):
         if self._estado == estado and estado not in ("acceso_ok", "acceso_deny"):
             return
         self._estado = estado
@@ -530,13 +527,43 @@ class ValidacionUsrs:
 
         if estado == "acceso_ok":
             self._mostrar_capa("ok")
-            self.lbl_nombre_ok.config(text=nombre or "Administrador")
-            self.lbl_info_ok.config(text="Redirigiendo al panel de gestión...")
+            
+            # ── Validar rol del usuario ────────────────────────────────────────────
+            # id_rol: 1=SuperAdmin, 2=Admin, 3=SuperUsuario(Maestro), 4=Alumno
+            if id_rol == 4:  # Alumno
+                # Usuario no autorizado
+                self.lbl_nombre_ok.config(text="ACCESO DENEGADO")
+                self.lbl_info_ok.config(text="Solo personal autorizado")
+                self.capa_ok.configure(bg="#d32f2f")  # Rojo
+                self.canvas_foto.configure(bg="#d32f2f")
+                self._badge_ok.configure(bg="#d32f2f", text="✗")
+                self._lbl_admin_reconocido.configure(bg="#d32f2f", text="USUARIO NO AUTORIZADO")
+                self.pantalla.after(2000, self._resetear)
+                return
+            
+            # Usuario autorizado
+            self.lbl_nombre_ok.config(text=nombre or "Usuario")
+            
+            # Determinar a qué pantalla redirigir según el rol
+            if id_rol == 3:  # SuperUsuario/Maestro
+                msg_redireccion = "Redirigiendo al historial de accesos..."
+                pantalla_destino = "historial_accesos"
+            elif id_rol in (1, 2):  # SuperAdmin o Admin
+                msg_redireccion = "Redirigiendo al panel de gestión..."
+                pantalla_destino = "gestion_real"
+            else:
+                msg_redireccion = "Redirigiendo..."
+                pantalla_destino = "gestion_real"
+            
+            self.lbl_info_ok.config(text=msg_redireccion)
             c = self.canvas_foto
             c.delete("all")
             c.create_oval(5, 5, 115, 115, fill="#ffffff", outline="#c8f0c8", width=3)
             c.create_text(60, 60, text="👤", font=("Segoe UI", 40), fill=p["acceso_ok_bg"])
-            self.pantalla.after(1500, self._ir_a_gestion_real)
+            
+            # Guardar la pantalla destino y redirigir después de 1.5s
+            self._pantalla_destino = pantalla_destino
+            self.pantalla.after(1500, self._ir_a_pantalla_destino)
 
         elif estado == "acceso_deny":
             self._mostrar_capa("escaneo")
@@ -550,7 +577,9 @@ class ValidacionUsrs:
     # ══════════════════════════════════════════
     #  Navegación
     # ══════════════════════════════════════════
-    def _ir_a_gestion_real(self):
+    def _ir_a_pantalla_destino(self):
+        """Redirige a la pantalla destino según el rol del usuario."""
+        pantalla = getattr(self, '_pantalla_destino', 'gestion_real')
         if hasattr(self.app, "tema"):
             self.app.tema.desregistrar(self._aplicar_tema)
         self._corriendo = False
@@ -562,7 +591,12 @@ class ValidacionUsrs:
                     self.canvas_icono.after_cancel(aid)
                 except Exception:
                     pass
-        self.app.mostrar_pantalla("gestion_real")
+        self.app.mostrar_pantalla(pantalla)
+
+    def _ir_a_gestion_real(self):
+        """Mantener para backward compatibility."""
+        self._pantalla_destino = "gestion_real"
+        self._ir_a_pantalla_destino()
 
     def _ir_a_login(self):
         if hasattr(self.app, "tema"):
