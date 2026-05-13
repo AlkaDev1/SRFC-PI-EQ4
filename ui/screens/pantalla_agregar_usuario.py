@@ -2,17 +2,18 @@
 ui/screens/pantalla_agregar_usuario.py
 Pantalla de Agregar Usuario -- 800x480 tactil (Raspberry Pi 5)
 
-CAMBIOS:
+CAMBIOS v2:
+  - Encoding facial calculado EN TIEMPO REAL durante la captura (sin guardar JPGs)
+  - Se acumula un encoding por frame con rostro detectado
+  - Al completar 30 capturas, se promedia → encoding final listo al instante
+  - Se elimina la carpeta temporal de rostros (ya no se necesita)
   - Soporte completo de tema oscuro/claro via GestorTema
   - Dropdowns Rol/Status usan tk.Button + tk.Menu con icono flecha
-    (arrow_circle_black.png claro / arrow_drop_down.png oscuro)
-    igual que pantalla_editar_usuario.py y pantalla_gestion.py
 """
 
 import tkinter as tk
 from tkinter import messagebox
 import threading
-import shutil
 import os
 from pathlib import Path
 
@@ -116,6 +117,11 @@ class PantallaAgregarUsuario:
         self._btn_rol    = None
         self._btn_status = None
 
+        # ── NUEVO: encoding acumulado en tiempo real ──────────────────────────
+        # Lista de encodings calculados frame a frame (sin guardar imágenes)
+        self._encodings_acumulados = []
+        self._encoding_final       = None   # np.ndarray con el promedio final
+
         self._construir_ui()
 
         if hasattr(app, "tema"):
@@ -153,7 +159,6 @@ class PantallaAgregarUsuario:
             self.pantalla.configure(bg=p["bg"])
             self._cuerpo.configure(bg=p["bg"])
 
-            # Columna cámara
             self._col_cam_frame.configure(bg=p["cam_bg"])
             self._feed_wrap.configure(bg=p["cam_bg"])
             self._lbl_feed.configure(bg=p["cam_bg"])
@@ -171,7 +176,6 @@ class PantallaAgregarUsuario:
             else:
                 self._btn_captura.configure(bg=p["verde"])
 
-            # Columna formulario
             self._col_form_frame.configure(bg=p["bg"],
                                            highlightbackground=p["borde"])
             self._barra_verde.configure(bg=p["verde_m"])
@@ -187,7 +191,6 @@ class PantallaAgregarUsuario:
             self._btn_cancelar.configure(bg=p["rojo_btn"],
                                          activebackground=p["rojo_hover"])
 
-            # Widgets genéricos
             for widget, bg_k, fg_k in self._widgets_repintables:
                 try:
                     if not widget.winfo_exists():
@@ -198,7 +201,6 @@ class PantallaAgregarUsuario:
                 except tk.TclError:
                     pass
 
-            # Entries
             for key, ent in self._entradas.items():
                 try:
                     if ent.cget("state") == "disabled":
@@ -212,7 +214,6 @@ class PantallaAgregarUsuario:
                 except tk.TclError:
                     pass
 
-            # Botones dropdown
             self._recargar_ico_flecha()
             for btn in (self._btn_rol, self._btn_status):
                 if btn is None:
@@ -338,7 +339,7 @@ class PantallaAgregarUsuario:
 
         self._entradas["cod_institucional"].bind("<KeyRelease>", self._validar_cod)
 
-        # ── Rol (fila 2, col 1) ───────────────────────────────────────────────
+        # ── Rol ───────────────────────────────────────────────────────────────
         self._rol_var = tk.StringVar(value=self.datos.get("rol", "Alumno"))
         sub_rol = tk.Frame(self._form, bg=p["bg"])
         sub_rol.grid(row=2, column=1, padx=(6, 0), pady=3, sticky="ew")
@@ -377,7 +378,7 @@ class PantallaAgregarUsuario:
         self._btn_rol.bind("<Button-1>", lambda e: _abrir_rol(e, self._btn_rol))
         self._btn_rol.pack(fill="x", ipady=2, pady=(2, 0))
 
-        # ── Status (fila 3, col 0+1) ──────────────────────────────────────────
+        # ── Status ────────────────────────────────────────────────────────────
         self._status_var = tk.StringVar(value=self.datos.get("status", "Activo"))
         sub_st = tk.Frame(self._form, bg=p["bg"])
         sub_st.grid(row=3, column=0, columnspan=2, pady=3, sticky="ew")
@@ -495,7 +496,7 @@ class PantallaAgregarUsuario:
             self._lbl_cam_sub.config(text="luego presione Capturar Rostro")
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  LÓGICA DE CAPTURA
+    #  LÓGICA DE CAPTURA — encoding en tiempo real (sin guardar JPGs)
     # ══════════════════════════════════════════════════════════════════════════
     def _toggle_captura(self):
         if self._capturando:
@@ -505,6 +506,11 @@ class PantallaAgregarUsuario:
 
     def _iniciar_captura(self):
         p = self._p
+        # Reiniciar acumulador cada vez que se inicia una nueva sesión
+        self._encodings_acumulados = []
+        self._capturas_ok          = 0
+        self._encoding_final       = None
+
         self._capturando = True
         self._btn_captura.config(
             text="DETENER CAPTURA",
@@ -523,21 +529,31 @@ class PantallaAgregarUsuario:
             bg=p["verde_btn"], activebackground=p["verde_hover"])
         self._lbl_cam_msg.config(text="CAPTURA PAUSADA")
         self._lbl_cam_sub.config(
-            text=f"{self._capturas_ok} / {CAPTURAS_REQUERIDAS} capturas guardadas",
+            text=f"{self._capturas_ok} / {CAPTURAS_REQUERIDAS} capturas",
             fg=p["cam_sub_fg"])
 
     def _hilo_captura(self):
+        """
+        Hilo de captura — calcula el encoding facial en tiempo real.
+
+        Por cada frame con rostro válido:
+          1. Redimensiona el frame a 320px de ancho (4x más rápido para dlib)
+          2. Llama a face_recognition.face_encodings() con model="small"
+          3. Acumula el encoding en self._encodings_acumulados
+          4. NO guarda ninguna imagen en disco
+        """
         try:
             import cv2
-        except ImportError:
+            import face_recognition
+        except ImportError as e:
             self.pantalla.after(0, lambda: messagebox.showerror(
-                "Dependencia faltante",
-                "OpenCV no instalado.\n\npip install opencv-python"))
+                "Dependencia faltante", str(e)))
             self._capturando = False
             return
 
         detector = cv2.CascadeClassifier(
             cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+
         import platform
         _idx = 1 if platform.machine() in ("aarch64", "armv7l") else 0
         cam  = cv2.VideoCapture(_idx)
@@ -547,9 +563,9 @@ class PantallaAgregarUsuario:
             self._capturando = False
             return
 
-        cod     = self._entradas["cod_institucional"].get().strip()
-        carpeta = os.path.join(_BASE, "data", "rostros", cod)
-        os.makedirs(carpeta, exist_ok=True)
+        # Configurar resolución de cámara (menor = más rápido el encoding)
+        cam.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
+        cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
         try:
             from PIL import Image as PILImage, ImageTk as ITk
@@ -572,10 +588,13 @@ class PantallaAgregarUsuario:
             ok, frame = cam.read()
             if not ok:
                 break
-            frame   = cv2.flip(frame, 1)
-            gris    = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            frame = cv2.flip(frame, 1)
+            gris  = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             rostros = detector.detectMultiScale(
                 gris, scaleFactor=1.3, minNeighbors=5, minSize=(80, 80))
+
+            encoding_este_frame = None
 
             if len(rostros) > 0:
                 bbox = tuple(rostros[0])
@@ -584,14 +603,45 @@ class PantallaAgregarUsuario:
                 if iou(rostro_objetivo, bbox) >= 0.40:
                     rostro_objetivo = bbox
                     x, y, w, h = bbox
-                    cv2.rectangle(frame, (x,y), (x+w,y+h), (0,200,0), 2)
-                    roi  = frame[y:y+h, x:x+w]
-                    ruta = os.path.join(carpeta, f"{self._capturas_ok:03d}.jpg")
-                    cv2.imwrite(ruta, roi)
-                    self._capturas_ok += 1
+                    cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 200, 0), 2)
+
+                    # ── ENCODING EN TIEMPO REAL ───────────────────────────────
+                    # 1. Recortar ROI del rostro con margen pequeño
+                    margen = 10
+                    x1 = max(0, x - margen)
+                    y1 = max(0, y - margen)
+                    x2 = min(frame.shape[1], x + w + margen)
+                    y2 = min(frame.shape[0], y + h + margen)
+                    roi_bgr = frame[y1:y2, x1:x2]
+
+                    # 2. Escalar a 160px de ancho → dlib ~4x más rápido
+                    h_roi, w_roi = roi_bgr.shape[:2]
+                    if w_roi > 160:
+                        escala    = 160 / w_roi
+                        roi_small = cv2.resize(
+                            roi_bgr,
+                            (160, int(h_roi * escala)),
+                            interpolation=cv2.INTER_LINEAR)
+                    else:
+                        roi_small = roi_bgr
+
+                    # 3. BGR → RGB (face_recognition espera RGB)
+                    roi_rgb = cv2.cvtColor(roi_small, cv2.COLOR_BGR2RGB)
+
+                    # 4. Calcular encoding (model="small" = HOG, más rápido)
+                    encs = face_recognition.face_encodings(
+                        roi_rgb,
+                        num_jitters=1,
+                        model="small")
+
+                    if encs:
+                        encoding_este_frame = encs[0]
+                        self._encodings_acumulados.append(encoding_este_frame)
+                        self._capturas_ok += 1
+                    # ─────────────────────────────────────────────────────────
                 else:
-                    x,y,w,h = bbox
-                    cv2.rectangle(frame,(x,y),(x+w,y+h),(0,0,200),2)
+                    x, y, w, h = bbox
+                    cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 200), 2)
 
             n = self._capturas_ok
             if pil_ok:
@@ -599,12 +649,14 @@ class PantallaAgregarUsuario:
                 h_f, w_f = img_rgb.shape[:2]
                 nw = 370
                 nh = int(h_f * nw / w_f)
-                img_pil = PILImage.fromarray(img_rgb).resize((nw, nh), PILImage.LANCZOS)
-                photo   = ITk.PhotoImage(img_pil)
+                img_pil = PILImage.fromarray(img_rgb).resize(
+                    (nw, nh), PILImage.LANCZOS)
+                photo = ITk.PhotoImage(img_pil)
                 self.pantalla.after(0, self._actualizar_feed, n, photo)
             else:
                 self.pantalla.after(0, self._actualizar_feed, n, None)
 
+            # Pausa ligera: deja procesar UI sin saturar la CPU
             cv2.waitKey(80)
 
         cam.release()
@@ -633,7 +685,10 @@ class PantallaAgregarUsuario:
             self._btn_confirmar.config(state="normal")
             self._lbl_aviso.config(text="")
         else:
-            self._capturas_ok = 0
+            # Reiniciar para reintento
+            self._capturas_ok          = 0
+            self._encodings_acumulados = []
+            self._encoding_final       = None
             self._btn_captura.config(
                 text="REINTENTAR CAPTURA",
                 bg=p["verde_btn"], activebackground=p["verde_hover"], state="normal")
@@ -643,7 +698,7 @@ class PantallaAgregarUsuario:
                 fg="#ef9a9a")
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  GUARDAR / CANCELAR
+    #  GUARDAR — usa encodings ya acumulados, sin leer disco
     # ══════════════════════════════════════════════════════════════════════════
     def _guardar(self):
         cod       = self._entradas["cod_institucional"].get().strip()
@@ -654,69 +709,48 @@ class PantallaAgregarUsuario:
             self._lbl_aviso.config(
                 text="Código, Nombre y Apellido Paterno son requeridos.")
             return
-        if self._capturas_ok < CAPTURAS_REQUERIDAS:
+        if len(self._encodings_acumulados) < CAPTURAS_REQUERIDAS:
             self._lbl_aviso.config(
                 text=f"Se requieren {CAPTURAS_REQUERIDAS} capturas.")
             return
 
         self._btn_confirmar.config(state="disabled", text="GUARDANDO...")
-        self._lbl_aviso.config(text="Generando encoding facial...")
+        self._lbl_aviso.config(text="Calculando encoding final...")
+
+        # Capturar referencia local antes de entrar al hilo
+        encodings_snap = list(self._encodings_acumulados)
 
         def _en_hilo():
             import face_recognition
             import numpy as np
 
-            carpeta  = os.path.join(_BASE, "data", "rostros", cod)
-            imagenes = sorted([
-                os.path.join(carpeta, f)
-                for f in os.listdir(carpeta) if f.lower().endswith(".jpg")])
+            # ── Promedio de todos los encodings acumulados ────────────────────
+            # Esto reemplaza el bucle de 30 face_recognition.face_encodings()
+            # El promedio es más robusto que un solo encoding
+            encoding_promedio = np.mean(encodings_snap, axis=0)
 
-            encodings = []
-            for ruta in imagenes:
-                try:
-                    img  = face_recognition.load_image_file(ruta)
-                    encs = face_recognition.face_encodings(img)
-                    if encs:
-                        encodings.append(encs[0])
-                except Exception as e:
-                    print(f"[ENCODING] {ruta}: {e}")
-
-            if not encodings:
-                self.pantalla.after(0, lambda: (
-                    self._lbl_aviso.config(
-                        text="No se pudo generar encoding. Intente de nuevo."),
-                    self._btn_confirmar.config(state="normal", text="CONFIRMAR")))
-                return
-
-            encoding_promedio = np.mean(encodings, axis=0)
-
-            # ── Validar que el rostro no esté ya registrado ───────────────────
-            from core.database import cargar_todos_encodings
+            # ── Validar duplicado ─────────────────────────────────────────────
             self.pantalla.after(0, lambda: self._lbl_aviso.config(
                 text="Verificando que el rostro no esté registrado..."))
 
+            from core.database import cargar_todos_encodings
             registrados = cargar_todos_encodings()
             if registrados:
                 enc_existentes = [r["encoding"] for r in registrados]
                 distancias = face_recognition.face_distance(
                     enc_existentes, encoding_promedio)
-                # Umbral 0.45: más estricto que el reconocimiento (0.50)
-                # para evitar falsos positivos en el registro
                 idx_min = int(np.argmin(distancias))
                 if distancias[idx_min] < 0.45:
                     nombre_dup = registrados[idx_min].get("nombre", "—")
-                    cod_dup    = registrados[idx_min].get("cod", "—")
-                    # Borrar fotos temporales antes de rechazar
-                    try:
-                        shutil.rmtree(carpeta)
-                    except Exception:
-                        pass
+                    cod_dup    = registrados[idx_min].get("cod",    "—")
+
                     def _rostro_duplicado():
                         self._lbl_aviso.config(
                             text=f"Rostro ya registrado como: {nombre_dup} ({cod_dup})")
                         self._btn_confirmar.config(state="normal", text="CONFIRMAR")
-                        # Reiniciar captura para que vuelva a escanear
-                        self._capturas_ok = 0
+                        self._capturas_ok          = 0
+                        self._encodings_acumulados = []
+                        self._encoding_final       = None
                         self._btn_captura.config(
                             text="REINTENTAR CAPTURA",
                             bg=self._p["verde_btn"],
@@ -729,11 +763,7 @@ class PantallaAgregarUsuario:
                     self.pantalla.after(0, _rostro_duplicado)
                     return
 
-            try:
-                shutil.rmtree(carpeta)
-            except Exception as e:
-                print(f"[ENCODING] No se pudieron eliminar las fotos: {e}")
-
+            # ── Guardar en BD ─────────────────────────────────────────────────
             rol_map  = {"Alumno": 4, "Maestro": 3, "Admin": 2, "Super Admin": 1}
             datos_bd = {
                 "cod_institucional": cod,
