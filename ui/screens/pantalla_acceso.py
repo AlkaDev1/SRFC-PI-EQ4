@@ -43,8 +43,8 @@ FRAMES_PERDER    = 8
 
 # ─ Optimización de rendimiento ─
 RES_PROCESAMIENTO = (320, 240)  # Procesar a baja resolución
-SKIP_FRAMES = 3                 # Procesar cada 3 frames
-MAX_FRAMES_COLA = 4             # Buffer más grande
+SKIP_FRAMES = 2                 # Procesar cada 2 frames (más fluido)
+MAX_FRAMES_COLA = 2             # Buffer pequeño (baja latencia)
 
 
 class PantallaAcceso:
@@ -294,8 +294,8 @@ class PantallaAcceso:
                         time.sleep(0.01)  # Dormir menos
                         continue
 
-                    # ─ Usar interpolación más rápida ─
-                    resized = cv2.resize(frame, (cw, ch), interpolation=cv2.INTER_LINEAR)
+                    # ─ Usar interpolación ultra rápida ─
+                    resized = cv2.resize(frame, (cw, ch), interpolation=cv2.INTER_NEAREST)
 
                     if self._bbox:
                         x1, y1, x2, y2 = self._bbox
@@ -334,7 +334,7 @@ class PantallaAcceso:
                     self.label_video.after(0, self._pintar_frame)
                 except Exception:
                     pass
-            time.sleep(0.01)  # ~100 FPS captura, display limita
+            time.sleep(0)  # ~200 FPS captura, mejor fluidez
 
     def _hilo_biometria(self):
         while self._corriendo:
