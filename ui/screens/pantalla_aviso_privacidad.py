@@ -2,11 +2,13 @@
 ui/screens/pantalla_aviso_privacidad.py
 Pantalla de Aviso de Privacidad — versión táctil para Raspberry Pi 800x480.
 
-CAMBIOS:
-  - Scrollbar oculta (scroll interno funciona igual, barra no se ve)
-  - Scroll táctil: arrastrar con dedo sin seleccionar texto
-  - Botón Aceptar empaquetado ANTES del contenido (side="bottom")
-    para que siempre sea visible sin importar el tamaño de pantalla
+CAMBIOS v2:
+  - Scroll táctil corregido: usa event.y_root en lugar de event.y
+    (evita el bug donde el dedo selecciona texto al bajar)
+  - Umbral de 8px para distinguir tap vs arrastre
+  - Bloqueo de selección más agresivo con "return break" en todos los eventos
+  - Scrollbar oculta (funcional pero invisible)
+  - Botón Aceptar siempre visible (side=bottom)
 """
 
 import tkinter as tk
@@ -82,9 +84,10 @@ class PantallaAvisoPrivacidad:
         self._raiz  = Path(__file__).resolve().parent.parent.parent
         self._iconos_btn = {}
 
-        # Variables para scroll táctil
-        self._touch_y_inicio = 0
-        self._arrastrando     = False
+        # ── Variables para scroll táctil (v2: usa y_root) ────────────────────
+        self._touch_y_root   = 0    # coordenada absoluta de pantalla
+        self._arrastrando    = False
+        self._UMBRAL_ARRASTRE = 8   # px mínimos para considerar scroll
 
         self._construir_ui()
 
@@ -149,37 +152,59 @@ class PantallaAvisoPrivacidad:
 
         if ruta_icono and Path(ruta_icono).exists():
             try:
-                ico = Image.open(ruta_icono).convert("RGBA").resize((26, 26),
-                      Image.Resampling.LANCZOS)
+                ico = Image.open(ruta_icono).convert("RGBA").resize(
+                    (26, 26), Image.Resampling.LANCZOS)
                 img.paste(ico, (18, (alto - 26) // 2), ico)
             except Exception:
                 pass
         return ImageTk.PhotoImage(img)
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  SCROLL TÁCTIL — arrastra sin seleccionar texto
+    #  SCROLL TÁCTIL v2 — usa y_root para coordenadas absolutas
+    #
+    #  Problema anterior: event.y es relativo al widget y en RPi con pantalla
+    #  táctil el sistema puede reportar coordenadas inconsistentes durante
+    #  B1-Motion, haciendo que el delta sea casi 0 o negativo aunque el dedo
+    #  baje, lo que no activaba self._arrastrando y Tkinter interpretaba el
+    #  gesto como selección de texto.
+    #
+    #  Fix: event.y_root es la coordenada absoluta de pantalla → siempre
+    #  consistente independientemente del widget bajo el dedo.
     # ══════════════════════════════════════════════════════════════════════════
     def _on_touch_start(self, event):
-        self._touch_y_inicio = event.y
-        self._arrastrando     = False
-
-    def _on_touch_move(self, event):
-        dy = event.y - self._touch_y_inicio
-        # Solo activar arrastre si supera 5px para no confundir con tap
-        if abs(dy) > 5:
-            self._arrastrando = True
-            # Desplazar en unidades proporcionales al movimiento
-            self._texto.yview_scroll(int(-dy / 20), "units")
-            self._touch_y_inicio = event.y
-        # Cancelar cualquier selección que tkinter haya iniciado
-        self._texto.tag_remove("sel", "1.0", "end")
+        self._touch_y_root = event.y_root   # coordenada absoluta
+        self._arrastrando  = False
+        # Limpiar selección inmediatamente al tocar
+        try:
+            self._texto.tag_remove("sel", "1.0", "end")
+        except tk.TclError:
+            pass
         return "break"
 
+    def _on_touch_move(self, event):
+        dy = self._touch_y_root - event.y_root  # positivo = dedo baja = scroll ↓
+
+        if abs(dy) >= self._UMBRAL_ARRASTRE:
+            self._arrastrando    = True
+            self._touch_y_root   = event.y_root  # reset para scroll continuo
+
+            # Scroll proporcional: ~20px de movimiento = 1 unidad de texto
+            unidades = int(dy / 18)
+            if unidades != 0:
+                self._texto.yview_scroll(unidades, "units")
+
+        # Siempre cancelar selección durante el movimiento
+        try:
+            self._texto.tag_remove("sel", "1.0", "end")
+        except tk.TclError:
+            pass
+        return "break"  # impide que Tkinter procese el evento internamente
+
     def _on_touch_end(self, event):
-        # Si fue un arrastre, cancelar el evento para no activar clic
         if self._arrastrando:
             self._arrastrando = False
             return "break"
+        # Si no hubo arrastre fue un tap → dejar que el evento siga (botón Aceptar)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  UI
@@ -192,18 +217,16 @@ class PantallaAvisoPrivacidad:
 
         crear_encabezado(self.pantalla, self.app)
 
-        # Contenedor principal
         self._cont = tk.Frame(self.pantalla, bg=p["bg_app"])
         self._cont.pack(fill="both", expand=True, padx=20, pady=(10, 10))
 
-        # Tarjeta
         self._card = tk.Frame(self._cont, bg=p["card_bg"],
                               relief="solid", bd=1,
                               highlightthickness=1,
                               highlightbackground=p["borde"])
         self._card.pack(fill="both", expand=True)
 
-        # ── PIE con botón PRIMERO (side=bottom) — siempre visible ────────────
+        # ── PIE con botón (side=bottom — siempre visible) ─────────────────────
         self._pie = tk.Frame(self._card, bg=p["card_bg"])
         self._pie.pack(side="bottom", fill="x", padx=16, pady=(8, 12))
 
@@ -244,8 +267,8 @@ class PantallaAvisoPrivacidad:
         ruta_candado = self._raiz / "assets" / "img" / "lock_icon.png"
         if ruta_candado.exists():
             try:
-                img_pil = Image.open(ruta_candado).resize((24, 24),
-                          Image.Resampling.LANCZOS)
+                img_pil = Image.open(ruta_candado).resize(
+                    (24, 24), Image.Resampling.LANCZOS)
                 self._icono_candado = ImageTk.PhotoImage(img_pil)
                 self._titulo = tk.Label(
                     self._titulo_frame,
@@ -271,13 +294,12 @@ class PantallaAvisoPrivacidad:
         self._sep = tk.Frame(self._card, bg=p["borde"], height=1)
         self._sep.pack(fill="x")
 
-        # ── Texto con scroll táctil (sin scrollbar visible) ───────────────────
+        # ── Texto con scroll táctil ───────────────────────────────────────────
         self._frame_scroll = tk.Frame(self._card, bg=p["card_bg"])
         self._frame_scroll.pack(fill="both", expand=True, padx=16, pady=(8, 0))
 
-        # Scrollbar oculta: existe para manejar el scroll, pero no se ve
+        # Scrollbar invisible (existe para manejar yview, no se empaqueta)
         self._scrollbar = tk.Scrollbar(self._frame_scroll)
-        # NO empaquetamos la scrollbar → queda invisible pero funcional
 
         self._texto = tk.Text(
             self._frame_scroll,
@@ -288,22 +310,34 @@ class PantallaAvisoPrivacidad:
             yscrollcommand=self._scrollbar.set,
             bd=0, padx=12, pady=10,
             relief="flat",
-            cursor="arrow",          # puntero flecha, no cursor de texto
+            cursor="arrow",
+            # Deshabilitar selección con el mouse a nivel de configuración
+            selectbackground=p["card_bg"],   # selección invisible
+            selectforeground=p["texto_gris"],
+            inactiveselectbackground=p["card_bg"],
         )
         self._scrollbar.config(command=self._texto.yview)
         self._texto.pack(fill="both", expand=True)
         self._texto.insert("1.0", TEXTO_AVISO)
         self._texto.config(state="disabled")
 
-        # ── Bindings táctiles ─────────────────────────────────────────────────
-        # ButtonPress-1 / B1-Motion / ButtonRelease-1 funcionan con touch en RPi
-        self._texto.bind("<ButtonPress-1>",   self._on_touch_start)
-        self._texto.bind("<B1-Motion>",       self._on_touch_move)
-        self._texto.bind("<ButtonRelease-1>", self._on_touch_end)
+        # ── Bindings táctiles v2 ──────────────────────────────────────────────
+        self._texto.bind("<ButtonPress-1>",   self._on_touch_start, add="+")
+        self._texto.bind("<B1-Motion>",       self._on_touch_move,  add="+")
+        self._texto.bind("<ButtonRelease-1>", self._on_touch_end,   add="+")
 
-        # En Raspberry, MouseWheel no siempre llega — pero por si acaso
+        # Prevenir selección por doble/triple clic
+        self._texto.bind("<Double-Button-1>", lambda e: "break")
+        self._texto.bind("<Triple-Button-1>", lambda e: "break")
+
+        # Scroll con rueda del ratón (escritorio / USB mouse en RPi)
         self._texto.bind("<MouseWheel>",
             lambda e: self._texto.yview_scroll(int(-1*(e.delta/120)), "units"))
+        # Linux: botones 4 y 5
+        self._texto.bind("<Button-4>",
+            lambda e: self._texto.yview_scroll(-2, "units"))
+        self._texto.bind("<Button-5>",
+            lambda e: self._texto.yview_scroll(2, "units"))
 
     # ══════════════════════════════════════════════════════════════════════════
     #  ACCIÓN
