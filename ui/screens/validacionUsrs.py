@@ -19,6 +19,7 @@ import cv2
 import numpy as np
 import math
 import time
+import platform
 from pathlib import Path
 from PIL import Image, ImageTk
 from datetime import datetime
@@ -31,6 +32,10 @@ try:
     FR_DISPONIBLE = True
 except ImportError:
     FR_DISPONIBLE = False
+
+# ── Índice de cámara — igual que en pantalla_acceso.py ───────────────────────
+_ES_RASPBERRY = platform.machine() in ("aarch64", "armv7l")
+_CAM_INDEX    = 1 if _ES_RASPBERRY else 0
 
 FRAMES_CONFIRMAR = 8
 FRAMES_PERDER    = 8
@@ -270,11 +275,7 @@ class ValidacionUsrs:
     #  Soporte de tema
     # ══════════════════════════════════════════
     def _aplicar_tema(self, p: dict):
-        """Recibe la nueva paleta y repinta los widgets de esta pantalla.
-
-        Llamado automáticamente por GestorTema cuando el usuario presiona 🌙/☀️.
-        La cámara siempre es negra — solo repintamos los marcos y la capa OK.
-        """
+        """Recibe la nueva paleta y repinta los widgets de esta pantalla."""
         self._p = p
         try:
             self.pantalla.configure(bg=p["acceso_fondo"])
@@ -297,12 +298,18 @@ class ValidacionUsrs:
 
     # ══════════════════════════════════════════
     #  Cámara — inicio rápido
+    #  Cámara  ← FIX PRINCIPAL
     # ══════════════════════════════════════════
     def _abrir_camara(self):
-        self._cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        # Intenta con el índice correcto para la plataforma
+        self._cap = cv2.VideoCapture(_CAM_INDEX)
         if not self._cap.isOpened():
-            self._cap = cv2.VideoCapture(0)
+            # Fallback: prueba el otro índice
+            otro = 1 - _CAM_INDEX
+            print(f"[CAM] Índice {_CAM_INDEX} falló, probando {otro}...")
+            self._cap = cv2.VideoCapture(otro)
         if not self._cap.isOpened():
+            print("[CAM] No se pudo abrir ninguna cámara.")
             self._cambiar_estado("sin_camara")
             return
         
