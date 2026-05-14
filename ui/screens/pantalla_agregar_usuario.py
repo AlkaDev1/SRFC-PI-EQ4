@@ -2,13 +2,12 @@
 ui/screens/pantalla_agregar_usuario.py
 Pantalla de Agregar Usuario -- 800x480 tactil (Raspberry Pi 5)
 
-CAMBIOS v2:
+CAMBIOS v3:
+  - Campo contraseña aparece dinámicamente cuando Rol = Admin o Super Admin
+  - Campo contraseña se oculta para Alumno y Maestro
+  - _on_rol_cambio() maneja la visibilidad del campo
+  - _guardar() valida y guarda password_hash si el rol lo requiere
   - Encoding facial calculado EN TIEMPO REAL durante la captura (sin guardar JPGs)
-  - Se acumula un encoding por frame con rostro detectado
-  - Al completar 30 capturas, se promedia → encoding final listo al instante
-  - Se elimina la carpeta temporal de rostros (ya no se necesita)
-  - Soporte completo de tema oscuro/claro via GestorTema
-  - Dropdowns Rol/Status usan tk.Button + tk.Menu con icono flecha
 """
 
 import tkinter as tk
@@ -29,7 +28,6 @@ except ImportError:
 _BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _RAIZ = Path(__file__).resolve().parents[2]
 
-# ── Fuentes ───────────────────────────────────────────────────────────────────
 _F_LABEL   = ("Segoe UI", 8)
 _F_ENTRY   = ("Segoe UI", 10)
 _F_BTN     = ("Segoe UI", 10, "bold")
@@ -38,8 +36,9 @@ _F_CAM_MSG = ("Segoe UI", 12, "bold")
 _F_CAM_SUB = ("Segoe UI", 9, "bold")
 
 CAPTURAS_REQUERIDAS = 30
+_ROLES_CON_PASSWORD = {"Admin", "Super Admin"}
 
-# ── Paleta modo claro ─────────────────────────────────────────────────────────
+
 _C = {
     "bg":           "#ffffff",
     "cam_bg":       "#1c1c1c",
@@ -66,7 +65,6 @@ _C = {
     "flecha_img":   "arrow_circle_black.png",
 }
 
-# ── Paleta modo oscuro ────────────────────────────────────────────────────────
 _O = {
     "bg":           "#071E07",
     "cam_bg":       "#0a1a0a",
@@ -100,7 +98,6 @@ def _paleta(app) -> dict:
     return _C
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
 class PantallaAgregarUsuario:
 
     def __init__(self, parent, app, datos=None):
@@ -117,10 +114,11 @@ class PantallaAgregarUsuario:
         self._btn_rol    = None
         self._btn_status = None
 
-        # ── NUEVO: encoding acumulado en tiempo real ──────────────────────────
-        # Lista de encodings calculados frame a frame (sin guardar imágenes)
+        # Frame del campo contraseña (se muestra/oculta dinámicamente)
+        self._sub_password = None
+
         self._encodings_acumulados = []
-        self._encoding_final       = None   # np.ndarray con el promedio final
+        self._encoding_final       = None
 
         self._construir_ui()
 
@@ -158,7 +156,6 @@ class PantallaAgregarUsuario:
         try:
             self.pantalla.configure(bg=p["bg"])
             self._cuerpo.configure(bg=p["bg"])
-
             self._col_cam_frame.configure(bg=p["cam_bg"])
             self._feed_wrap.configure(bg=p["cam_bg"])
             self._lbl_feed.configure(bg=p["cam_bg"])
@@ -226,6 +223,19 @@ class PantallaAgregarUsuario:
                         image=self._ico_flecha)
                 except tk.TclError:
                     pass
+
+            # Repintar campo contraseña si existe
+            if self._sub_password and self._sub_password.winfo_exists():
+                self._sub_password.configure(bg=p["bg"])
+                for child in self._sub_password.winfo_children():
+                    try:
+                        if isinstance(child, tk.Label):
+                            child.configure(bg=p["bg"], fg=p["texto2"])
+                        elif isinstance(child, tk.Entry):
+                            child.configure(bg=p["campo_bg"], fg=p["texto"],
+                                            insertbackground=p["texto"])
+                    except tk.TclError:
+                        pass
 
         except tk.TclError:
             pass
@@ -360,8 +370,11 @@ class PantallaAgregarUsuario:
                            activeforeground="#ffffff")
             for op in ["Alumno", "Maestro", "Admin", "Super Admin"]:
                 menu.add_command(label=op,
-                    command=lambda o=op: [self._rol_var.set(o),
-                                          btn.config(text=f"  {o}")])
+                    command=lambda o=op: [
+                        self._rol_var.set(o),
+                        btn.config(text=f"  {o}"),
+                        self._on_rol_cambio(o),   # ← mostrar/ocultar contraseña
+                    ])
             menu.tk_popup(btn.winfo_rootx(),
                           btn.winfo_rooty() + btn.winfo_height())
 
@@ -416,6 +429,26 @@ class PantallaAgregarUsuario:
                               lambda e: _abrir_status(e, self._btn_status))
         self._btn_status.pack(fill="x", ipady=2, pady=(2, 0))
 
+        # ── Campo contraseña (fila 4, oculto inicialmente) ────────────────────
+        # Se guarda en self._sub_password para mostrarlo/ocultarlo
+        self._sub_password = tk.Frame(self._form, bg=p["bg"])
+        # NO se hace grid aquí — se maneja en _on_rol_cambio()
+
+        lbl_pwd = tk.Label(self._sub_password, text="Contraseña", font=_F_LABEL,
+                           fg=p["texto2"], bg=p["bg"])
+        lbl_pwd.pack(anchor="w")
+
+        self._ent_password = tk.Entry(
+            self._sub_password, font=_F_ENTRY,
+            fg=p["texto"], bg=p["campo_bg"],
+            relief="solid", bd=1, highlightthickness=0,
+            insertbackground=p["verde"],
+            show="•")   # ocultar caracteres como contraseña
+        self._ent_password.pack(fill="x", ipady=5, pady=(2, 0))
+
+        # Registrar en entradas para que _aplicar_tema lo pinte
+        self._entradas["password"] = self._ent_password
+
         # ── Pie con botones ───────────────────────────────────────────────────
         self._pie_form = tk.Frame(self._col_form_frame, bg=p["bg"])
         self._pie_form.pack(fill="x", padx=16, pady=(4, 10))
@@ -443,6 +476,21 @@ class PantallaAgregarUsuario:
             fg=p["aviso_fg"], bg=p["bg"],
             wraplength=170, justify="left")
         self._lbl_aviso.pack(side="left", padx=10)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  CAMPO CONTRASEÑA DINÁMICO
+    # ══════════════════════════════════════════════════════════════════════════
+    def _on_rol_cambio(self, rol: str):
+        """Muestra u oculta el campo contraseña según el rol seleccionado."""
+        if rol in _ROLES_CON_PASSWORD:
+            # Mostrar en fila 4, columnas 0-1
+            self._sub_password.grid(
+                row=4, column=0, columnspan=2,
+                padx=0, pady=3, sticky="ew")
+        else:
+            # Ocultar y limpiar el campo
+            self._sub_password.grid_remove()
+            self._ent_password.delete(0, tk.END)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  HELPERS UI
@@ -496,7 +544,7 @@ class PantallaAgregarUsuario:
             self._lbl_cam_sub.config(text="luego presione Capturar Rostro")
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  LÓGICA DE CAPTURA — encoding en tiempo real (sin guardar JPGs)
+    #  LÓGICA DE CAPTURA
     # ══════════════════════════════════════════════════════════════════════════
     def _toggle_captura(self):
         if self._capturando:
@@ -506,11 +554,9 @@ class PantallaAgregarUsuario:
 
     def _iniciar_captura(self):
         p = self._p
-        # Reiniciar acumulador cada vez que se inicia una nueva sesión
         self._encodings_acumulados = []
         self._capturas_ok          = 0
         self._encoding_final       = None
-
         self._capturando = True
         self._btn_captura.config(
             text="DETENER CAPTURA",
@@ -533,15 +579,6 @@ class PantallaAgregarUsuario:
             fg=p["cam_sub_fg"])
 
     def _hilo_captura(self):
-        """
-        Hilo de captura — calcula el encoding facial en tiempo real.
-
-        Por cada frame con rostro válido:
-          1. Redimensiona el frame a 320px de ancho (4x más rápido para dlib)
-          2. Llama a face_recognition.face_encodings() con model="small"
-          3. Acumula el encoding en self._encodings_acumulados
-          4. NO guarda ninguna imagen en disco
-        """
         try:
             import cv2
             import face_recognition
@@ -563,7 +600,6 @@ class PantallaAgregarUsuario:
             self._capturando = False
             return
 
-        # Configurar resolución de cámara (menor = más rápido el encoding)
         cam.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
         cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
@@ -594,8 +630,6 @@ class PantallaAgregarUsuario:
             rostros = detector.detectMultiScale(
                 gris, scaleFactor=1.3, minNeighbors=5, minSize=(80, 80))
 
-            encoding_este_frame = None
-
             if len(rostros) > 0:
                 bbox = tuple(rostros[0])
                 if rostro_objetivo is None:
@@ -605,8 +639,6 @@ class PantallaAgregarUsuario:
                     x, y, w, h = bbox
                     cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 200, 0), 2)
 
-                    # ── ENCODING EN TIEMPO REAL ───────────────────────────────
-                    # 1. Recortar ROI del rostro con margen pequeño
                     margen = 10
                     x1 = max(0, x - margen)
                     y1 = max(0, y - margen)
@@ -614,31 +646,22 @@ class PantallaAgregarUsuario:
                     y2 = min(frame.shape[0], y + h + margen)
                     roi_bgr = frame[y1:y2, x1:x2]
 
-                    # 2. Escalar a 160px de ancho → dlib ~4x más rápido
                     h_roi, w_roi = roi_bgr.shape[:2]
                     if w_roi > 160:
                         escala    = 160 / w_roi
                         roi_small = cv2.resize(
-                            roi_bgr,
-                            (160, int(h_roi * escala)),
+                            roi_bgr, (160, int(h_roi * escala)),
                             interpolation=cv2.INTER_LINEAR)
                     else:
                         roi_small = roi_bgr
 
-                    # 3. BGR → RGB (face_recognition espera RGB)
                     roi_rgb = cv2.cvtColor(roi_small, cv2.COLOR_BGR2RGB)
-
-                    # 4. Calcular encoding (model="small" = HOG, más rápido)
                     encs = face_recognition.face_encodings(
-                        roi_rgb,
-                        num_jitters=1,
-                        model="small")
+                        roi_rgb, num_jitters=1, model="small")
 
                     if encs:
-                        encoding_este_frame = encs[0]
-                        self._encodings_acumulados.append(encoding_este_frame)
+                        self._encodings_acumulados.append(encs[0])
                         self._capturas_ok += 1
-                    # ─────────────────────────────────────────────────────────
                 else:
                     x, y, w, h = bbox
                     cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 200), 2)
@@ -656,7 +679,6 @@ class PantallaAgregarUsuario:
             else:
                 self.pantalla.after(0, self._actualizar_feed, n, None)
 
-            # Pausa ligera: deja procesar UI sin saturar la CPU
             cv2.waitKey(80)
 
         cam.release()
@@ -685,7 +707,6 @@ class PantallaAgregarUsuario:
             self._btn_confirmar.config(state="normal")
             self._lbl_aviso.config(text="")
         else:
-            # Reiniciar para reintento
             self._capturas_ok          = 0
             self._encodings_acumulados = []
             self._encoding_final       = None
@@ -698,17 +719,32 @@ class PantallaAgregarUsuario:
                 fg="#ef9a9a")
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  GUARDAR — usa encodings ya acumulados, sin leer disco
+    #  GUARDAR
     # ══════════════════════════════════════════════════════════════════════════
     def _guardar(self):
         cod       = self._entradas["cod_institucional"].get().strip()
         nombre    = self._entradas["nombre"].get().strip()
         apellidop = self._entradas["apellido_paterno"].get().strip()
+        rol       = self._rol_var.get()
 
         if not cod or not nombre or not apellidop:
             self._lbl_aviso.config(
                 text="Código, Nombre y Apellido Paterno son requeridos.")
             return
+
+        # ── Validar contraseña si el rol la requiere ──────────────────────────
+        password_plain = None
+        if rol in _ROLES_CON_PASSWORD:
+            password_plain = self._ent_password.get().strip()
+            if not password_plain:
+                self._lbl_aviso.config(
+                    text="La contraseña es requerida para Admin / Super Admin.")
+                return
+            if len(password_plain) < 6:
+                self._lbl_aviso.config(
+                    text="La contraseña debe tener al menos 6 caracteres.")
+                return
+
         if len(self._encodings_acumulados) < CAPTURAS_REQUERIDAS:
             self._lbl_aviso.config(
                 text=f"Se requieren {CAPTURAS_REQUERIDAS} capturas.")
@@ -717,19 +753,15 @@ class PantallaAgregarUsuario:
         self._btn_confirmar.config(state="disabled", text="GUARDANDO...")
         self._lbl_aviso.config(text="Calculando encoding final...")
 
-        # Capturar referencia local antes de entrar al hilo
         encodings_snap = list(self._encodings_acumulados)
+        password_snap  = password_plain  # puede ser None para Alumno/Maestro
 
         def _en_hilo():
             import face_recognition
             import numpy as np
 
-            # ── Promedio de todos los encodings acumulados ────────────────────
-            # Esto reemplaza el bucle de 30 face_recognition.face_encodings()
-            # El promedio es más robusto que un solo encoding
             encoding_promedio = np.mean(encodings_snap, axis=0)
 
-            # ── Validar duplicado ─────────────────────────────────────────────
             self.pantalla.after(0, lambda: self._lbl_aviso.config(
                 text="Verificando que el rostro no esté registrado..."))
 
@@ -763,18 +795,26 @@ class PantallaAgregarUsuario:
                     self.pantalla.after(0, _rostro_duplicado)
                     return
 
-            # ── Guardar en BD ─────────────────────────────────────────────────
+            # ── Hash de contraseña si aplica ──────────────────────────────────
+            password_hash = None
+            if password_snap:
+                import hashlib
+                password_hash = hashlib.sha256(
+                    password_snap.encode("utf-8")).hexdigest()
+
             rol_map  = {"Alumno": 4, "Maestro": 3, "Admin": 2, "Super Admin": 1}
             datos_bd = {
                 "cod_institucional": cod,
-                "id_rol":            rol_map.get(self._rol_var.get(), 4),
+                "id_rol":            rol_map.get(rol, 4),
                 "primer_nombre":     nombre,
                 "segundo_nombre":    None,
                 "apellido_paterno":  apellidop,
                 "apellido_materno":  self._entradas["apellido_materno"].get().strip() or None,
                 "carrera":           self._entradas["carrera"].get().strip() or None,
-                "grado": None, "grupo": None,
+                "grado":             None,
+                "grupo":             None,
                 "face_encoding":     encoding_promedio,
+                "password_hash":     password_hash,   # ← nuevo campo
             }
 
             from core.database import registrar_usuario, inicializar_bd
