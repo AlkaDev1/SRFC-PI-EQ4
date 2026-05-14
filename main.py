@@ -47,7 +47,7 @@ class App:
 
         elif nombre == "historial":
             from ui.screens.historial_accesos import crear_pantalla_historial_accesos
-            crear_pantalla_historial_accesos(self.contenedor, self)
+            crear_pantalla_historial_accesos(self.contenedor, self, datos)  # ← datos
 
         elif nombre == "agregar_usuario":
             from ui.screens.pantalla_agregar_usuario import crear_pantalla_agregar_usuario
@@ -68,17 +68,14 @@ def app():
     root.configure(bg=PALETA["page_bg"])
 
     if _ES_RASPBERRY:
-        # Pantalla táctil 800x480 — sin barra de título ni bordes del WM
-        # para que la app ocupe exactamente los 800x480 físicos.
-        root.overrideredirect(True)          # quita decoraciones del WM
-        root.geometry("800x480+0+0")         # posición (0,0) = esquina superior izq
+        root.overrideredirect(True)
+        root.geometry("800x480+0+0")
         root.resizable(False, False)
     else:
         ancho = MEDIDAS["ancho_ventana"]
         alto  = MEDIDAS["alto_ventana"]
         root.geometry(f"{ancho}x{alto}")
         root.minsize(MEDIDAS["min_ancho"], MEDIDAS["min_alto"])
-
         root.update_idletasks()
         px = (root.winfo_screenwidth()  - ancho) // 2
         py = (root.winfo_screenheight() - alto)  // 2
