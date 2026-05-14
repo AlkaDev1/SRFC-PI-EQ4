@@ -2,21 +2,20 @@
 ui/screens/pantalla_agregar_usuario.py
 Pantalla de Agregar Usuario -- 800x480 tactil (Raspberry Pi 5)
 
-CAMBIOS v4:
-  - Estilo de campos igualado a pantalla_editar_usuario.py:
-      relief="flat", bd=0, highlightthickness=1, highlightbackground=borde
-      campo_bg="#f5f5f5" (gris claro) en modo claro
-  - Campo contraseña aparece dinámicamente para Admin / Super Admin
+CAMBIOS v5:
+  - messagebox reemplazado por modal_dialogo (modal bonito con estilo del sistema)
+  - Estilo de campos igualado a pantalla_editar_usuario.py
+  - Campo contraseña dinámico para Admin / Super Admin
   - Encoding facial en tiempo real (sin guardar JPGs)
 """
 
 import tkinter as tk
-from tkinter import messagebox
 import threading
 import os
 from pathlib import Path
 
 from ui.components.barra_superior import crear_encabezado
+from ui.components.modal_dialogo import modal_info, modal_error, modal_warning
 from ui.styles import PALETA
 
 try:
@@ -38,18 +37,17 @@ _F_CAM_SUB = ("Segoe UI", 9, "bold")
 CAPTURAS_REQUERIDAS  = 30
 _ROLES_CON_PASSWORD  = {"Admin", "Super Admin"}
 
-# ── Paleta modo claro ─────────────────────────────────────────────────────────
 _C = {
-    "bg":           "#f3f4f5",   # igual que editar
+    "bg":           "#f3f4f5",
     "cam_bg":       "#1c1c1c",
     "texto":        "#1a1a1a",
     "texto2":       "#757575",
     "borde":        "#e0e0e0",
-    "campo_bg":     "#d7d7d7",   # ← gris claro, igual que editar
+    "campo_bg":     "#f5f5f5",
     "campo_dis":    "#ebebeb",
     "verde":        "#2e7d32",
     "verde_m":      "#4caf50",
-    "verde_btn":    "#43a047",   # ← igual que editar
+    "verde_btn":    "#43a047",
     "verde_hover":  "#388e3c",
     "rojo_btn":     "#e53935",
     "rojo_hover":   "#b71c1c",
@@ -59,13 +57,12 @@ _C = {
     "icono_fill":   "#9e9e9e",
     "icono_borde":  "#bdbdbd",
     "aviso_fg":     "#e53935",
-    "filtro_bg":    "#d7d7d7",
+    "filtro_bg":    "#f5f5f5",
     "filtro_borde": "#43a047",
     "filtro_fg":    "#1a1a1a",
     "flecha_img":   "arrow_circle_black.png",
 }
 
-# ── Paleta modo oscuro ────────────────────────────────────────────────────────
 _O = {
     "bg":           "#071E07",
     "cam_bg":       "#0a1a0a",
@@ -499,7 +496,6 @@ class PantallaAgregarUsuario:
                      fill=p["icono_fill"], outline="", style="chord")
 
     def _campo(self, parent, row, col_i, etiqueta, key, editable):
-        """Crea un campo con el mismo estilo visual que pantalla_editar_usuario."""
         p    = self._p
         padx = (0, 6) if col_i == 0 else (6, 0)
         sub  = tk.Frame(parent, bg=p["bg"])
@@ -515,8 +511,8 @@ class PantallaAgregarUsuario:
             sub, font=_F_ENTRY,
             fg=p["texto"] if editable else p["texto2"],
             bg=p["campo_bg"] if editable else p["campo_dis"],
-            relief="flat", bd=0,            # ← igual que editar
-            highlightthickness=1,           # ← borde via highlight
+            relief="flat", bd=0,
+            highlightthickness=1,
             highlightbackground=p["borde"],
             insertbackground=p["texto"])
         ent.insert(0, self.datos.get(key, ""))
@@ -524,7 +520,7 @@ class PantallaAgregarUsuario:
             ent.config(state="disabled",
                        disabledforeground=p["texto2"],
                        disabledbackground=p["campo_dis"])
-        ent.pack(fill="x", ipady=6, pady=(2, 0))  # ipady=6 igual que editar
+        ent.pack(fill="x", ipady=6, pady=(2, 0))
         self._entradas[key] = ent
 
     def _validar_cod(self, event=None):
@@ -578,8 +574,8 @@ class PantallaAgregarUsuario:
             import cv2
             import face_recognition
         except ImportError as e:
-            self.pantalla.after(0, lambda: messagebox.showerror(
-                "Dependencia faltante", str(e)))
+            self.pantalla.after(0, lambda: modal_error(
+                self.pantalla, str(e), titulo="Dependencia faltante"))
             self._capturando = False
             return
 
@@ -590,8 +586,8 @@ class PantallaAgregarUsuario:
         _idx = 1 if platform.machine() in ("aarch64", "armv7l") else 0
         cam  = cv2.VideoCapture(_idx)
         if not cam.isOpened():
-            self.pantalla.after(0, lambda: messagebox.showerror(
-                "Error de camara", "No se pudo abrir la camara."))
+            self.pantalla.after(0, lambda: modal_error(
+                self.pantalla, "No se pudo abrir la camara.", titulo="Error de cámara"))
             self._capturando = False
             return
 
@@ -816,8 +812,12 @@ class PantallaAgregarUsuario:
 
             def _resultado():
                 if ok:
-                    messagebox.showinfo("Éxito", msg)
-                    self.app.mostrar_pantalla("gestion_real")
+                    # ── Modal bonito en lugar de messagebox ───────────────────
+                    modal_info(
+                        self.pantalla,
+                        msg,
+                        titulo="Registro exitoso",
+                        on_ok=lambda: self.app.mostrar_pantalla("gestion_real"))
                 else:
                     self._lbl_aviso.config(text=msg)
                     self._btn_confirmar.config(state="normal", text="CONFIRMAR")
