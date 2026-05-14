@@ -2,11 +2,9 @@
 ui/screens/pantalla_gestion.py
 Rediseño según mockup — Hernández Vázquez Melany Guadalupe
 
-SOPORTE DE TEMA OSCURO:
-  - Botones Rol/Mes usan arrow_circle_black.png (claro) y arrow_drop_down.png (oscuro)
-  - Los menús leen self._p al abrirse para respetar el tema activo
-  - _aplicar_tema() repinta: fondos, tarjetas, tabla, botones de filtro y acciones
-  - Al destruirse se desregistra del GestorTema
+CAMBIOS v2:
+  - Botón HISTORIAL pasa {"id_rol": 2} a mostrar_pantalla()
+    para que historial_accesos sepa regresar a "gestion_real" al cerrar
 """
 
 import tkinter as tk
@@ -28,7 +26,6 @@ from core.database import (listar_usuarios as obtener_usuarios,
 
 _RAIZ = Path(__file__).resolve().parents[2]
 
-# ── Datos de prueba ───────────────────────────────────────────────────────────
 _USUARIOS_DEMO = [
     {"cod_institucional": "20203455", "nombre": "Melany",
      "apellido_paterno": "Suarez",    "apellido_materno": "Hernandez",
@@ -52,7 +49,6 @@ _USUARIOS_DEMO = [
      "fecha_registro": "2026-03-24",  "hora_registro": "8:41 p.m.", "status": "Activo"},
 ]
 
-# ── Paleta modo claro ─────────────────────────────────────────────────────────
 _C = {
     "gris_bg":      "#f5f5f5",
     "card_bg":      "#ffffff",
@@ -75,7 +71,6 @@ _C = {
     "flecha_img":   "arrow_circle_black.png",
 }
 
-# ── Paleta modo oscuro ────────────────────────────────────────────────────────
 _O = {
     "gris_bg":      "#071E07",
     "card_bg":      "#0d2a0d",
@@ -150,7 +145,6 @@ class PantallaGestion:
                 except tk.TclError:
                     pass
 
-            # Recargar icono de flecha y actualizar botones de filtro
             self._recargar_ico_flecha()
             for btn in (self._btn_rol, self._btn_mes):
                 try:
@@ -161,7 +155,6 @@ class PantallaGestion:
                 except tk.TclError:
                     pass
 
-            # Botones de acciones rápidas
             for btn, tipo in self._btns_accion:
                 try:
                     if not btn.winfo_exists():
@@ -172,7 +165,6 @@ class PantallaGestion:
                 except tk.TclError:
                     pass
 
-            # Treeview
             s = ttk.Style()
             s.configure("U.Treeview",
                         background=p["card_bg"], foreground=p["texto_oscuro"],
@@ -196,7 +188,6 @@ class PantallaGestion:
         self._widgets_repintables.append((widget, bg_k, fg_k))
 
     def _recargar_ico_flecha(self):
-        """Carga el icono correcto según el tema activo."""
         if not _PIL_OK:
             self._ico_flecha = None
             return
@@ -269,7 +260,7 @@ class PantallaGestion:
         self._construir_acciones_rapidas(pad)
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  TARJETAS SUPERIORES
+    #  TARJETAS
     # ══════════════════════════════════════════════════════════════════════════
     def _construir_tarjetas(self, parent):
         p = self._p
@@ -326,7 +317,6 @@ class PantallaGestion:
         card.pack(fill="both", expand=True)
         self._reg(card, "card_bg")
 
-        # Cargar icono flecha inicial
         self._recargar_ico_flecha()
 
         cab = tk.Frame(card, bg=p["card_bg"])
@@ -342,7 +332,6 @@ class PantallaGestion:
         filtros.pack(side="right")
         self._reg(filtros, "card_bg")
 
-        # Botón Rol
         def _abrir_menu_rol(event, btn):
             cp = self._p
             menu = tk.Menu(filtros, tearoff=0, font=("Segoe UI", 9),
@@ -368,7 +357,6 @@ class PantallaGestion:
         self._btn_rol.pack(side="left", padx=(0, 8))
         self._reg(self._btn_rol, "filtro_bg", "filtro_fg")
 
-        # Botón Mes
         def _abrir_menu_mes(event, btn):
             cp = self._p
             menu = tk.Menu(filtros, tearoff=0, font=("Segoe UI", 9),
@@ -415,38 +403,24 @@ class PantallaGestion:
         cols = ("No. Inst.", "Nombre", "Ap. Paterno", "Ap. Materno",
                 "Programa", "Rol", "Fecha/Hora", "Status", "Editar")
 
-        # ── FIX: stretch=True en todas las columnas para distribuir espacio ──
         self.tree_usuarios = ttk.Treeview(frame_t, columns=cols, show="headings",
                                           height=6, style="U.Treeview")
-
-        # Anchos mínimos proporcionales; stretch=True en todas para que la
-        # tabla llene el ancho disponible sin colapsar columnas.
         anchos = {
-            "No. Inst.":   80,
-            "Nombre":      80,
-            "Ap. Paterno": 90,
-            "Ap. Materno": 90,
-            "Programa":   110,
-            "Rol":         70,
-            "Fecha/Hora":  95,
-            "Status":      60,
-            "Editar":      50,
+            "No. Inst.":   80, "Nombre":      80, "Ap. Paterno": 90,
+            "Ap. Materno": 90, "Programa":   110, "Rol":         70,
+            "Fecha/Hora":  95, "Status":      60, "Editar":      50,
         }
         centradas = {"Status", "Editar", "Rol"}
         for col in cols:
             self.tree_usuarios.heading(col, text=col)
             self.tree_usuarios.column(
                 col,
-                width=anchos.get(col, 80),
-                minwidth=40,
-                stretch=True,                          # ← CORRECCIÓN
-                anchor="center" if col in centradas else "w",
-            )
+                width=anchos.get(col, 80), minwidth=40, stretch=True,
+                anchor="center" if col in centradas else "w")
 
         self.tree_usuarios.tag_configure("par",   background=p["fila_par"])
         self.tree_usuarios.tag_configure("impar", background=p["fila_impar"])
         self.tree_usuarios.bind("<ButtonRelease-1>", self._on_tree_click)
-
         self.tree_usuarios.pack(fill="both", expand=True)
 
     def _on_tree_click(self, event):
@@ -501,8 +475,9 @@ class PantallaGestion:
         for texto, icono, cmd in [
             ("  AGREGAR USUARIO", self._ico_agregar,
              lambda: self.app.mostrar_pantalla("agregar_usuario")),
+            # ── FIX: pasar id_rol=2 para que historial regrese a gestion_real ──
             ("  HISTORIAL", self._ico_historial,
-             lambda: self.app.mostrar_pantalla("historial")),
+             lambda: self.app.mostrar_pantalla("historial", {"id_rol": 2})),
         ]:
             btn = tk.Button(pie, text=texto,
                             image=icono, compound="left",
@@ -563,9 +538,9 @@ class PantallaGestion:
             datos = [u for u in datos if (u.get("rol") or "").lower() == rol_f.lower()]
 
         meses_num = {
-            "Enero": "01", "Febrero": "02", "Marzo": "03", "Abril": "04",
-            "Mayo": "05",  "Junio": "06",   "Julio": "07", "Agosto": "08",
-            "Septiembre": "09", "Octubre": "10", "Noviembre": "11", "Diciembre": "12",
+            "Enero":"01","Febrero":"02","Marzo":"03","Abril":"04",
+            "Mayo":"05","Junio":"06","Julio":"07","Agosto":"08",
+            "Septiembre":"09","Octubre":"10","Noviembre":"11","Diciembre":"12",
         }
         if mes_f and mes_f != "Mes" and mes_f in meses_num:
             m = meses_num[mes_f]
@@ -574,15 +549,12 @@ class PantallaGestion:
         t = self.tree_usuarios
         t.delete(*t.get_children())
         for i, u in enumerate(datos):
-            fecha_hora = (
-                f"{u.get('fecha_registro', '')} {u.get('hora_registro', '')}".strip()
-            )
-            t.insert(
-                "", "end",
+            fecha_hora = f"{u.get('fecha_registro','')} {u.get('hora_registro','')}".strip()
+            t.insert("", "end",
                 tags=("par" if i % 2 == 0 else "impar",),
                 values=(
                     u.get("cod_institucional", ""),
-                    u.get("nombre", "—"),           # primer_nombre → "nombre"
+                    u.get("nombre", "—"),
                     u.get("apellido_paterno", ""),
                     u.get("apellido_materno", ""),
                     u.get("carrera", ""),
@@ -590,8 +562,7 @@ class PantallaGestion:
                     fecha_hora,
                     u.get("status", "Activo"),
                     "✏",
-                ),
-            )
+                ))
 
     def _volver(self):
         self.app.mostrar_pantalla("principal")
