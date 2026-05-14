@@ -2,16 +2,13 @@
 ui/screens/pantalla_editar_usuario.py
 Pantalla de Edición de Usuario — 800x480
 
-CAMBIOS v2:
-  - Campo contraseña aparece dinámicamente cuando Rol = Admin o Super Admin
-  - Si se deja vacío al guardar → NO se modifica la contraseña existente
-  - Si se ingresa una nueva → se hashea con SHA-256 y se actualiza
-  - _on_rol_cambio() maneja la visibilidad del campo
-  - Campo contraseña se muestra automáticamente si el usuario ya es Admin/SuperAdmin
+CAMBIOS v3:
+  - messagebox reemplazado por modal_dialogo (modal bonito con estilo del sistema)
+  - Campo contraseña dinámico para Admin / Super Admin
+  - _normalizar_rol() para variantes de nombre
 """
 
 import tkinter as tk
-from tkinter import messagebox
 from pathlib import Path
 
 try:
@@ -21,6 +18,7 @@ except ImportError:
     _PIL_OK = False
 
 from ui.components.barra_superior import crear_encabezado
+from ui.components.modal_dialogo import modal_info, modal_error, modal_warning
 from ui.styles import PALETA
 from core.database import actualizar_usuario
 
@@ -80,7 +78,7 @@ class PantallaEditarUsuario:
         self._btn_rol             = None
         self._btn_status          = None
         self._btn_guardar         = None
-        self._sub_password        = None   # frame contraseña (dinámico)
+        self._sub_password        = None
 
         self._construir_ui()
 
@@ -150,7 +148,6 @@ class PantallaEditarUsuario:
                 self._cuerpo.configure(bg=p["bg_app"])
                 self._card.update_idletasks()
 
-            # Repintar campo contraseña si está visible
             if self._sub_password and self._sub_password.winfo_exists():
                 try:
                     self._sub_password.configure(bg=p["card_bg"])
@@ -306,7 +303,6 @@ class PantallaEditarUsuario:
         fila_extra.columnconfigure(1, weight=1)
         self._reg(fila_extra, "card_bg")
 
-        # Rol
         sub_rol = tk.Frame(fila_extra, bg=p["card_bg"])
         sub_rol.grid(row=0, column=0, padx=(0, 12), sticky="ew")
         self._reg(sub_rol, "card_bg")
@@ -330,7 +326,7 @@ class PantallaEditarUsuario:
                     command=lambda o=op: [
                         self._rol_var.set(o),
                         btn.config(text=f"  {o}"),
-                        self._on_rol_cambio(o),  # ← mostrar/ocultar contraseña
+                        self._on_rol_cambio(o),
                     ])
             menu.tk_popup(btn.winfo_rootx(),
                           btn.winfo_rooty() + btn.winfo_height())
@@ -347,7 +343,6 @@ class PantallaEditarUsuario:
         self._btn_rol.bind("<Button-1>", lambda e: _abrir_rol(e, self._btn_rol))
         self._btn_rol.pack(fill="x", pady=(2, 0))
 
-        # Status
         sub_status = tk.Frame(fila_extra, bg=p["card_bg"])
         sub_status.grid(row=0, column=1, padx=(12, 0), sticky="ew")
         self._reg(sub_status, "card_bg")
@@ -385,9 +380,8 @@ class PantallaEditarUsuario:
                               lambda e: _abrir_status(e, self._btn_status))
         self._btn_status.pack(fill="x", pady=(2, 0))
 
-        # ── Fila 4: Contraseña (oculta por defecto, aparece para Admin) ───────
+        # ── Fila 4: Contraseña (dinámica) ─────────────────────────────────────
         self._sub_password = tk.Frame(form, bg=p["card_bg"])
-        # NO se hace grid aquí — se maneja en _on_rol_cambio()
 
         lbl_pwd = tk.Label(self._sub_password,
                            text="Nueva Contraseña  (dejar vacío = no cambiar)",
@@ -404,17 +398,15 @@ class PantallaEditarUsuario:
             show="•")
         self._ent_password.pack(fill="x", ipady=6, pady=(2, 0))
 
-        # Mostrar automáticamente si el usuario ya es Admin/SuperAdmin
         if rol_inicial in _ROLES_CON_PASSWORD:
             self._sub_password.grid(
                 row=4, column=0, columnspan=2,
                 padx=0, pady=3, sticky="ew")
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  CAMPO CONTRASEÑA DINÁMICO
+    #  CONTRASEÑA DINÁMICA
     # ══════════════════════════════════════════════════════════════════════════
     def _on_rol_cambio(self, rol: str):
-        """Muestra u oculta el campo contraseña según el rol seleccionado."""
         if rol in _ROLES_CON_PASSWORD:
             self._sub_password.grid(
                 row=4, column=0, columnspan=2,
@@ -456,35 +448,32 @@ class PantallaEditarUsuario:
         }
 
         if not datos_actualizados["nombre"]:
-            messagebox.showwarning("Campo requerido", "El nombre no puede estar vacío.")
+            modal_warning(self.pantalla, "El nombre no puede estar vacío.")
             return
         if not datos_actualizados["apellido_paterno"]:
-            messagebox.showwarning("Campo requerido",
-                                   "El apellido paterno no puede estar vacío.")
+            modal_warning(self.pantalla, "El apellido paterno no puede estar vacío.")
             return
 
-        # ── Contraseña: solo actualizar si se ingresó algo ────────────────────
         if rol in _ROLES_CON_PASSWORD:
             nueva_pwd = self._ent_password.get().strip()
             if nueva_pwd:
-                # Validar longitud mínima
                 if len(nueva_pwd) < 6:
-                    messagebox.showwarning(
-                        "Contraseña inválida",
-                        "La contraseña debe tener al menos 6 caracteres.")
+                    modal_warning(self.pantalla,
+                                  "La contraseña debe tener al menos 6 caracteres.")
                     return
-                # Hashear y agregar a los datos
                 import hashlib
                 datos_actualizados["password_hash"] = hashlib.sha256(
                     nueva_pwd.encode("utf-8")).hexdigest()
-            # Si está vacío → no se incluye password_hash → BD no lo cambia
 
         ok, msg = actualizar_usuario(datos_actualizados)
         if ok:
-            messagebox.showinfo("Guardado", msg)
-            self.app.mostrar_pantalla("gestion_real")
+            modal_info(
+                self.pantalla,
+                msg,
+                titulo="Guardado",
+                on_ok=lambda: self.app.mostrar_pantalla("gestion_real"))
         else:
-            messagebox.showerror("Error al guardar", msg)
+            modal_error(self.pantalla, msg, titulo="Error al guardar")
 
     def _cancelar(self):
         self.app.mostrar_pantalla("gestion_real")
