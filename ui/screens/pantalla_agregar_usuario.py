@@ -2,12 +2,12 @@
 ui/screens/pantalla_agregar_usuario.py
 Pantalla de Agregar Usuario -- 800x480 tactil (Raspberry Pi 5)
 
-CAMBIOS v3:
-  - Campo contraseña aparece dinámicamente cuando Rol = Admin o Super Admin
-  - Campo contraseña se oculta para Alumno y Maestro
-  - _on_rol_cambio() maneja la visibilidad del campo
-  - _guardar() valida y guarda password_hash si el rol lo requiere
-  - Encoding facial calculado EN TIEMPO REAL durante la captura (sin guardar JPGs)
+CAMBIOS v4:
+  - Estilo de campos igualado a pantalla_editar_usuario.py:
+      relief="flat", bd=0, highlightthickness=1, highlightbackground=borde
+      campo_bg="#f5f5f5" (gris claro) en modo claro
+  - Campo contraseña aparece dinámicamente para Admin / Super Admin
+  - Encoding facial en tiempo real (sin guardar JPGs)
 """
 
 import tkinter as tk
@@ -35,21 +35,21 @@ _F_INSTRUC = ("Segoe UI", 9)
 _F_CAM_MSG = ("Segoe UI", 12, "bold")
 _F_CAM_SUB = ("Segoe UI", 9, "bold")
 
-CAPTURAS_REQUERIDAS = 30
-_ROLES_CON_PASSWORD = {"Admin", "Super Admin"}
+CAPTURAS_REQUERIDAS  = 30
+_ROLES_CON_PASSWORD  = {"Admin", "Super Admin"}
 
-
+# ── Paleta modo claro ─────────────────────────────────────────────────────────
 _C = {
-    "bg":           "#ffffff",
+    "bg":           "#f3f4f5",   # igual que editar
     "cam_bg":       "#1c1c1c",
-    "texto":        "#1c1c1c",
+    "texto":        "#1a1a1a",
     "texto2":       "#757575",
     "borde":        "#e0e0e0",
-    "campo_bg":     "#ffffff",
-    "campo_dis":    "#f5f5f5",
+    "campo_bg":     "#d7d7d7",   # ← gris claro, igual que editar
+    "campo_dis":    "#ebebeb",
     "verde":        "#2e7d32",
     "verde_m":      "#4caf50",
-    "verde_btn":    "#4caf50",
+    "verde_btn":    "#43a047",   # ← igual que editar
     "verde_hover":  "#388e3c",
     "rojo_btn":     "#e53935",
     "rojo_hover":   "#b71c1c",
@@ -59,12 +59,13 @@ _C = {
     "icono_fill":   "#9e9e9e",
     "icono_borde":  "#bdbdbd",
     "aviso_fg":     "#e53935",
-    "filtro_bg":    "#f5f5f5",
+    "filtro_bg":    "#d7d7d7",
     "filtro_borde": "#43a047",
     "filtro_fg":    "#1a1a1a",
     "flecha_img":   "arrow_circle_black.png",
 }
 
+# ── Paleta modo oscuro ────────────────────────────────────────────────────────
 _O = {
     "bg":           "#071E07",
     "cam_bg":       "#0a1a0a",
@@ -72,7 +73,7 @@ _O = {
     "texto2":       "#7aaa7a",
     "borde":        "#1a3a1a",
     "campo_bg":     "#1a3a1a",
-    "campo_dis":    "#0d2a0d",
+    "campo_dis":    "#071E07",
     "verde":        "#2D531A",
     "verde_m":      "#477023",
     "verde_btn":    "#2D531A",
@@ -113,8 +114,6 @@ class PantallaAgregarUsuario:
         self._widgets_repintables = []
         self._btn_rol    = None
         self._btn_status = None
-
-        # Frame del campo contraseña (se muestra/oculta dinámicamente)
         self._sub_password = None
 
         self._encodings_acumulados = []
@@ -127,7 +126,7 @@ class PantallaAgregarUsuario:
         self.pantalla.bind("<Destroy>", self._limpiar_tema)
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  SOPORTE DE TEMA
+    #  TEMA
     # ══════════════════════════════════════════════════════════════════════════
     def _on_tema_cambio(self, _):
         self._p = _O if self.app.tema.es_oscuro() else _C
@@ -216,15 +215,13 @@ class PantallaAgregarUsuario:
                 if btn is None:
                     continue
                 try:
-                    btn.configure(
-                        bg=p["filtro_bg"], fg=p["filtro_fg"],
-                        highlightbackground=p["filtro_borde"],
-                        activebackground=p["borde"],
-                        image=self._ico_flecha)
+                    btn.configure(bg=p["filtro_bg"], fg=p["filtro_fg"],
+                                  highlightbackground=p["filtro_borde"],
+                                  activebackground=p["borde"],
+                                  image=self._ico_flecha)
                 except tk.TclError:
                     pass
 
-            # Repintar campo contraseña si existe
             if self._sub_password and self._sub_password.winfo_exists():
                 self._sub_password.configure(bg=p["bg"])
                 for child in self._sub_password.winfo_children():
@@ -233,6 +230,7 @@ class PantallaAgregarUsuario:
                             child.configure(bg=p["bg"], fg=p["texto2"])
                         elif isinstance(child, tk.Entry):
                             child.configure(bg=p["campo_bg"], fg=p["texto"],
+                                            highlightbackground=p["borde"],
                                             insertbackground=p["texto"])
                     except tk.TclError:
                         pass
@@ -373,7 +371,7 @@ class PantallaAgregarUsuario:
                     command=lambda o=op: [
                         self._rol_var.set(o),
                         btn.config(text=f"  {o}"),
-                        self._on_rol_cambio(o),   # ← mostrar/ocultar contraseña
+                        self._on_rol_cambio(o),
                     ])
             menu.tk_popup(btn.winfo_rootx(),
                           btn.winfo_rooty() + btn.winfo_height())
@@ -430,23 +428,20 @@ class PantallaAgregarUsuario:
         self._btn_status.pack(fill="x", ipady=2, pady=(2, 0))
 
         # ── Campo contraseña (fila 4, oculto inicialmente) ────────────────────
-        # Se guarda en self._sub_password para mostrarlo/ocultarlo
         self._sub_password = tk.Frame(self._form, bg=p["bg"])
-        # NO se hace grid aquí — se maneja en _on_rol_cambio()
 
-        lbl_pwd = tk.Label(self._sub_password, text="Contraseña", font=_F_LABEL,
-                           fg=p["texto2"], bg=p["bg"])
+        lbl_pwd = tk.Label(self._sub_password, text="Contraseña",
+                           font=_F_LABEL, fg=p["texto2"], bg=p["bg"])
         lbl_pwd.pack(anchor="w")
 
         self._ent_password = tk.Entry(
             self._sub_password, font=_F_ENTRY,
             fg=p["texto"], bg=p["campo_bg"],
-            relief="solid", bd=1, highlightthickness=0,
-            insertbackground=p["verde"],
-            show="•")   # ocultar caracteres como contraseña
-        self._ent_password.pack(fill="x", ipady=5, pady=(2, 0))
-
-        # Registrar en entradas para que _aplicar_tema lo pinte
+            relief="flat", bd=0,
+            highlightthickness=1, highlightbackground=p["borde"],
+            insertbackground=p["texto"],
+            show="•")
+        self._ent_password.pack(fill="x", ipady=6, pady=(2, 0))
         self._entradas["password"] = self._ent_password
 
         # ── Pie con botones ───────────────────────────────────────────────────
@@ -481,14 +476,11 @@ class PantallaAgregarUsuario:
     #  CAMPO CONTRASEÑA DINÁMICO
     # ══════════════════════════════════════════════════════════════════════════
     def _on_rol_cambio(self, rol: str):
-        """Muestra u oculta el campo contraseña según el rol seleccionado."""
         if rol in _ROLES_CON_PASSWORD:
-            # Mostrar en fila 4, columnas 0-1
             self._sub_password.grid(
                 row=4, column=0, columnspan=2,
                 padx=0, pady=3, sticky="ew")
         else:
-            # Ocultar y limpiar el campo
             self._sub_password.grid_remove()
             self._ent_password.delete(0, tk.END)
 
@@ -507,6 +499,7 @@ class PantallaAgregarUsuario:
                      fill=p["icono_fill"], outline="", style="chord")
 
     def _campo(self, parent, row, col_i, etiqueta, key, editable):
+        """Crea un campo con el mismo estilo visual que pantalla_editar_usuario."""
         p    = self._p
         padx = (0, 6) if col_i == 0 else (6, 0)
         sub  = tk.Frame(parent, bg=p["bg"])
@@ -522,14 +515,16 @@ class PantallaAgregarUsuario:
             sub, font=_F_ENTRY,
             fg=p["texto"] if editable else p["texto2"],
             bg=p["campo_bg"] if editable else p["campo_dis"],
-            relief="solid", bd=1, highlightthickness=0,
-            insertbackground=p["verde"])
+            relief="flat", bd=0,            # ← igual que editar
+            highlightthickness=1,           # ← borde via highlight
+            highlightbackground=p["borde"],
+            insertbackground=p["texto"])
         ent.insert(0, self.datos.get(key, ""))
         if not editable:
             ent.config(state="disabled",
                        disabledforeground=p["texto2"],
                        disabledbackground=p["campo_dis"])
-        ent.pack(fill="x", ipady=5, pady=(2, 0))
+        ent.pack(fill="x", ipady=6, pady=(2, 0))  # ipady=6 igual que editar
         self._entradas[key] = ent
 
     def _validar_cod(self, event=None):
@@ -544,7 +539,7 @@ class PantallaAgregarUsuario:
             self._lbl_cam_sub.config(text="luego presione Capturar Rostro")
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  LÓGICA DE CAPTURA
+    #  CAPTURA
     # ══════════════════════════════════════════════════════════════════════════
     def _toggle_captura(self):
         if self._capturando:
@@ -732,7 +727,6 @@ class PantallaAgregarUsuario:
                 text="Código, Nombre y Apellido Paterno son requeridos.")
             return
 
-        # ── Validar contraseña si el rol la requiere ──────────────────────────
         password_plain = None
         if rol in _ROLES_CON_PASSWORD:
             password_plain = self._ent_password.get().strip()
@@ -754,7 +748,7 @@ class PantallaAgregarUsuario:
         self._lbl_aviso.config(text="Calculando encoding final...")
 
         encodings_snap = list(self._encodings_acumulados)
-        password_snap  = password_plain  # puede ser None para Alumno/Maestro
+        password_snap  = password_plain
 
         def _en_hilo():
             import face_recognition
@@ -795,7 +789,6 @@ class PantallaAgregarUsuario:
                     self.pantalla.after(0, _rostro_duplicado)
                     return
 
-            # ── Hash de contraseña si aplica ──────────────────────────────────
             password_hash = None
             if password_snap:
                 import hashlib
@@ -814,7 +807,7 @@ class PantallaAgregarUsuario:
                 "grado":             None,
                 "grupo":             None,
                 "face_encoding":     encoding_promedio,
-                "password_hash":     password_hash,   # ← nuevo campo
+                "password_hash":     password_hash,
             }
 
             from core.database import registrar_usuario, inicializar_bd
