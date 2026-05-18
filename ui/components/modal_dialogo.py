@@ -2,24 +2,26 @@
 ui/components/modal_dialogo.py
 Modal de diálogo personalizado — reemplaza messagebox
 
-Usa tk.Toplevel centrado sobre la ventana principal, sin overlay oscuro.
+FIX: eliminado dlg.wait_window() que bloqueaba el foco en Tkinter
+     y hacía que los Entry no respondieran después de cerrar el modal.
+     Ahora todo se maneja por callbacks (on_ok / on_cancel).
 
 USO:
     from ui.components.modal_dialogo import modal_info, modal_error, modal_warning, modal_confirm
 
-    modal_info(parent, "Usuario guardado correctamente.",
+    modal_info(parent, "Usuario guardado.",
                on_ok=lambda: app.mostrar_pantalla("gestion_real"))
 
-    modal_error(parent, "No se pudo conectar a la base de datos.")
+    modal_error(parent, "Error al guardar.")
 
     modal_warning(parent, "El nombre no puede estar vacío.")
 
-    modal_confirm(parent, "¿Eliminar este usuario?",
-                  on_ok=lambda: eliminar())
+    modal_confirm(parent, "¿Eliminar?",
+                  on_ok=lambda: eliminar(),
+                  on_cancel=lambda: None)
 """
 
 import tkinter as tk
-from pathlib import Path
 
 _TIPOS = {
     "info": {
@@ -90,13 +92,12 @@ def _mostrar_modal(
 
     root = parent.winfo_toplevel()
 
-    # ── Toplevel sin decoraciones del WM ─────────────────────────────────────
     dlg = tk.Toplevel(root)
-    dlg.overrideredirect(True)          # sin barra de título del SO
+    dlg.overrideredirect(True)
     dlg.resizable(False, False)
     dlg.configure(bg=bg_card)
 
-    # ── Card interior ─────────────────────────────────────────────────────────
+    # Card
     card = tk.Frame(dlg, bg=bg_card,
                     highlightthickness=1,
                     highlightbackground=cfg["barra"])
@@ -109,12 +110,11 @@ def _mostrar_modal(
     cuerpo = tk.Frame(card, bg=bg_card)
     cuerpo.pack(fill="both", expand=True, padx=28, pady=(18, 8))
 
-    # Icono circular
+    # Icono
     c_ico = tk.Canvas(cuerpo, width=48, height=48,
                       bg=bg_card, highlightthickness=0)
     c_ico.pack(pady=(0, 10))
-    c_ico.create_oval(2, 2, 46, 46,
-                      fill=cfg["icono_bg"],
+    c_ico.create_oval(2, 2, 46, 46, fill=cfg["icono_bg"],
                       outline=cfg["barra"], width=2)
     c_ico.create_text(24, 24, text=cfg["icono"],
                       font=("Segoe UI", 20, "bold"),
@@ -136,16 +136,25 @@ def _mostrar_modal(
     # Separador
     tk.Frame(card, bg=sep, height=1).pack(fill="x")
 
-    # Pie con botones
+    # Pie
     pie = tk.Frame(card, bg=bg_card)
     pie.pack(fill="x", padx=20, pady=14)
 
     def _ok():
+        # ── FIX: devolver el foco al parent ANTES de destruir el modal ────────
+        try:
+            parent.focus_set()
+        except Exception:
+            pass
         dlg.destroy()
         if on_ok:
             on_ok()
 
     def _cancel():
+        try:
+            parent.focus_set()
+        except Exception:
+            pass
         dlg.destroy()
         if on_cancel:
             on_cancel()
@@ -178,10 +187,10 @@ def _mostrar_modal(
     btn_ok.bind("<Enter>", lambda e: btn_ok.config(bg=cfg["btn_hover"]))
     btn_ok.bind("<Leave>", lambda e: btn_ok.config(bg=cfg["btn_bg"]))
 
-    # ── Centrar sobre la ventana principal ────────────────────────────────────
+    # ── Centrar sobre la ventana padre ────────────────────────────────────────
     dlg.update_idletasks()
-    w = dlg.winfo_reqwidth()
-    h = dlg.winfo_reqheight()
+    w  = dlg.winfo_reqwidth()
+    h  = dlg.winfo_reqheight()
     rx = root.winfo_x()
     ry = root.winfo_y()
     rw = root.winfo_width()
@@ -190,17 +199,14 @@ def _mostrar_modal(
     y  = ry + (rh - h) // 2
     dlg.geometry(f"{w}x{h}+{x}+{y}")
 
-    # ── Foco y teclas ─────────────────────────────────────────────────────────
-    dlg.transient(root)     # se mantiene sobre la ventana padre
-    dlg.grab_set()          # bloquea interacción con el resto
+    dlg.transient(root)
+    dlg.grab_set()
     dlg.focus_force()
     btn_ok.focus_set()
 
-    dlg.bind("<Return>",  lambda e: _ok())
-    dlg.bind("<Escape>",  lambda e: _cancel())
-
-    dlg.wait_window()       # esperar a que se cierre (bloquea el hilo UI)
-
+    # Teclas
+    dlg.bind("<Return>", lambda e: _ok())
+    dlg.bind("<Escape>", lambda e: _cancel())
 
 # ── Accesos directos ──────────────────────────────────────────────────────────
 
