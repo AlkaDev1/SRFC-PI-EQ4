@@ -2,9 +2,9 @@
 ui/screens/pantalla_gestion.py
 Rediseño según mockup — Hernández Vázquez Melany Guadalupe
 
-CAMBIOS v2:
-  - Botón HISTORIAL pasa {"id_rol": 2} a mostrar_pantalla()
-    para que historial_accesos sepa regresar a "gestion_real" al cerrar
+CAMBIOS v3:
+  - bind_all("<MouseWheel>") → bind("<MouseWheel>") en el canvas
+    para que el scroll no afecte otras ventanas/apps abiertas detrás
 """
 
 import tkinter as tk
@@ -217,26 +217,45 @@ class PantallaGestion:
         self._wrap = tk.Frame(self.pantalla, bg=p["gris_bg"])
         self._wrap.pack(fill="both", expand=True)
 
-        self._canvas_scroll = tk.Canvas(self._wrap, bg=p["gris_bg"], highlightthickness=0)
-        sb = ttk.Scrollbar(self._wrap, orient="vertical", command=self._canvas_scroll.yview)
+        self._canvas_scroll = tk.Canvas(self._wrap, bg=p["gris_bg"],
+                                        highlightthickness=0)
+        sb = ttk.Scrollbar(self._wrap, orient="vertical",
+                            command=self._canvas_scroll.yview)
         self._canvas_scroll.configure(yscrollcommand=sb.set)
 
         sb.pack(side="right", fill="y")
         self._canvas_scroll.pack(side="left", fill="both", expand=True)
 
         self._inner = tk.Frame(self._canvas_scroll, bg=p["gris_bg"])
-        win_id = self._canvas_scroll.create_window((0, 0), window=self._inner, anchor="nw")
+        win_id = self._canvas_scroll.create_window(
+            (0, 0), window=self._inner, anchor="nw")
 
         def _resize(e):
-            self._canvas_scroll.configure(scrollregion=self._canvas_scroll.bbox("all"))
-            self._canvas_scroll.itemconfig(win_id, width=self._canvas_scroll.winfo_width())
+            self._canvas_scroll.configure(
+                scrollregion=self._canvas_scroll.bbox("all"))
+            self._canvas_scroll.itemconfig(
+                win_id, width=self._canvas_scroll.winfo_width())
 
         self._inner.bind("<Configure>", _resize)
-        self._canvas_scroll.bind("<Configure>",
-                           lambda e: self._canvas_scroll.itemconfig(win_id, width=e.width))
-        self._canvas_scroll.bind_all("<MouseWheel>",
-                           lambda e: self._canvas_scroll.yview_scroll(
-                               int(-1 * (e.delta / 120)), "units"))
+        self._canvas_scroll.bind(
+            "<Configure>",
+            lambda e: self._canvas_scroll.itemconfig(win_id, width=e.width))
+
+        # ── FIX: bind solo en el canvas, no bind_all ──────────────────────────
+        # bind_all capturaba el scroll de TODA la pantalla (incluso el navegador
+        # que estuviera abierto detrás). bind solo actúa cuando el mouse está
+        # sobre el canvas de gestión.
+        self._canvas_scroll.bind(
+            "<MouseWheel>",
+            lambda e: self._canvas_scroll.yview_scroll(
+                int(-1 * (e.delta / 120)), "units"))
+        # Linux: botones 4 y 5
+        self._canvas_scroll.bind(
+            "<Button-4>",
+            lambda e: self._canvas_scroll.yview_scroll(-1, "units"))
+        self._canvas_scroll.bind(
+            "<Button-5>",
+            lambda e: self._canvas_scroll.yview_scroll(1, "units"))
 
         self._construir_contenido(self._inner)
 
@@ -351,9 +370,11 @@ class PantallaGestion:
                             fg=p["filtro_fg"], bg=p["filtro_bg"],
                             activebackground=p["borde"],
                             relief="flat", bd=0, padx=8, pady=5,
-                            highlightthickness=1, highlightbackground=p["filtro_borde"],
+                            highlightthickness=1,
+                            highlightbackground=p["filtro_borde"],
                             cursor="hand2")
-        self._btn_rol.bind("<Button-1>", lambda e: _abrir_menu_rol(e, self._btn_rol))
+        self._btn_rol.bind("<Button-1>",
+                           lambda e: _abrir_menu_rol(e, self._btn_rol))
         self._btn_rol.pack(side="left", padx=(0, 8))
         self._reg(self._btn_rol, "filtro_bg", "filtro_fg")
 
@@ -378,9 +399,11 @@ class PantallaGestion:
                             fg=p["filtro_fg"], bg=p["filtro_bg"],
                             activebackground=p["borde"],
                             relief="flat", bd=0, padx=8, pady=5,
-                            highlightthickness=1, highlightbackground=p["filtro_borde"],
+                            highlightthickness=1,
+                            highlightbackground=p["filtro_borde"],
                             cursor="hand2")
-        self._btn_mes.bind("<Button-1>", lambda e: _abrir_menu_mes(e, self._btn_mes))
+        self._btn_mes.bind("<Button-1>",
+                           lambda e: _abrir_menu_mes(e, self._btn_mes))
         self._btn_mes.pack(side="left")
         self._reg(self._btn_mes, "filtro_bg", "filtro_fg")
 
@@ -475,7 +498,6 @@ class PantallaGestion:
         for texto, icono, cmd in [
             ("  AGREGAR USUARIO", self._ico_agregar,
              lambda: self.app.mostrar_pantalla("agregar_usuario")),
-            # ── FIX: pasar id_rol=2 para que historial regrese a gestion_real ──
             ("  HISTORIAL", self._ico_historial,
              lambda: self.app.mostrar_pantalla("historial", {"id_rol": 2})),
         ]:
@@ -535,7 +557,8 @@ class PantallaGestion:
         datos = self._todos_usuarios
 
         if rol_f and rol_f != "Rol":
-            datos = [u for u in datos if (u.get("rol") or "").lower() == rol_f.lower()]
+            datos = [u for u in datos
+                     if (u.get("rol") or "").lower() == rol_f.lower()]
 
         meses_num = {
             "Enero":"01","Febrero":"02","Marzo":"03","Abril":"04",
@@ -544,7 +567,8 @@ class PantallaGestion:
         }
         if mes_f and mes_f != "Mes" and mes_f in meses_num:
             m = meses_num[mes_f]
-            datos = [u for u in datos if f"-{m}-" in (u.get("fecha_registro") or "")]
+            datos = [u for u in datos
+                     if f"-{m}-" in (u.get("fecha_registro") or "")]
 
         t = self.tree_usuarios
         t.delete(*t.get_children())
