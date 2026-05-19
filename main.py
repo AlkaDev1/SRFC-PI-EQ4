@@ -20,7 +20,6 @@ class App:
         self.contenedor = tk.Frame(root)
         self.contenedor.pack(fill="both", expand=True)
 
-        # Teclado virtual solo en RPi
         if _ES_RASPBERRY:
             from ui.components.teclado_virtual import TecladoVirtual
             self.teclado = TecladoVirtual(root, self)
@@ -34,7 +33,6 @@ class App:
         for widget in self.contenedor.winfo_children():
             widget.destroy()
 
-        # Ocultar teclado al cambiar pantalla
         if self.teclado:
             self.teclado._ocultar()
 
@@ -64,7 +62,11 @@ class App:
 
         elif nombre == "agregar_usuario":
             from ui.screens.pantalla_agregar_usuario import crear_pantalla_agregar_usuario
-            crear_pantalla_agregar_usuario(self.contenedor, self)
+            crear_pantalla_agregar_usuario(self.contenedor, self, datos)
+
+        elif nombre == "captura_rostro":
+            from ui.screens.pantalla_captura_rostro import crear_pantalla_captura
+            crear_pantalla_captura(self.contenedor, self, datos)
 
         elif nombre == "editar_usuario":
             from ui.screens.pantalla_editar_usuario import crear_pantalla_editar_usuario
