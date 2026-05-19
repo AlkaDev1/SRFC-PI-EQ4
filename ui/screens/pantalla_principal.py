@@ -28,7 +28,6 @@ import tkinter as tk
 from pathlib import Path
 from ui.components.barra_superior import crear_encabezado
 from ui.styles import FUENTES, MEDIDAS
-from ui.components.aviso_privacidad import mostrar_aviso
 from PIL import Image, ImageTk, ImageDraw
 
 # ── Paleta modo claro ─────────────────────────────────────────────────────────
@@ -190,7 +189,7 @@ class _Central(tk.Frame):
         zona_ancho = W - zona_izq - 20
         tx  = zona_izq + zona_ancho // 2
         ty  = int(H * 0.28)
-        tam = max(26, int(H * 0.175))
+        tam = max(20, int(H * 0.13))
         sub = max(10, int(H * 0.058))
 
         color_titulo = BLANCO if es_oscuro else "#1B5E20"
@@ -211,9 +210,9 @@ class _Central(tk.Frame):
                            linea_x1 + int(zona_ancho * 0.60), linea_y + 3,
                            fill="#2D531A" if es_oscuro else "#A5D6A7", outline="")
 
-        badge_y  = linea_y + 12
-        badge_h  = int(sub * 2.4)
-        badge_w  = int(zona_ancho * 0.82)
+        badge_y  = linea_y + 8
+        badge_h  = int(sub * 2.2)
+        badge_w  = int(zona_ancho * 0.95)
         badge_x1 = zona_izq
         badge_x2 = badge_x1 + badge_w
 
@@ -225,7 +224,7 @@ class _Central(tk.Frame):
                badge_h // 2, color_badge_bg, color_badge_borde)
         c.create_text((badge_x1 + badge_x2) // 2, badge_y + badge_h // 2,
                       text="Sistema de Control Biométrico",
-                      font=("Segoe UI", sub, "bold"),
+                      font=("Segoe UI", int(sub * 0.95), "bold"),
                       fill=color_badge_texto, anchor="center")
 
 
@@ -254,8 +253,7 @@ class _Botones(tk.Frame):
         self._btn_gestion = _Btn(self._fila, _ICONO_GESTION, "GESTIÓN",
                                   lambda: app.mostrar_pantalla("gestion"), es_oscuro, bg)
         self._btn_aviso   = _Btn(self._fila, _ICONO_AVISO_PRIVACIDAD, "AVISO DE\nPRIVACIDAD",
-                                  lambda: mostrar_aviso(
-                                      parent.winfo_toplevel(), al_aceptar=lambda: None),
+                                  lambda: app.mostrar_pantalla("aviso_privacidad"),
                                   es_oscuro, bg)
 
         # Forzar repintado inicial después de que Tkinter termine de construir

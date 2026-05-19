@@ -3,4 +3,3 @@ face-recognition
 Pillow
 numpy
 pyglet
-math
