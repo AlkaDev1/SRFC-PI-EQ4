@@ -183,6 +183,7 @@ class PantallaAvisoPrivacidad:
 
     def _on_touch_move(self, event):
         dy = self._touch_y_root - event.y_root  # positivo = dedo baja = scroll ↓
+        self._touch_y_root = event.y_root  # SIEMPRE actualizar para próximo evento
 
         # Marcar como arrastrando si hay movimiento significativo
         if abs(dy) >= self._UMBRAL_ARRASTRE:
@@ -192,7 +193,6 @@ class PantallaAvisoPrivacidad:
             unidades = int(dy / 18)
             if unidades != 0:
                 self._texto.yview_scroll(unidades, "units")
-                self._touch_y_root = event.y_root  # reset para scroll continuo
 
         # Siempre cancelar selección durante el movimiento
         try:
