@@ -13,6 +13,7 @@ CAMBIOS v2:
 
 import tkinter as tk
 import platform
+import time
 from pathlib import Path
 from PIL import Image, ImageTk, ImageDraw
 from ui.styles import PALETA, FUENTES
@@ -86,8 +87,11 @@ class PantallaAvisoPrivacidad:
 
         # ── Variables para scroll táctil (v2: usa y_root) ────────────────────
         self._touch_y_root   = 0    # coordenada absoluta de pantalla
+        self._touch_time     = 0    # tiempo del último evento
         self._arrastrando    = False
+        self._velocidad      = 0    # velocidad de scroll (unidades por ms)
         self._UMBRAL_ARRASTRE = 5   # px mínimos para considerar scroll
+        self._momentum_id     = None # ID del after para momentum
 
         self._construir_ui()
 
@@ -133,6 +137,11 @@ class PantallaAvisoPrivacidad:
             pass
 
     def _limpiar_tema(self, evento=None):
+        # Cancelar momentum si existe
+        if self._momentum_id:
+            self.pantalla.after_cancel(self._momentum_id)
+            self._momentum_id = None
+        
         if hasattr(self.app, "tema"):
             try:
                 self.app.tema.desregistrar(self._on_tema_cambio)
@@ -173,7 +182,15 @@ class PantallaAvisoPrivacidad:
     # ══════════════════════════════════════════════════════════════════════════
     def _on_touch_start(self, event):
         self._touch_y_root = event.y_root   # coordenada absoluta
+        self._touch_time   = time.time()    # guardar tiempo actual (en segundos)
         self._arrastrando  = False
+        self._velocidad    = 0
+        
+        # Cancelar momentum anterior si existe
+        if self._momentum_id:
+            self.pantalla.after_cancel(self._momentum_id)
+            self._momentum_id = None
+        
         # Limpiar selección inmediatamente al tocar
         try:
             self._texto.tag_remove("sel", "1.0", "end")
@@ -182,8 +199,19 @@ class PantallaAvisoPrivacidad:
         return "break"
 
     def _on_touch_move(self, event):
+        ahora = time.time()
+        dt = ahora - self._touch_time  # delta de tiempo en segundos
+        
         dy = self._touch_y_root - event.y_root  # positivo = dedo baja = scroll ↓
-        self._touch_y_root = event.y_root  # SIEMPRE actualizar para próximo evento
+        
+        # Calcular velocidad: unidades por segundo (aproximado)
+        if dt > 0.001:  # evitar división por cero
+            velocidad_instantanea = (dy / 18.0) / dt  # unidades de texto por segundo
+            # Suavizar velocidad con promedio móvil simple
+            self._velocidad = self._velocidad * 0.5 + velocidad_instantanea * 0.5
+        
+        self._touch_time = ahora
+        self._touch_y_root = event.y_root  # actualizar para próximo evento
 
         # Marcar como arrastrando si hay movimiento significativo
         if abs(dy) >= self._UMBRAL_ARRASTRE:
@@ -199,13 +227,34 @@ class PantallaAvisoPrivacidad:
             self._texto.tag_remove("sel", "1.0", "end")
         except tk.TclError:
             pass
-        return "break"  # impide que Tkinter procese el evento internamente
+        return "break"
 
     def _on_touch_end(self, event):
         if self._arrastrando:
             self._arrastrando = False
+            # Iniciar momentum scroll si hay velocidad significativa
+            if abs(self._velocidad) > 0.1:  # umbral de velocidad mínima
+                self._aplicar_momentum()
             return "break"
         # Si no hubo arrastre fue un tap → dejar que el evento siga (botón Aceptar)
+
+    def _aplicar_momentum(self):
+        """Aplica scroll con momentum (inercia) hasta que se detenga."""
+        if abs(self._velocidad) > 0.01:  # umbral mínimo de velocidad residual
+            # Aplicar scroll basado en velocidad actual
+            unidades = int(self._velocidad)
+            if unidades != 0:
+                self._texto.yview_scroll(unidades, "units")
+            
+            # Desacelerar: reducir velocidad cada iteración
+            self._velocidad *= 0.92  # factor de fricción (0-1, más bajo = más freno)
+            
+            # Programar siguiente iteración en ~16ms (para ~60 fps)
+            self._momentum_id = self.pantalla.after(16, self._aplicar_momentum)
+        else:
+            # Detener cuando la velocidad es insignificante
+            self._velocidad = 0
+            self._momentum_id = None
 
     # ══════════════════════════════════════════════════════════════════════════
     #  UI
