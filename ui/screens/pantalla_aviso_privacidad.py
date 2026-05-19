@@ -187,6 +187,7 @@ class PantallaAvisoPrivacidad:
         self._touch_time   = time.time()    # guardar tiempo actual (en segundos)
         self._arrastrando  = False
         self._velocidad    = 0
+        self._momentum_accum = 0            # acumulador para los píxeles de la inercia
         
         # Cancelar momentum anterior si existe
         if hasattr(self, "_momentum_id") and self._momentum_id:
@@ -207,8 +208,10 @@ class PantallaAvisoPrivacidad:
         # Calcular velocidad usando el movimiento real entre eventos consecutivos
         dy_vel = self._last_y - event.y_root
         if dt > 0.001:
-            velocidad_inst = (dy_vel / 18.0) / dt
-            self._velocidad = self._velocidad * 0.5 + velocidad_inst * 0.5
+            # Convertimos a píxeles por frame (asumiendo 60 FPS -> 0.016s por frame)
+            velocidad_inst = (dy_vel / dt) * 0.016
+            # Filtro para suavizar picos en la velocidad
+            self._velocidad = self._velocidad * 0.6 + velocidad_inst * 0.4
             
         self._touch_time = ahora
         self._last_y = event.y_root
@@ -237,22 +240,30 @@ class PantallaAvisoPrivacidad:
     def _on_touch_end(self, event):
         if self._arrastrando:
             self._arrastrando = False
-            # Iniciar momentum scroll si hay velocidad significativa
-            if abs(self._velocidad) > 0.1:  # umbral de velocidad mínima
+            self._momentum_accum = 0
+            # Iniciar momentum scroll si hay velocidad significativa (px/frame)
+            if abs(self._velocidad) > 1.0:
                 self._aplicar_momentum()
             return "break"
         # Si no hubo arrastre fue un tap → dejar que el evento siga (botón Aceptar)
 
     def _aplicar_momentum(self):
         """Aplica scroll con momentum (inercia) hasta que se detenga."""
-        if abs(self._velocidad) > 0.01:  # umbral mínimo de velocidad residual
-            # Aplicar scroll basado en velocidad actual
-            unidades = int(self._velocidad)
+        if abs(self._velocidad) > 0.5:  # umbral mínimo de velocidad residual
+            # Acumulamos el desplazamiento (en píxeles) por cada frame animado
+            if hasattr(self, '_momentum_accum'):
+                self._momentum_accum += self._velocidad
+            else:
+                self._momentum_accum = self._velocidad
+                
+            unidades = int(self._momentum_accum / 18)
             if unidades != 0:
                 self._texto.yview_scroll(unidades, "units")
+                # Restar la parte entera consumida
+                self._momentum_accum -= (unidades * 18)
             
-            # Desacelerar: reducir velocidad cada iteración
-            self._velocidad *= 0.92  # factor de fricción (0-1, más bajo = más freno)
+            # Desacelerar: fricción ajustada para deslizar estilo smartphone
+            self._velocidad *= 0.94  
             
             # Programar siguiente iteración en ~16ms (para ~60 fps)
             self._momentum_id = self.pantalla.after(16, self._aplicar_momentum)
@@ -260,6 +271,7 @@ class PantallaAvisoPrivacidad:
             # Detener cuando la velocidad es insignificante
             self._velocidad = 0
             self._momentum_id = None
+            self._momentum_accum = 0
 
     # ══════════════════════════════════════════════════════════════════════════
     #  UI
