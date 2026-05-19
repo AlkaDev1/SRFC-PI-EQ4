@@ -2,8 +2,13 @@
 ui/screens/pantalla_agregar_usuario.py
 Pantalla de Agregar Usuario -- 800x480 táctil (Raspberry Pi 5)
 
-CAMBIOS v9:
-  - Campo "Codigo Institucional" solo acepta dígitos (0-9)
+CAMBIOS v10:
+  - Fix cámara RPi 5 + Wayland: usa cv2.CAP_V4L2 backend explícito
+  - Fallback automático entre índices 0, 1, 2
+  - Solo números en código institucional (máx 8 dígitos)
+  - Ojito en contraseña
+  - Validaciones: mayúscula + minúscula + número + mín 6 chars
+  - Umbral duplicado facial: 0.38
 """
 
 import tkinter as tk
@@ -26,7 +31,6 @@ _BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 _RAIZ = Path(__file__).resolve().parents[2]
 
 _ES_RASPBERRY = platform.machine() in ("aarch64", "armv7l")
-_CAM_INDEX    = 0
 
 _F_LABEL   = ("Segoe UI", 7)
 _F_ENTRY   = ("Segoe UI", 9)
@@ -108,6 +112,31 @@ def _validar_password(pwd: str):
         return "Debe incluir al menos una minúscula."
     if not any(c.isdigit() for c in pwd):
         return "Debe incluir al menos un número."
+    return None
+
+
+def _abrir_camara_rpi():
+    """
+    Abre la cámara en RPi 5 con Wayland usando V4L2 backend.
+    Prueba índices 0, 1, 2 automáticamente.
+    """
+    import cv2
+    backends = [cv2.CAP_V4L2, cv2.CAP_ANY]
+    indices  = [0, 1, 2]
+
+    for backend in backends:
+        for idx in indices:
+            try:
+                cam = cv2.VideoCapture(idx, backend)
+                if cam.isOpened():
+                    # Verificar que realmente da frames
+                    ok, frame = cam.read()
+                    if ok and frame is not None:
+                        print(f"[CAM] Abierta: índice={idx} backend={backend}")
+                        return cam
+                    cam.release()
+            except Exception:
+                pass
     return None
 
 
@@ -532,7 +561,7 @@ class PantallaAgregarUsuario:
             sub_st, self._status_var, ["Activo", "Inactivo"], p, self._ico_flecha)
         self._btn_status.pack(fill="x", ipady=2, pady=(1, 0))
 
-        # Contraseña dinámica (fila 4)
+        # Contraseña dinámica
         self._sub_password = tk.Frame(self._form, bg=p["bg"])
 
         _, self._ent_password, w1, o1 = _campo_password(
@@ -552,9 +581,6 @@ class PantallaAgregarUsuario:
         self._entradas["password"]  = self._ent_password
         self._entradas["password2"] = self._ent_password2
 
-    # ══════════════════════════════════════════════════════════════════════════
-    #  CAMPO CONTRASEÑA DINÁMICO
-    # ══════════════════════════════════════════════════════════════════════════
     def _on_rol_cambio(self, rol: str):
         if rol in _ROLES_CON_PASSWORD:
             self._sub_password.grid(
@@ -565,9 +591,6 @@ class PantallaAgregarUsuario:
             self._ent_password.delete(0, tk.END)
             self._ent_password2.delete(0, tk.END)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    #  HELPERS UI
-    # ══════════════════════════════════════════════════════════════════════════
     def _redibujar_icono_usuario(self):
         p = self._p
         c = self._canvas_icono
@@ -598,7 +621,7 @@ class PantallaAgregarUsuario:
         ent.insert(0, self.datos.get(key, ""))
         ent.pack(fill="x", ipady=4, pady=(1, 0))
 
-        # ── Solo números para el código institucional ─────────────────────────
+        # Solo números + máx 8 dígitos para código institucional
         if key == "cod_institucional":
             vcmd = (self.pantalla.winfo_toplevel().register(
                         lambda s: (s.isdigit() and len(s) <= 8) or s == ""), "%P")
@@ -634,8 +657,8 @@ class PantallaAgregarUsuario:
         self._capturando = True
         self._btn_captura.config(text="DETENER CAPTURA",
                                   bg=p["rojo_btn"], activebackground=p["rojo_hover"])
-        self._lbl_cam_msg.config(text="POR FAVOR NO SE MUEVA")
-        self._lbl_cam_sub.config(text="ESCANEANDO ROSTRO...", fg=p["cam_sub_fg"])
+        self._lbl_cam_msg.config(text="INICIANDO CÁMARA...")
+        self._lbl_cam_sub.config(text="por favor espere", fg=p["cam_sub_fg"])
         threading.Thread(target=self._hilo_captura, daemon=True).start()
 
     def _detener_captura(self):
@@ -658,16 +681,20 @@ class PantallaAgregarUsuario:
             self._capturando = False
             return
 
-        detector = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+        # ── FIX cámara RPi 5 + Wayland ────────────────────────────────────────
+        if _ES_RASPBERRY:
+            cam = _abrir_camara_rpi()
+        else:
+            cam = cv2.VideoCapture(0)
+            if not cam.isOpened():
+                cam = cv2.VideoCapture(1)
 
-        cam = cv2.VideoCapture(_CAM_INDEX)
-        if not cam.isOpened():
-            cam = cv2.VideoCapture(1)
-        if not cam.isOpened():
+        if cam is None or not cam.isOpened():
             self.pantalla.after(0, lambda: modal_error(
                 self.pantalla,
-                "No se pudo abrir la cámara.\nVerifica que la webcam USB esté conectada.",
+                "No se pudo abrir la cámara.\n"
+                "Verifica que la webcam USB esté conectada\n"
+                "y que tengas permisos: sudo usermod -aG video $USER",
                 titulo="Error de cámara"))
             self._capturando = False
             return
@@ -676,11 +703,20 @@ class PantallaAgregarUsuario:
         cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
+        # Confirmar que la cámara está lista
+        self.pantalla.after(0, lambda: self._lbl_cam_msg.config(
+            text="POR FAVOR NO SE MUEVA"))
+        self.pantalla.after(0, lambda: self._lbl_cam_sub.config(
+            text="ESCANEANDO ROSTRO..."))
+
         try:
             from PIL import Image as PILImage, ImageTk as ITk
             pil_ok = True
         except ImportError:
             pil_ok = False
+
+        detector = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
         rostro_objetivo = None
 
@@ -695,8 +731,9 @@ class PantallaAgregarUsuario:
 
         while self._capturando and self._capturas_ok < CAPTURAS_REQUERIDAS:
             ok, frame = cam.read()
-            if not ok:
-                break
+            if not ok or frame is None:
+                continue
+
             frame = cv2.flip(frame, 1)
             gris  = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             rostros = detector.detectMultiScale(
@@ -739,12 +776,13 @@ class PantallaAgregarUsuario:
                 h_f, w_f = img_rgb.shape[:2]
                 nw = 340
                 nh = int(h_f * nw / w_f)
-                img_pil = PILImage.fromarray(img_rgb).resize((nw, nh), PILImage.LANCZOS)
+                img_pil = PILImage.fromarray(img_rgb).resize(
+                    (nw, nh), PILImage.LANCZOS)
                 photo = ITk.PhotoImage(img_pil)
                 self.pantalla.after(0, self._actualizar_feed, n, photo)
             else:
                 self.pantalla.after(0, self._actualizar_feed, n, None)
-            cv2.waitKey(80)
+            cv2.waitKey(30)
 
         cam.release()
         cv2.destroyAllWindows()

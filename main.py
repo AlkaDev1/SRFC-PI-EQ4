@@ -2,7 +2,6 @@ import tkinter as tk
 from tkinter import ttk
 import pyglet
 import platform
-import subprocess
 
 ruta_fuente = "assets/fonts/segoeui.ttf"
 pyglet.font.add_file(ruta_fuente)
@@ -20,11 +19,24 @@ class App:
 
         self.contenedor = tk.Frame(root)
         self.contenedor.pack(fill="both", expand=True)
+
+        # Teclado virtual solo en RPi
+        if _ES_RASPBERRY:
+            from ui.components.teclado_virtual import TecladoVirtual
+            self.teclado = TecladoVirtual(root, self)
+            self.teclado.conectar(root)
+        else:
+            self.teclado = None
+
         self.mostrar_pantalla("principal")
 
     def mostrar_pantalla(self, nombre, datos=None):
         for widget in self.contenedor.winfo_children():
             widget.destroy()
+
+        # Ocultar teclado al cambiar pantalla
+        if self.teclado:
+            self.teclado._ocultar()
 
         if nombre == "principal":
             from ui.screens.pantalla_principal import crear_pantalla_principal
@@ -63,31 +75,6 @@ class App:
             crear_pantalla_aviso_privacidad(self.contenedor, self)
 
 
-def _iniciar_teclado_virtual():
-    """
-    Lanza onboard solo en Raspberry Pi.
-    onboard se mostrará automáticamente al tocar cualquier campo de texto
-    si está configurado con 'Auto-show when editing text'.
-    """
-    if not _ES_RASPBERRY:
-        return
-    try:
-        subprocess.Popen(
-            ["onboard",
-             "--size=800x200",      # ancho completo 800px, alto 200px
-             "--layout=Phone",      # layout compacto para pantalla pequeña
-             "--theme=Nightshade",  # tema oscuro que combina con el sistema
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        print("[TECLADO] onboard iniciado correctamente")
-    except FileNotFoundError:
-        print("[TECLADO] onboard no encontrado. Instala con: sudo apt install onboard")
-    except Exception as e:
-        print(f"[TECLADO] Error al iniciar onboard: {e}")
-
-
 def app():
     root = tk.Tk()
     root.title("Sistema de Control Biométrico – Universidad de Colima")
@@ -109,9 +96,6 @@ def app():
 
     style = ttk.Style()
     configurar_estilos(style)
-
-    # ── Iniciar teclado virtual (solo RPi) ────────────────────────────────────
-    _iniciar_teclado_virtual()
 
     App(root)
     root.mainloop()

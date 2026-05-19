@@ -1,10 +1,10 @@
 """
 ui/screens/pantalla_gestion.py
-Rediseño según mockup — Hernández Vázquez Melany Guadalupe
 
-CAMBIOS v3:
-  - bind_all("<MouseWheel>") → bind("<MouseWheel>") en el canvas
-    para que el scroll no afecte otras ventanas/apps abiertas detrás
+CAMBIOS v4:
+  - Si BD vacía → tabla vacía (sin _USUARIOS_DEMO)
+  - Mensaje "Sin usuarios registrados" cuando no hay datos
+  - bind("<MouseWheel>") en lugar de bind_all
 """
 
 import tkinter as tk
@@ -25,29 +25,6 @@ from core.database import (listar_usuarios as obtener_usuarios,
                             inicializar_bd)
 
 _RAIZ = Path(__file__).resolve().parents[2]
-
-_USUARIOS_DEMO = [
-    {"cod_institucional": "20203455", "nombre": "Melany",
-     "apellido_paterno": "Suarez",    "apellido_materno": "Hernandez",
-     "carrera": "Ing. Software",      "rol": "Alumno",
-     "fecha_registro": "2026-03-24",  "hora_registro": "8:41 p.m.", "status": "Activo"},
-    {"cod_institucional": "20203456", "nombre": "Carlos",
-     "apellido_paterno": "Cabrera",   "apellido_materno": "Alcaraz",
-     "carrera": "Ing. Mecanicánico y Electricista", "rol": "Alumno",
-     "fecha_registro": "2026-03-24",  "hora_registro": "8:41 p.m.", "status": "Inactivo"},
-    {"cod_institucional": "10198822", "nombre": "José",
-     "apellido_paterno": "Rodriguez", "apellido_materno": "Jacobo",
-     "carrera": "Ing. Mecatrónica",   "rol": "Maestro",
-     "fecha_registro": "2026-03-24",  "hora_registro": "8:41 p.m.", "status": "Activo"},
-    {"cod_institucional": "20181992", "nombre": "Jesus",
-     "apellido_paterno": "Salazar",   "apellido_materno": "Lopez",
-     "carrera": "Ing. Tecnología Electrónicas", "rol": "Admin",
-     "fecha_registro": "2026-03-24",  "hora_registro": "8:41 p.m.", "status": "Activo"},
-    {"cod_institucional": "20181992", "nombre": "Miguel",
-     "apellido_paterno": "Mendoza",   "apellido_materno": "Garcia",
-     "carrera": "Ing. Software",      "rol": "Super Admin",
-     "fecha_registro": "2026-03-24",  "hora_registro": "8:41 p.m.", "status": "Activo"},
-]
 
 _C = {
     "gris_bg":      "#f5f5f5",
@@ -95,9 +72,7 @@ _O = {
 
 
 def _paleta(app) -> dict:
-    if hasattr(app, "tema") and app.tema.es_oscuro():
-        return _O
-    return _C
+    return _O if (hasattr(app, "tema") and app.tema.es_oscuro()) else _C
 
 
 class PantallaGestion:
@@ -121,9 +96,9 @@ class PantallaGestion:
         self.pantalla.bind("<Destroy>", self._limpiar_tema)
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  SOPORTE DE TEMA
+    #  TEMA
     # ══════════════════════════════════════════════════════════════════════════
-    def _on_tema_cambio(self, paleta_nueva: dict):
+    def _on_tema_cambio(self, _):
         self._p = _O if self.app.tema.es_oscuro() else _C
         self._aplicar_tema()
 
@@ -176,7 +151,6 @@ class PantallaGestion:
                   foreground=[("selected", p["sel_tree_fg"])])
             self.tree_usuarios.tag_configure("par",   background=p["fila_par"])
             self.tree_usuarios.tag_configure("impar", background=p["fila_impar"])
-
         except tk.TclError:
             pass
 
@@ -199,7 +173,7 @@ class PantallaGestion:
             self._ico_flecha = None
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  UI PRINCIPAL
+    #  UI
     # ══════════════════════════════════════════════════════════════════════════
     def _construir_ui(self):
         p = self._p
@@ -241,15 +215,11 @@ class PantallaGestion:
             "<Configure>",
             lambda e: self._canvas_scroll.itemconfig(win_id, width=e.width))
 
-        # ── FIX: bind solo en el canvas, no bind_all ──────────────────────────
-        # bind_all capturaba el scroll de TODA la pantalla (incluso el navegador
-        # que estuviera abierto detrás). bind solo actúa cuando el mouse está
-        # sobre el canvas de gestión.
+        # FIX: bind solo en canvas (no bind_all)
         self._canvas_scroll.bind(
             "<MouseWheel>",
             lambda e: self._canvas_scroll.yview_scroll(
                 int(-1 * (e.delta / 120)), "units"))
-        # Linux: botones 4 y 5
         self._canvas_scroll.bind(
             "<Button-4>",
             lambda e: self._canvas_scroll.yview_scroll(-1, "units"))
@@ -313,7 +283,7 @@ class PantallaGestion:
             lbl_t.pack(anchor="w")
             self._reg(lbl_t, "card_bg", "texto_gris")
 
-            lbl_num = tk.Label(body, text="—", font=("Segoe UI", 14, "bold"),
+            lbl_num = tk.Label(body, text="0", font=("Segoe UI", 14, "bold"),
                                fg=p["texto_oscuro"], bg=p["card_bg"])
             lbl_num.pack(anchor="w")
             self._reg(lbl_num, "card_bg", "texto_oscuro")
@@ -443,6 +413,7 @@ class PantallaGestion:
 
         self.tree_usuarios.tag_configure("par",   background=p["fila_par"])
         self.tree_usuarios.tag_configure("impar", background=p["fila_impar"])
+        self.tree_usuarios.tag_configure("vacio", background=p["card_bg"])
         self.tree_usuarios.bind("<ButtonRelease-1>", self._on_tree_click)
         self.tree_usuarios.pack(fill="both", expand=True)
 
@@ -453,6 +424,8 @@ class PantallaGestion:
             item = self.tree_usuarios.identify_row(event.y)
             if item:
                 vals = self.tree_usuarios.item(item, "values")
+                if vals[0] == "":  # fila vacía
+                    return
                 self.app.mostrar_pantalla("editar_usuario", datos={
                     "cod_institucional": vals[0],
                     "nombre":            vals[1],
@@ -522,33 +495,34 @@ class PantallaGestion:
 
     def _cargar_estadisticas(self):
         p = self._p
-        bd_usuarios = obtener_usuarios()
-        usuarios    = bd_usuarios if bd_usuarios else _USUARIOS_DEMO
-        accesos     = obtener_accesos(limite=1000)
-        hoy         = datetime.now().strftime("%Y-%m-%d")
+        # ── FIX: usar solo datos reales de BD, sin demo ───────────────────────
+        usuarios = obtener_usuarios() or []
+        accesos  = obtener_accesos(limite=1000) or []
+        hoy      = datetime.now().strftime("%Y-%m-%d")
 
         total   = len(usuarios)
         alumnos = sum(1 for u in usuarios if u.get("rol", "") == "Alumno")
         admins  = sum(1 for u in usuarios
-                      if u.get("rol", "") in ("Admin", "SuperAdmin", "SuperUsuario",
-                                              "Profesor", "Maestro"))
+                      if u.get("rol", "") in
+                      ("Admin", "SuperAdmin", "SuperUsuario", "Profesor", "Maestro"))
         acc_hoy = len([a for a in accesos if a.get("fecha") == hoy])
 
         self._tarjetas["accesos_hoy"].config(text=str(acc_hoy))
-        self._tarjetas["accesos_hoy_sub"].config(text="↑ +18% vs ayer")
+        self._tarjetas["accesos_hoy_sub"].config(text="accesos registrados hoy")
         self._tarjetas["total_alumnos"].config(text=str(alumnos))
         self._tarjetas["alumnos_sub"].config(
-            text=f"{round(alumnos/total*100)}% del total" if total else "0%")
+            text=f"{round(alumnos/total*100)}% del total" if total else "Sin registros")
         self._tarjetas["total_admins"].config(text=str(admins))
         self._tarjetas["admins_sub"].config(
-            text=f"{round(admins/total*100)}% del total" if total else "0%")
+            text=f"{round(admins/total*100)}% del total" if total else "Sin registros")
         self._tarjetas["acc_denegados"].config(text="0")
-        self._tarjetas["deny_sub"].config(text="↑ 3 más que ayer", fg=p["rojo_claro"])
+        self._tarjetas["deny_sub"].config(text="accesos denegados hoy",
+                                          fg=p["rojo_claro"])
         self._todos_usuarios = usuarios
 
     def _cargar_tabla_usuarios(self):
-        bd = obtener_usuarios()
-        self._todos_usuarios = bd if bd else _USUARIOS_DEMO
+        # ── FIX: sin fallback a demo — BD vacía = tabla vacía ────────────────
+        self._todos_usuarios = obtener_usuarios() or []
         self._filtrar_tabla()
 
     def _filtrar_tabla(self):
@@ -572,6 +546,14 @@ class PantallaGestion:
 
         t = self.tree_usuarios
         t.delete(*t.get_children())
+
+        if not datos:
+            # Mostrar fila indicando que no hay datos
+            t.insert("", "end", tags=("vacio",),
+                     values=("", "Sin usuarios registrados",
+                             "", "", "", "", "", "", ""))
+            return
+
         for i, u in enumerate(datos):
             fecha_hora = f"{u.get('fecha_registro','')} {u.get('hora_registro','')}".strip()
             t.insert("", "end",
