@@ -181,13 +181,15 @@ class PantallaAvisoPrivacidad:
     #  consistente independientemente del widget bajo el dedo.
     # ══════════════════════════════════════════════════════════════════════════
     def _on_touch_start(self, event):
-        self._touch_y_root = event.y_root   # coordenada absoluta
+        self._touch_y_root = event.y_root   # ancla para acumular/calcular unidades de scroll
+        self._last_y       = event.y_root   # ancla temporal para calcular velocidad entre eventos
+        self._start_y      = event.y_root   # ancla del toque original para el umbral
         self._touch_time   = time.time()    # guardar tiempo actual (en segundos)
         self._arrastrando  = False
         self._velocidad    = 0
         
         # Cancelar momentum anterior si existe
-        if self._momentum_id:
+        if hasattr(self, "_momentum_id") and self._momentum_id:
             self.pantalla.after_cancel(self._momentum_id)
             self._momentum_id = None
         
@@ -202,25 +204,28 @@ class PantallaAvisoPrivacidad:
         ahora = time.time()
         dt = ahora - self._touch_time  # delta de tiempo en segundos
         
-        dy = self._touch_y_root - event.y_root  # positivo = dedo baja = scroll ↓
-        
-        # Calcular velocidad: unidades por segundo (aproximado)
-        if dt > 0.001:  # evitar división por cero
-            velocidad_instantanea = (dy / 18.0) / dt  # unidades de texto por segundo
-            # Suavizar velocidad con promedio móvil simple
-            self._velocidad = self._velocidad * 0.5 + velocidad_instantanea * 0.5
-        
-        self._touch_time = ahora
-        self._touch_y_root = event.y_root  # actualizar para próximo evento
-
-        # Marcar como arrastrando si hay movimiento significativo
-        if abs(dy) >= self._UMBRAL_ARRASTRE:
-            self._arrastrando = True
+        # Calcular velocidad usando el movimiento real entre eventos consecutivos
+        dy_vel = self._last_y - event.y_root
+        if dt > 0.001:
+            velocidad_inst = (dy_vel / 18.0) / dt
+            self._velocidad = self._velocidad * 0.5 + velocidad_inst * 0.5
             
-            # Scroll proporcional: ~18px de movimiento = 1 unidad de texto
-            unidades = int(dy / 18)
+        self._touch_time = ahora
+        self._last_y = event.y_root
+
+        # Activar arrastre si la distancia desde el inicio supera el umbral
+        if not self._arrastrando and abs(self._start_y - event.y_root) >= self._UMBRAL_ARRASTRE:
+            self._arrastrando = True
+
+        if self._arrastrando:
+            # Calcular scroll acumulado respecto a la posición no consumida
+            dy_scroll = self._touch_y_root - event.y_root
+            unidades = int(dy_scroll / 18)
+            
             if unidades != 0:
                 self._texto.yview_scroll(unidades, "units")
+                # Solo actualizar el ancla restando lo que ya hemos avanzado
+                self._touch_y_root -= unidades * 18
 
         # Siempre cancelar selección durante el movimiento
         try:
