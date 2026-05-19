@@ -87,7 +87,7 @@ class PantallaAvisoPrivacidad:
         # ── Variables para scroll táctil (v2: usa y_root) ────────────────────
         self._touch_y_root   = 0    # coordenada absoluta de pantalla
         self._arrastrando    = False
-        self._UMBRAL_ARRASTRE = 8   # px mínimos para considerar scroll
+        self._UMBRAL_ARRASTRE = 3   # px mínimos para considerar scroll (reducido para pantalla táctil)
 
         self._construir_ui()
 
@@ -182,16 +182,21 @@ class PantallaAvisoPrivacidad:
         return "break"
 
     def _on_touch_move(self, event):
+        # Solo procesar si el botón 1 está presionado (eventos Motion también se disparan sin presionar)
+        if not hasattr(event, 'state') or not (event.state & 0x0100):  # 0x0100 = Button1
+            return "break"
+        
         dy = self._touch_y_root - event.y_root  # positivo = dedo baja = scroll ↓
 
+        # Marcar como arrastrando si hay movimiento significativo
         if abs(dy) >= self._UMBRAL_ARRASTRE:
-            self._arrastrando    = True
-            self._touch_y_root   = event.y_root  # reset para scroll continuo
-
-            # Scroll proporcional: ~20px de movimiento = 1 unidad de texto
+            self._arrastrando = True
+            
+            # Scroll proporcional: ~18px de movimiento = 1 unidad de texto
             unidades = int(dy / 18)
             if unidades != 0:
                 self._texto.yview_scroll(unidades, "units")
+                self._touch_y_root = event.y_root  # reset para scroll continuo
 
         # Siempre cancelar selección durante el movimiento
         try:
@@ -322,8 +327,9 @@ class PantallaAvisoPrivacidad:
         self._texto.config(state="disabled")
 
         # ── Bindings táctiles v2 ──────────────────────────────────────────────
+        # Usar <Motion> en lugar de <B1-Motion> para mejor compatibilidad con pantallas táctiles
         self._texto.bind("<ButtonPress-1>",   self._on_touch_start, add="+")
-        self._texto.bind("<B1-Motion>",       self._on_touch_move,  add="+")
+        self._texto.bind("<Motion>",          self._on_touch_move,  add="+")
         self._texto.bind("<ButtonRelease-1>", self._on_touch_end,   add="+")
 
         # Prevenir selección por doble/triple clic
