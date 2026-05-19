@@ -1,0 +1,31 @@
+{
+  "language_name": "Korean",
+  "translations": {
+    "Sistema de Control Biometrico": "생체 인식 제어 시스템",
+    "SISTEMA DE\nCONTROL\nBIOMETRICO": "생체 인식\n제어\n시스템",
+    "GESTION DE USUARIOS": "사용자 관리",
+    "Buscar...": "검색...",
+    "Buscar idioma...": "언어 검색...",
+    "Todos los roles": "모든 역할",
+    "Dia": "일",
+    "Filtrar por dia": "일별 필터",
+    "Aplicar filtros": "필터 적용",
+    "Limpiar dia": "날짜 지우기",
+    "Editar seleccionado": "선택 항목 수정",
+    "Eliminar seleccionado": "선택 항목 삭제",
+    "Historial de accesos": "접속 기록",
+    "< Regresar": "< 돌아가기",
+    "No. Institucional": "기관 ID",
+    "Nombre": "이름",
+    "Nombre Completo": "전체 이름",
+    "Fecha de acceso": "접속 날짜",
+    "Hora de acceso": "접속 시간",
+    "Fecha": "날짜",
+    "Hora": "시간",
+    "Rol": "역할",
+    "Guardar": "저장",
+    "Cancelar": "취소",
+    "Cerrar": "닫기",
+    "Recargar": "새로고침"
+  }
+}
