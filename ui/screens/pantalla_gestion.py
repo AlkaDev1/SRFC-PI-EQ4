@@ -7,6 +7,13 @@ CAMBIOS v4:
   - bind("<MouseWheel>") en lugar de bind_all
 """
 
+import sys
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 import tkinter as tk
 from tkinter import ttk
 from datetime import datetime
@@ -576,3 +583,15 @@ class PantallaGestion:
 
 def crear_pantalla_gestion_real(parent, app):
     PantallaGestion(parent, app)
+
+
+if __name__ == "__main__":
+    class _AppDemo:
+        def mostrar_pantalla(self, _nombre):
+            pass
+
+    raiz = tk.Tk()
+    raiz.title("SRFC | Gestión de usuarios")
+    raiz.geometry("1200x760")
+    PantallaGestion(raiz, _AppDemo())
+    raiz.mainloop()

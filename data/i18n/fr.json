@@ -1,0 +1,31 @@
+{
+  "language_name": "Francais",
+  "translations": {
+    "Sistema de Control Biometrico": "Systeme de controle biometrique",
+    "SISTEMA DE\nCONTROL\nBIOMETRICO": "SYSTEME DE\nCONTROLE\nBIOMETRIQUE",
+    "GESTION DE USUARIOS": "GESTION DES UTILISATEURS",
+    "Buscar...": "Rechercher...",
+    "Buscar idioma...": "Rechercher une langue...",
+    "Todos los roles": "Tous les roles",
+    "Dia": "Jour",
+    "Filtrar por dia": "Filtrer par jour",
+    "Aplicar filtros": "Appliquer les filtres",
+    "Limpiar dia": "Effacer le jour",
+    "Editar seleccionado": "Modifier la selection",
+    "Eliminar seleccionado": "Supprimer la selection",
+    "Historial de accesos": "Historique des acces",
+    "< Regresar": "< Retour",
+    "No. Institucional": "ID institutionnel",
+    "Nombre": "Nom",
+    "Nombre Completo": "Nom complet",
+    "Fecha de acceso": "Date d'acces",
+    "Hora de acceso": "Heure d'acces",
+    "Fecha": "Date",
+    "Hora": "Heure",
+    "Rol": "Role",
+    "Guardar": "Enregistrer",
+    "Cancelar": "Annuler",
+    "Cerrar": "Fermer",
+    "Recargar": "Recharger"
+  }
+}

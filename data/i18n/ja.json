@@ -1,0 +1,31 @@
+{
+  "language_name": "Japanese",
+  "translations": {
+    "Sistema de Control Biometrico": "生体認証管理システム",
+    "SISTEMA DE\nCONTROL\nBIOMETRICO": "生体認証\n管理\nシステム",
+    "GESTION DE USUARIOS": "ユーザー管理",
+    "Buscar...": "検索...",
+    "Buscar idioma...": "言語を検索...",
+    "Todos los roles": "すべての役割",
+    "Dia": "日",
+    "Filtrar por dia": "日付で絞り込み",
+    "Aplicar filtros": "フィルターを適用",
+    "Limpiar dia": "日付をクリア",
+    "Editar seleccionado": "選択項目を編集",
+    "Eliminar seleccionado": "選択項目を削除",
+    "Historial de accesos": "アクセス履歴",
+    "< Regresar": "< 戻る",
+    "No. Institucional": "機関ID",
+    "Nombre": "名前",
+    "Nombre Completo": "氏名",
+    "Fecha de acceso": "アクセス日",
+    "Hora de acceso": "アクセス時刻",
+    "Fecha": "日付",
+    "Hora": "時刻",
+    "Rol": "役割",
+    "Guardar": "保存",
+    "Cancelar": "キャンセル",
+    "Cerrar": "閉じる",
+    "Recargar": "再読み込み"
+  }
+}
