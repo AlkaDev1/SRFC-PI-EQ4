@@ -1,6 +1,14 @@
 """
 core/database.py
 Módulo de base de datos SQLite para el sistema SRFC.
+
+CAMBIOS v2:
+  - Tabla Roles corregida: id_rol=3 ahora es "Maestro" (antes "SuperUsuario")
+  - inicializar_bd() incluye migración automática: renombra "SuperUsuario"→"Maestro"
+    en registros existentes para no romper datos ya guardados
+  - actualizar_usuario() normaliza variantes de nombre de rol antes de buscar
+    (soporta "Maestro", "maestro", "SuperAdmin", "Super Admin", "SuperUsuario", etc.)
+  - _ROL_ALIAS centraliza el mapeo para reutilizarlo
 """
 
 import sqlite3
@@ -23,6 +31,37 @@ def obtener_conexion():
     except sqlite3.Error as e:
         print(f"[DB] Error de conexión: {e}")
         return None
+
+
+# ── Mapeo canónico de variantes de rol → nombre en BD ────────────────────────
+# Usado en actualizar_usuario() y registrar_usuario() para tolerar
+# distintas formas en que la UI puede enviar el rol.
+_ROL_ALIAS: dict[str, str] = {
+    "superadmin":    "SuperAdmin",
+    "super admin":   "SuperAdmin",
+    "superusuario":  "SuperAdmin",   # registros viejos con id_rol=3 que era SuperUsuario
+    "admin":         "Admin",
+    "maestro":       "Maestro",
+    "profesor":      "Maestro",
+    "teacher":       "Maestro",
+    "alumno":        "Alumno",
+    "student":       "Alumno",
+}
+
+# Mapa numérico que usa pantalla_agregar_usuario.py (rol_map)
+# Centralizado aquí para no duplicarlo en la UI
+ROL_NOMBRE_A_ID: dict[str, int] = {
+    "SuperAdmin":  1,
+    "Super Admin": 1,
+    "Admin":       2,
+    "Maestro":     3,
+    "Alumno":      4,
+}
+
+
+def _normalizar_rol(rol: str) -> str:
+    """Devuelve el nombre canónico del rol para buscar en BD."""
+    return _ROL_ALIAS.get((rol or "Alumno").lower().strip(), rol or "Alumno")
 
 
 # ══════════════════════════════════════════════
@@ -82,11 +121,30 @@ def inicializar_bd() -> bool:
         return False
     try:
         con.executescript(sql)
+
+        # Roles canónicos — INSERT OR IGNORE para no pisar datos existentes
         con.executemany(
             "INSERT OR IGNORE INTO Roles (id_rol, nombre, usuario_registro) VALUES (?,?,?)",
-            [(1,"SuperAdmin","Sistema"),(2,"Admin","Sistema"),
-             (3,"SuperUsuario","Sistema"),(4,"Alumno","Sistema")]
+            [
+                (1, "SuperAdmin",  "Sistema"),
+                (2, "Admin",       "Sistema"),
+                (3, "Maestro",     "Sistema"),   # ← antes era "SuperUsuario"
+                (4, "Alumno",      "Sistema"),
+            ]
         )
+
+        # ── Migración automática ──────────────────────────────────────────────
+        # Si la BD ya existía con "SuperUsuario" en id_rol=3, lo renombra a "Maestro"
+        # para que las búsquedas por nombre funcionen correctamente.
+        # Esta operación es idempotente (puede ejecutarse múltiples veces sin daño).
+        con.execute("""
+            UPDATE Roles
+            SET nombre = 'Maestro',
+                fecha_actualizacion = CURRENT_TIMESTAMP,
+                usuario_actualizacion = 'Migración v2'
+            WHERE id_rol = 3 AND nombre = 'SuperUsuario'
+        """)
+
         con.commit()
         return True
     except sqlite3.Error as e:
@@ -101,9 +159,11 @@ def inicializar_bd() -> bool:
 # ══════════════════════════════════════════════
 def obtener_roles() -> list:
     con = obtener_conexion()
-    if not con: return []
+    if not con:
+        return []
     try:
-        cur = con.execute("SELECT id_rol, nombre FROM Roles WHERE estado=1 ORDER BY id_rol")
+        cur = con.execute(
+            "SELECT id_rol, nombre FROM Roles WHERE estado=1 ORDER BY id_rol")
         return [dict(r) for r in cur.fetchall()]
     finally:
         con.close()
@@ -152,7 +212,8 @@ def registrar_usuario(datos: dict) -> tuple:
             con.execute("""
                 INSERT INTO Rostros_encoding (cod_institucional, face_encoding)
                 VALUES (?,?)
-            """, (datos["cod_institucional"], _enc_a_blob(datos["face_encoding"])))
+            """, (datos["cod_institucional"],
+                  _enc_a_blob(datos["face_encoding"])))
 
         con.commit()
         return True, "Usuario registrado correctamente."
@@ -164,23 +225,104 @@ def registrar_usuario(datos: dict) -> tuple:
 
 
 def listar_usuarios() -> list:
+    """
+    Devuelve lista de dicts con las claves que espera PantallaGestion:
+      cod_institucional, nombre, apellido_paterno, apellido_materno,
+      carrera, rol, fecha_registro, hora_registro, status
+    """
     con = obtener_conexion()
-    if not con: return []
+    if not con:
+        return []
     try:
         rows = con.execute("""
-            SELECT u.cod_institucional,
-                   u.primer_nombre || ' ' || u.apellido_paterno AS nombre_completo,
-                   r.nombre  AS rol,
-                   a.carrera, a.grado, a.grupo,
-                   CASE WHEN re.cod_institucional IS NOT NULL THEN 1 ELSE 0 END AS tiene_encoding
+            SELECT
+                u.cod_institucional,
+                u.primer_nombre          AS nombre,
+                u.apellido_paterno       AS apellido_paterno,
+                COALESCE(u.apellido_materno, '') AS apellido_materno,
+                COALESCE(a.carrera, '')  AS carrera,
+                COALESCE(r.nombre, 'Sin rol') AS rol,
+                DATE(u.fecha_registro)   AS fecha_registro,
+                TIME(u.fecha_registro)   AS hora_registro,
+                CASE WHEN u.estado = 1 THEN 'Activo' ELSE 'Inactivo' END AS status,
+                CASE WHEN re.cod_institucional IS NOT NULL THEN 1 ELSE 0 END AS tiene_encoding
             FROM Usuarios u
-            LEFT JOIN Roles r            ON u.id_rol = r.id_rol
-            LEFT JOIN Alumnos_Detalle a  ON u.cod_institucional = a.cod_institucional
+            LEFT JOIN Roles r             ON u.id_rol = r.id_rol
+            LEFT JOIN Alumnos_Detalle a   ON u.cod_institucional = a.cod_institucional
             LEFT JOIN Rostros_encoding re ON u.cod_institucional = re.cod_institucional
-            WHERE u.estado = 1
+            WHERE u.estado IN (0, 1)
             ORDER BY u.fecha_registro DESC
         """).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def actualizar_usuario(datos: dict) -> tuple:
+    """
+    Actualiza nombre, apellidos, carrera, rol y status de un usuario.
+
+    datos esperados:
+      cod_institucional, nombre, apellido_paterno, apellido_materno,
+      carrera, rol (cualquier variante), status
+    Retorna (bool, str)
+    """
+    con = obtener_conexion()
+    if not con:
+        return False, "No se pudo conectar a la base de datos."
+    try:
+        # ── Normalizar el nombre del rol antes de buscar en BD ────────────────
+        # Tolera: "Maestro", "maestro", "Super Admin", "SuperAdmin",
+        #         "SuperUsuario" (registros viejos), etc.
+        rol_raw  = (datos.get("rol") or "Alumno").strip()
+        rol_norm = _normalizar_rol(rol_raw)
+
+        row_rol = con.execute(
+            "SELECT id_rol FROM Roles WHERE nombre = ? COLLATE NOCASE",
+            (rol_norm,)
+        ).fetchone()
+
+        if not row_rol:
+            # Último recurso: buscar por id si la UI mandó un número
+            return False, (
+                f"Rol '{rol_raw}' no encontrado en la base de datos. "
+                f"Roles disponibles: SuperAdmin, Admin, Maestro, Alumno."
+            )
+
+        id_rol = row_rol["id_rol"]
+        estado = 1 if datos.get("status", "Activo") == "Activo" else 0
+
+        con.execute("""
+            UPDATE Usuarios
+            SET primer_nombre         = ?,
+                apellido_paterno      = ?,
+                apellido_materno      = ?,
+                id_rol                = ?,
+                estado                = ?,
+                fecha_actualizacion   = CURRENT_TIMESTAMP,
+                usuario_actualizacion = 'Sistema'
+            WHERE cod_institucional = ?
+        """, (
+            datos.get("nombre", ""),
+            datos.get("apellido_paterno", ""),
+            datos.get("apellido_materno", ""),
+            id_rol,
+            estado,
+            datos["cod_institucional"],
+        ))
+
+        con.execute("""
+            INSERT INTO Alumnos_Detalle (cod_institucional, carrera)
+            VALUES (?, ?)
+            ON CONFLICT(cod_institucional)
+            DO UPDATE SET carrera = excluded.carrera
+        """, (datos["cod_institucional"], datos.get("carrera", "")))
+
+        con.commit()
+        return True, "Usuario actualizado correctamente."
+    except sqlite3.Error as e:
+        con.rollback()
+        return False, f"Error al actualizar: {e}"
     finally:
         con.close()
 
@@ -190,17 +332,22 @@ def listar_usuarios() -> list:
 # ══════════════════════════════════════════════
 def cargar_todos_encodings() -> list:
     """
-    Retorna lista de dicts {cod, nombre, encoding} listos para reconocimiento.
+    Retorna lista de dicts {cod, nombre, encoding, id_rol, rol}
+    listos para reconocimiento.
     """
     con = obtener_conexion()
-    if not con: return []
+    if not con:
+        return []
     try:
         rows = con.execute("""
             SELECT re.cod_institucional,
                    u.primer_nombre || ' ' || u.apellido_paterno AS nombre,
-                   re.face_encoding
+                   re.face_encoding,
+                   u.id_rol,
+                   COALESCE(r.nombre, 'Sin rol') AS rol
             FROM Rostros_encoding re
             JOIN Usuarios u ON re.cod_institucional = u.cod_institucional
+            LEFT JOIN Roles r ON u.id_rol = r.id_rol
             WHERE u.estado = 1
         """).fetchall()
         resultado = []
@@ -210,6 +357,8 @@ def cargar_todos_encodings() -> list:
                     "cod":      r["cod_institucional"],
                     "nombre":   r["nombre"],
                     "encoding": _blob_a_enc(r["face_encoding"]),
+                    "id_rol":   r["id_rol"],
+                    "rol":      r["rol"],
                 })
             except Exception as e:
                 print(f"[DB] Error decodificando {r['cod_institucional']}: {e}")
@@ -223,9 +372,11 @@ def cargar_todos_encodings() -> list:
 # ══════════════════════════════════════════════
 def registrar_acceso(cod: str) -> bool:
     con = obtener_conexion()
-    if not con: return False
+    if not con:
+        return False
     try:
-        con.execute("INSERT INTO Acceso (cod_institucional) VALUES (?)", (cod,))
+        con.execute(
+            "INSERT INTO Acceso (cod_institucional) VALUES (?)", (cod,))
         con.commit()
         return True
     except sqlite3.Error as e:
@@ -237,7 +388,8 @@ def registrar_acceso(cod: str) -> bool:
 
 def listar_accesos(limite: int = 100) -> list:
     con = obtener_conexion()
-    if not con: return []
+    if not con:
+        return []
     try:
         rows = con.execute("""
             SELECT a.id_acceso, a.cod_institucional,
@@ -257,6 +409,7 @@ def listar_accesos(limite: int = 100) -> list:
 # ══════════════════════════════════════════════
 def _enc_a_blob(encoding: np.ndarray) -> bytes:
     return pickle.dumps(encoding.astype(np.float64))
+
 
 def _blob_a_enc(blob: bytes) -> np.ndarray:
     return pickle.loads(blob)

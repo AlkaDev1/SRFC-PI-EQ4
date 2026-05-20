@@ -1,25 +1,39 @@
-from gpiozero import PWMLED, ToneBuzzer
-from time import sleep
+from gpiozero import OutputDevice
+import time
 
-rojo  = PWMLED(18)
-verde = PWMLED(12)
-buzzer = ToneBuzzer(17)
+ACT_SALE  = 27  # K2
+ACT_ENTRA = 22  # K3
 
-while True:
-    # Rojo
-    rojo.on(); verde.off()
-    buzzer.play(440)
-    sleep(1)
+# active_high=False porque los relés activan con LOW
+sale  = OutputDevice(ACT_SALE,  active_high=False, initial_value=False)
+entra = OutputDevice(ACT_ENTRA, active_high=False, initial_value=False)
 
-    # Verde
-    rojo.off(); verde.on()
-    buzzer.play(660)
-    sleep(1)
+def detener():
+    sale.off()
+    entra.off()
 
-    # Amarillo
-    rojo.on(); verde.on()
-    buzzer.play(880)
-    sleep(1)
+try:
+    print("=== PRUEBA ACTUADOR ===")
 
-    buzzer.stop()
-    sleep(0.2)
+    print("1. Vástago SALE... (3 segundos)")
+    sale.on()
+    time.sleep(3)
+    detener()
+    print("   Detenido")
+    time.sleep(2)
+
+    print("2. Vástago ENTRA... (3 segundos)")
+    entra.on()
+    time.sleep(3)
+    detener()
+    print("   Detenido")
+
+    print("=== PRUEBA COMPLETADA ===")
+
+except KeyboardInterrupt:
+    print("Cancelado")
+
+finally:
+    detener()
+    sale.close()
+    entra.close()

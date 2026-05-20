@@ -1,503 +1,743 @@
 """
 ui/screens/pantalla_agregar_usuario.py
-Pantalla de Agregar Usuario -- 800x480 tactil (Raspberry Pi 5)
+Pantalla de Agregar Usuario -- 800x480 táctil (Raspberry Pi 5)
 
-Layout fiel al mockup de Figma:
-  COL IZQ (~47%): feed camara grande (fondo oscuro) + mensaje estado + boton CAPTURAR ROSTRO
-  COL DER (~53%): barra verde top | icono usuario | texto instructivo | campos | CONFIRMAR/CANCELAR
+CAMBIOS v13:
+  - Campo Programa Académico siempre visible pero DESACTIVADO para Maestro/Admin/SuperAdmin
+  - Solo Alumno puede seleccionar programa
+  - Panel izquierdo blanco
 """
 
 import tkinter as tk
-from tkinter import messagebox
-from datetime import datetime
 import threading
-import shutil
-import os
+from pathlib import Path
 
 from ui.components.barra_superior import crear_encabezado
+from ui.components.modal_dialogo import modal_info, modal_error
 from ui.styles import PALETA
 
-# Ruta base del proyecto (absoluta, independiente de dónde se corra el script)
-_BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from PIL import Image, ImageTk
+    _PIL_OK = True
+except ImportError:
+    _PIL_OK = False
 
-# ── Paleta ──────────────────────────────────────────────────────────────────────
-_BG       = "#ffffff"
-_VD       = "#2e7d32"
-_VM       = "#4caf50"
-_VBTN     = "#4caf50"
-_VBTN_H   = "#388e3c"
-_RBTN     = "#e53935"
-_RBTN_H   = "#b71c1c"
-_CAM_BG   = "#1c1c1c"
-_TXT      = "#1c1c1c"
-_TXT2     = "#757575"
-_BORDE    = "#e0e0e0"
+_RAIZ = Path(__file__).resolve().parents[2]
 
-_F_LABEL   = ("Segoe UI", 8)
-_F_ENTRY   = ("Segoe UI", 10)
-_F_BTN     = ("Segoe UI", 10, "bold")
-_F_INSTRUC = ("Segoe UI", 9)
-_F_CAM_MSG = ("Segoe UI", 12, "bold")
-_F_CAM_SUB = ("Segoe UI", 9, "bold")
+_F_LABEL   = ("Segoe UI", 7)
+_F_ENTRY   = ("Segoe UI", 9)
+_F_BTN     = ("Segoe UI", 9, "bold")
+_F_INSTRUC = ("Segoe UI", 8)
 
-CAPTURAS_REQUERIDAS = 30
+_ROLES_CON_PASSWORD = {"Admin", "Super Admin"}
+_ROLES_CON_PROGRAMA = {"Alumno"}   # solo Alumno puede elegir programa
+_PROGRAMAS          = ["Software", "Mecatrónica"]
+
+_C = {
+    "bg":           "#f3f4f5",
+    "panel_bg":     "#ffffff",
+    "panel_fg":     "#1a1a1a",
+    "panel_fg2":    "#757575",
+    "texto":        "#1a1a1a",
+    "texto2":       "#757575",
+    "borde":        "#e0e0e0",
+    "campo_bg":     "#f5f5f5",
+    "campo_dis":    "#ebebeb",
+    "texto_dis":    "#aaaaaa",
+    "verde_m":      "#4caf50",
+    "verde_btn":    "#43a047",
+    "verde_hover":  "#388e3c",
+    "rojo_btn":     "#e53935",
+    "rojo_hover":   "#b71c1c",
+    "aviso_fg":     "#e53935",
+    "filtro_bg":    "#f5f5f5",
+    "filtro_borde": "#43a047",
+    "filtro_fg":    "#1a1a1a",
+    "filtro_dis_bg":"#ebebeb",
+    "filtro_dis_fg":"#aaaaaa",
+    "flecha_img":   "arrow_circle_black.png",
+}
+
+_O = {
+    "bg":           "#071E07",
+    "panel_bg":     "#0d2a0d",
+    "panel_fg":     "#d0f0d0",
+    "panel_fg2":    "#7aaa7a",
+    "texto":        "#d0f0d0",
+    "texto2":       "#7aaa7a",
+    "borde":        "#1a3a1a",
+    "campo_bg":     "#1a3a1a",
+    "campo_dis":    "#071E07",
+    "texto_dis":    "#557755",
+    "verde_m":      "#477023",
+    "verde_btn":    "#2D531A",
+    "verde_hover":  "#477023",
+    "rojo_btn":     "#7f1d1d",
+    "rojo_hover":   "#991b1b",
+    "aviso_fg":     "#f87171",
+    "filtro_bg":    "#1a3a1a",
+    "filtro_borde": "#477023",
+    "filtro_fg":    "#d0f0d0",
+    "filtro_dis_bg":"#071E07",
+    "filtro_dis_fg":"#557755",
+    "flecha_img":   "arrow_drop_down.png",
+}
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+def _paleta(app) -> dict:
+    return _O if (hasattr(app, "tema") and app.tema.es_oscuro()) else _C
+
+
+def _validar_password(pwd: str):
+    if len(pwd) < 6:
+        return "Mínimo 6 caracteres."
+    if not any(c.isupper() for c in pwd):
+        return "Debe incluir al menos una mayúscula."
+    if not any(c.islower() for c in pwd):
+        return "Debe incluir al menos una minúscula."
+    if not any(c.isdigit() for c in pwd):
+        return "Debe incluir al menos un número."
+    return None
+
+
+def _hacer_dropdown(parent, var, opciones, p, ico_flecha,
+                    on_select=None, font=None, habilitado=True):
+    font = font or _F_ENTRY
+
+    def _abrir():
+        if not habilitado:
+            return
+        menu = tk.Menu(parent, tearoff=0, font=font,
+                       bg=p["bg"], fg=p["texto"],
+                       activebackground=p["verde_m"],
+                       activeforeground="#ffffff")
+        for op in opciones:
+            def _sel(o=op):
+                var.set(o)
+                btn.config(text=f"  {o}")
+                if on_select:
+                    on_select(o)
+            menu.add_command(label=op, command=_sel)
+        menu.tk_popup(btn.winfo_rootx(),
+                      btn.winfo_rooty() + btn.winfo_height())
+
+    bg = p["filtro_bg"]   if habilitado else p["filtro_dis_bg"]
+    fg = p["filtro_fg"]   if habilitado else p["filtro_dis_fg"]
+    bd = p["filtro_borde"] if habilitado else p["borde"]
+
+    btn = tk.Button(
+        parent, text=f"  {var.get()}",
+        image=ico_flecha, compound="right",
+        font=font, anchor="w",
+        fg=fg, bg=bg,
+        activebackground=p["borde"],
+        relief="flat", bd=0, padx=6, pady=4,
+        highlightthickness=1, highlightbackground=bd,
+        cursor="hand2" if habilitado else "arrow",
+        command=_abrir)
+    return btn
+
+
+def _campo_password(parent, p, label_txt, img_on, img_off):
+    sub = tk.Frame(parent, bg=p["bg"])
+    sub.pack(fill="x")
+    tk.Label(sub, text=label_txt, font=_F_LABEL,
+             fg=p["texto2"], bg=p["bg"]).pack(anchor="w")
+    wrapper = tk.Frame(sub, bg=p["campo_bg"],
+                       highlightthickness=1, highlightbackground=p["borde"])
+    wrapper.pack(fill="x", pady=(1, 0))
+    ent = tk.Entry(wrapper, font=_F_ENTRY,
+                   fg=p["texto"], bg=p["campo_bg"],
+                   relief="flat", bd=0,
+                   insertbackground=p["texto"], show="•")
+    ent.pack(side="left", fill="both", expand=True, ipady=4, padx=(6, 0))
+
+    _vis = [False]
+    def _toggle():
+        _vis[0] = not _vis[0]
+        ent.config(show="" if _vis[0] else "•")
+        if img_on and img_off:
+            ojo.config(image=img_off if _vis[0] else img_on)
+        else:
+            ojo.config(text="🙈" if _vis[0] else "👁")
+
+    if img_on:
+        ojo = tk.Label(wrapper, image=img_on, bg=p["campo_bg"], cursor="hand2")
+    else:
+        ojo = tk.Label(wrapper, text="👁", font=("Segoe UI", 10),
+                       bg=p["campo_bg"], fg=p["texto2"], cursor="hand2")
+    ojo.pack(side="right", padx=(2, 6))
+    ojo.bind("<Button-1>", lambda e: _toggle())
+    return sub, ent, wrapper, ojo
+
+
 class PantallaAgregarUsuario:
 
     def __init__(self, parent, app, datos=None):
-        self.parent       = parent
-        self.app          = app
-        self.datos        = datos or {}
-        self._capturas_ok = 0
-        self._capturando  = False
-        self._hilo_camara = None
-        self._last_photo  = None
+        self.parent  = parent
+        self.app     = app
+        self.datos   = datos or {}
+        self._p      = _paleta(app)
+        self._ico_flecha  = None
+        self._img_ojo_on  = None
+        self._img_ojo_off = None
+        self._widgets_repintables = []
+        self._btn_rol     = None
+        self._btn_status  = None
+        self._btn_carrera = None
+        self._sub_password = None
+        self._pwd_wrappers = []
+        self._entradas    = {}
+
+        self._encoding = self.datos.get("face_encoding", None)
+
+        self._cargar_iconos()
         self._construir_ui()
 
-    # ── Raiz ────────────────────────────────────────────────────────────────────
+        if hasattr(app, "tema"):
+            app.tema.registrar(self._on_tema_cambio)
+        self.pantalla.bind("<Destroy>", self._limpiar_tema)
+
+    def _cargar_iconos(self):
+        if not _PIL_OK:
+            return
+        try:
+            on  = Image.open(_RAIZ/"assets"/"img"/"visibility_icon.png"
+                             ).resize((16,16), Image.LANCZOS)
+            off = Image.open(_RAIZ/"assets"/"img"/"visibility_off_icon.png"
+                             ).resize((16,16), Image.LANCZOS)
+            self._img_ojo_on  = ImageTk.PhotoImage(on)
+            self._img_ojo_off = ImageTk.PhotoImage(off)
+        except Exception:
+            pass
+
+    def _on_tema_cambio(self, _):
+        self._p = _O if self.app.tema.es_oscuro() else _C
+        self._aplicar_tema()
+
+    def _limpiar_tema(self, event=None):
+        if hasattr(self.app, "tema"):
+            self.app.tema.desregistrar(self._on_tema_cambio)
+
+    def _reg(self, widget, bg_k, fg_k=None):
+        self._widgets_repintables.append((widget, bg_k, fg_k))
+
+    def _recargar_ico_flecha(self):
+        if not _PIL_OK:
+            self._ico_flecha = None
+            return
+        try:
+            ruta = _RAIZ/"assets"/"img"/self._p["flecha_img"]
+            img  = Image.open(ruta).convert("RGBA").resize((14,14), Image.LANCZOS)
+            self._ico_flecha = ImageTk.PhotoImage(img)
+        except Exception:
+            self._ico_flecha = None
+
+    def _aplicar_tema(self):
+        p = self._p
+        try:
+            self.pantalla.configure(bg=p["bg"])
+            self._cuerpo.configure(bg=p["bg"])
+            self._panel.configure(bg=p["panel_bg"],
+                                  highlightbackground=p["borde"])
+            self._col_form_frame.configure(bg=p["bg"],
+                                           highlightbackground=p["borde"])
+            self._form.configure(bg=p["bg"])
+            self._pie_form.configure(bg=p["bg"])
+            self._lbl_aviso.configure(bg=p["bg"], fg=p["aviso_fg"])
+            self._btn_confirmar.configure(bg=p["verde_btn"],
+                                          activebackground=p["verde_hover"])
+            self._btn_cancelar.configure(bg=p["rojo_btn"],
+                                         activebackground=p["rojo_hover"])
+
+            # Repintar todos los widgets registrados
+            for widget, bg_k, fg_k in self._widgets_repintables:
+                try:
+                    if not widget.winfo_exists():
+                        continue
+                    widget.configure(bg=p[bg_k])
+                    if fg_k:
+                        widget.configure(fg=p[fg_k])
+                except tk.TclError:
+                    pass
+
+            # Repintar Entry — recorrer TODOS los hijos del formulario
+            def _repintar_widget(w):
+                try:
+                    if not w.winfo_exists():
+                        return
+                    cls = w.winfo_class()
+                    if cls == "Entry":
+                        show = ""
+                        try:
+                            show = w.cget("show")
+                        except Exception:
+                            pass
+                        # Contraseña o deshabilitado
+                        if show in ("•", "●"):
+                            w.configure(bg=p["campo_bg"], fg=p["texto"],
+                                        highlightbackground=p["borde"],
+                                        insertbackground=p["texto"])
+                        elif w.cget("state") == "disabled":
+                            w.configure(disabledbackground=p["campo_dis"],
+                                        disabledforeground=p["texto2"],
+                                        highlightbackground=p["borde"])
+                        else:
+                            w.configure(bg=p["campo_bg"], fg=p["texto"],
+                                        highlightbackground=p["borde"],
+                                        insertbackground=p["texto"])
+                    elif cls == "Frame":
+                        w.configure(bg=p["bg"])
+                        for child in w.winfo_children():
+                            _repintar_widget(child)
+                    elif cls == "Label":
+                        w.configure(bg=p["bg"], fg=p["texto2"])
+                except tk.TclError:
+                    pass
+
+            _repintar_widget(self._form)
+            _repintar_widget(self._pie_form)
+
+            # Repintar dropdowns
+            self._recargar_ico_flecha()
+            for btn in (self._btn_rol, self._btn_status, self._btn_carrera):
+                if btn is None:
+                    continue
+                try:
+                    btn.configure(bg=p["filtro_bg"], fg=p["filtro_fg"],
+                                  highlightbackground=p["filtro_borde"],
+                                  image=self._ico_flecha)
+                except tk.TclError:
+                    pass
+
+            # Repintar panel izquierdo completo
+            for child in self._panel.winfo_children():
+                try:
+                    cls = child.winfo_class()
+                    if cls == "Frame":
+                        child.configure(bg=p["panel_bg"])
+                    elif cls == "Label":
+                        child.configure(bg=p["panel_bg"], fg=p["panel_fg2"])
+                    elif cls == "Canvas":
+                        child.configure(bg=p["panel_bg"])
+                        # Redibujar ícono usuario con colores del tema actual
+                        child.delete("all")
+                        child.create_oval(4, 4, 76, 76,
+                                          fill=p["campo_bg"],
+                                          outline=p["borde"], width=2)
+                        child.create_oval(26, 12, 54, 36,
+                                          fill=p["texto2"], outline="")
+                        child.create_arc(10, 38, 70, 80,
+                                         start=0, extent=180,
+                                         fill=p["texto2"], outline="",
+                                         style="chord")
+                except tk.TclError:
+                    pass
+
+            # Fix encabezado formulario
+            try:
+                for child in self._col_form_frame.winfo_children():
+                    if isinstance(child, tk.Frame) and child != self._form and child != self._pie_form:
+                        child.configure(bg=p["bg"])
+                        for sub in child.winfo_children():
+                            try:
+                                sub.configure(bg=p["bg"], fg=p["texto2"])
+                            except tk.TclError:
+                                pass
+            except tk.TclError:
+                pass
+
+        except tk.TclError:
+            pass
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  UI
+    # ══════════════════════════════════════════════════════════════════════════
     def _construir_ui(self):
-        self.pantalla = tk.Frame(self.parent, bg=_BG)
+        p = self._p
+        self.pantalla = tk.Frame(self.parent, bg=p["bg"])
         self.pantalla.pack(fill="both", expand=True)
 
-        crear_encabezado(self.pantalla, self.parent.winfo_toplevel())
+        crear_encabezado(self.pantalla, self.app)
         tk.Frame(self.pantalla, bg=PALETA["topbar_sistema_fg"], height=3).pack(fill="x")
 
-        cuerpo = tk.Frame(self.pantalla, bg=_BG)
-        cuerpo.pack(fill="both", expand=True)
-        cuerpo.columnconfigure(0, weight=47)
-        cuerpo.columnconfigure(1, weight=53)
-        cuerpo.rowconfigure(0, weight=1)
+        self._cuerpo = tk.Frame(self.pantalla, bg=p["bg"])
+        self._cuerpo.pack(fill="both", expand=True)
+        self._cuerpo.columnconfigure(0, weight=42)
+        self._cuerpo.columnconfigure(1, weight=58)
+        self._cuerpo.rowconfigure(0, weight=1)
 
-        self._col_camara(cuerpo)
-        self._col_formulario(cuerpo)
+        self._construir_panel(self._cuerpo)
+        self._construir_formulario(self._cuerpo)
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # COLUMNA IZQUIERDA — camara
-    # ═══════════════════════════════════════════════════════════════════════════
-    def _col_camara(self, parent):
-        col = tk.Frame(parent, bg=_CAM_BG)
-        col.grid(row=0, column=0, sticky="nsew")
+    # ══════════════════════════════════════════════════════════════════════════
+    #  PANEL IZQUIERDO
+    # ══════════════════════════════════════════════════════════════════════════
+    def _construir_panel(self, parent):
+        p = self._p
+        self._panel = tk.Frame(parent, bg=p["panel_bg"],
+                               highlightthickness=1,
+                               highlightbackground=p["borde"])
+        self._panel.grid(row=0, column=0, sticky="nsew")
 
-        feed_wrap = tk.Frame(col, bg=_CAM_BG)
-        feed_wrap.pack(fill="both", expand=True)
-        feed_wrap.pack_propagate(False)
+        tk.Frame(self._panel, bg=p["verde_m"], height=4).pack(fill="x")
 
-        self._lbl_feed = tk.Label(feed_wrap, bg=_CAM_BG, relief="flat")
-        self._lbl_feed.place(x=0, y=0, relwidth=1, relheight=1)
+        canvas = tk.Canvas(self._panel, width=80, height=80,
+                           bg=p["panel_bg"], highlightthickness=0)
+        canvas.pack(pady=(24, 8))
+        canvas.create_oval(4, 4, 76, 76, fill=p["campo_bg"],
+                           outline=p["borde"], width=2)
+        canvas.create_oval(26, 12, 54, 36, fill=p["texto2"], outline="")
+        canvas.create_arc(10, 38, 70, 80, start=0, extent=180,
+                          fill=p["texto2"], outline="", style="chord")
 
-        self._icono_cam = tk.Label(
-            feed_wrap, text="", font=("Segoe UI", 40),
-            fg="#444466", bg=_CAM_BG
-        )
-        self._icono_cam.place(relx=0.5, rely=0.42, anchor="center")
+        tk.Label(self._panel, text="ESCANEO FACIAL",
+                 font=("Segoe UI", 11, "bold"),
+                 fg=p["panel_fg"], bg=p["panel_bg"]).pack(pady=(0, 4))
 
-        pie_cam = tk.Frame(col, bg=_CAM_BG)
-        pie_cam.pack(fill="x", padx=14, pady=(6, 10))
+        tk.Label(self._panel,
+                 text="Presiona el botón para\ncapturar tu rostro",
+                 font=("Segoe UI", 9),
+                 fg=p["panel_fg2"], bg=p["panel_bg"],
+                 justify="center").pack(pady=(0, 16))
 
-        self._lbl_cam_msg = tk.Label(
-            pie_cam,
-            text="INGRESE EL CÓDIGO PRIMERO",
-            font=_F_CAM_MSG, fg="#ffffff", bg=_CAM_BG,
-            justify="center"
-        )
-        self._lbl_cam_msg.pack()
-
-        self._lbl_cam_sub = tk.Label(
-            pie_cam,
-            text="luego presione Capturar Rostro",
-            font=_F_CAM_SUB, fg="#aaaaaa", bg=_CAM_BG,
-            justify="center"
-        )
-        self._lbl_cam_sub.pack(pady=(0, 8))
-
-        # Botón deshabilitado hasta que haya código institucional
-        self._btn_captura = tk.Button(
-            pie_cam,
-            text="CAPTURAR ROSTRO",
-            font=_F_BTN,
-            fg="#ffffff", bg=_VBTN,
-            activebackground=_VBTN_H, activeforeground="#ffffff",
-            bd=0, padx=20, pady=10, relief="flat", cursor="hand2",
-            command=self._toggle_captura,
-            state="disabled"
-        )
-        self._btn_captura.pack(fill="x")
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # COLUMNA DERECHA — formulario
-    # ═══════════════════════════════════════════════════════════════════════════
-    def _col_formulario(self, parent):
-        col = tk.Frame(parent, bg="#ffffff",
-                       highlightthickness=1, highlightbackground=_BORDE)
-        col.grid(row=0, column=1, sticky="nsew")
-
-        tk.Frame(col, bg=_VM, height=8).pack(fill="x")
-
-        encab = tk.Frame(col, bg="#ffffff")
-        encab.pack(fill="x", pady=(8, 2), padx=16)
-        self._icono_usuario(encab)
-        tk.Label(
-            encab,
-            text="Ingrese el rostro y los datos de la persona para ingresarla al sistema",
-            font=_F_INSTRUC, fg=_TXT2, bg="#ffffff",
-            justify="center", wraplength=340
-        ).pack(pady=(4, 0))
-
-        form = tk.Frame(col, bg="#ffffff")
-        form.pack(fill="both", expand=True, padx=16, pady=(4, 2))
-        form.columnconfigure(0, weight=1)
-        form.columnconfigure(1, weight=1)
-
-        campos = [
-            (0, 0, "Codigo Institucional", "cod_institucional", True),
-            (0, 1, "Nombre(s)",            "nombre",            True),
-            (1, 0, "Apellido Paterno",     "apellido_paterno",  True),
-            (1, 1, "Apellido Materno",     "apellido_materno",  True),
-            (2, 0, "Programa Academico",   "carrera",           True),
-        ]
-        self._entradas = {}
-        for row, col_i, lbl, key, edit in campos:
-            self._campo(form, row, col_i, lbl, key, edit)
-
-        # Activar botón captura cuando haya código
-        self._entradas["cod_institucional"].bind("<KeyRelease>", self._validar_cod)
-
-        self._rol_var = tk.StringVar(value=self.datos.get("rol", "Alumno"))
-        sub_rol = tk.Frame(form, bg="#ffffff")
-        sub_rol.grid(row=2, column=1, padx=(6, 0), pady=3, sticky="ew")
-        tk.Label(sub_rol, text="Rol", font=_F_LABEL,
-                 fg=_TXT2, bg="#ffffff").pack(anchor="w")
-        self._mk_optmenu(sub_rol, self._rol_var,
-                         ["Alumno", "Maestro", "Admin", "Super Admin"]).pack(
-            fill="x", ipady=4, pady=(2, 0))
-
-        self._status_var = tk.StringVar(value=self.datos.get("status", "Activo"))
-        sub_st = tk.Frame(form, bg="#ffffff")
-        sub_st.grid(row=3, column=0, columnspan=2, pady=3, sticky="ew")
-        tk.Label(sub_st, text="Status", font=_F_LABEL,
-                 fg=_TXT2, bg="#ffffff").pack(anchor="w")
-        self._mk_optmenu(sub_st, self._status_var,
-                         ["Activo", "Inactivo"]).pack(
-            fill="x", ipady=4, pady=(2, 0))
-
-        pie = tk.Frame(col, bg="#ffffff")
-        pie.pack(fill="x", padx=16, pady=(4, 10))
-
-        self._btn_confirmar = tk.Button(
-            pie, text="CONFIRMAR",
-            font=_F_BTN, fg="#ffffff", bg=_VBTN,
-            activebackground=_VBTN_H, activeforeground="#ffffff",
-            bd=0, padx=18, pady=9, relief="flat", cursor="hand2",
-            command=self._guardar, state="disabled"
-        )
-        self._btn_confirmar.pack(side="left", padx=(0, 8))
+        if self._encoding is not None:
+            self._mostrar_captura_ok()
+            return
 
         tk.Button(
-            pie, text="CANCELAR",
-            font=_F_BTN, fg="#ffffff", bg=_RBTN,
-            activebackground=_RBTN_H, activeforeground="#ffffff",
-            bd=0, padx=18, pady=9, relief="flat", cursor="hand2",
-            command=self._cancelar
-        ).pack(side="left")
+            self._panel, text="📷  CAPTURAR ROSTRO",
+            font=("Segoe UI", 10, "bold"),
+            fg="#ffffff", bg=p["verde_btn"],
+            activebackground=p["verde_hover"], activeforeground="#ffffff",
+            bd=0, padx=16, pady=12, relief="flat", cursor="hand2",
+            command=self._ir_a_captura).pack(padx=20, fill="x")
+
+        tk.Label(self._panel,
+                 text="La captura se realiza\nen pantalla completa",
+                 font=("Segoe UI", 7),
+                 fg=p["panel_fg2"], bg=p["panel_bg"],
+                 justify="center").pack(pady=(8, 0))
+
+    def _mostrar_captura_ok(self):
+        p = self._p
+        for w in self._panel.winfo_children():
+            w.destroy()
+
+        tk.Frame(self._panel, bg=p["verde_m"], height=4).pack(fill="x")
+
+        c = tk.Canvas(self._panel, width=70, height=70,
+                      bg=p["panel_bg"], highlightthickness=0)
+        c.pack(pady=(24, 8))
+        c.create_oval(4, 4, 66, 66, fill="#e8f5e9", outline="#43a047", width=3)
+        c.create_text(35, 35, text="✓", font=("Segoe UI", 28, "bold"),
+                      fill="#43a047")
+
+        tk.Label(self._panel, text="ROSTRO CAPTURADO",
+                 font=("Segoe UI", 11, "bold"),
+                 fg="#2e7d32", bg=p["panel_bg"]).pack(pady=(0, 4))
+
+        tk.Label(self._panel,
+                 text="Encoding facial listo.\nPuedes confirmar el registro.",
+                 font=("Segoe UI", 9),
+                 fg=p["panel_fg2"], bg=p["panel_bg"],
+                 justify="center").pack(pady=(0, 16))
+
+        tk.Button(
+            self._panel, text="↺  RECAPTURAR",
+            font=("Segoe UI", 9, "bold"),
+            fg="#ffffff", bg="#757575",
+            activebackground="#424242", activeforeground="#ffffff",
+            bd=0, padx=12, pady=8, relief="flat", cursor="hand2",
+            command=self._ir_a_captura).pack(padx=20, fill="x")
+
+        if hasattr(self, "_btn_confirmar"):
+            self._btn_confirmar.config(state="normal")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  FORMULARIO DERECHO
+    # ══════════════════════════════════════════════════════════════════════════
+    def _construir_formulario(self, parent):
+        p = self._p
+        self._col_form_frame = tk.Frame(
+            parent, bg=p["bg"],
+            highlightthickness=1, highlightbackground=p["borde"])
+        self._col_form_frame.grid(row=0, column=1, sticky="nsew")
+
+        tk.Frame(self._col_form_frame, bg=p["verde_m"], height=4).pack(fill="x")
+
+        encab = tk.Frame(self._col_form_frame, bg=p["bg"])
+        encab.pack(fill="x", pady=(4, 0), padx=12)
+        tk.Label(encab, text="Ingrese los datos de la persona",
+                 font=_F_INSTRUC, fg=p["texto2"], bg=p["bg"]).pack(anchor="w")
+
+        # Pie siempre visible
+        self._pie_form = tk.Frame(self._col_form_frame, bg=p["bg"])
+        self._pie_form.pack(side="bottom", fill="x", padx=12, pady=(4, 6))
+
+        estado_btn = "normal" if self._encoding is not None else "disabled"
+        self._btn_confirmar = tk.Button(
+            self._pie_form, text="CONFIRMAR",
+            font=_F_BTN, fg="#ffffff",
+            bg=p["verde_btn"], activebackground=p["verde_hover"],
+            activeforeground="#ffffff",
+            bd=0, padx=14, pady=7, relief="flat", cursor="hand2",
+            command=self._guardar, state=estado_btn)
+        self._btn_confirmar.pack(side="left", padx=(0, 6))
+
+        self._btn_cancelar = tk.Button(
+            self._pie_form, text="CANCELAR",
+            font=_F_BTN, fg="#ffffff",
+            bg=p["rojo_btn"], activebackground=p["rojo_hover"],
+            activeforeground="#ffffff",
+            bd=0, padx=14, pady=7, relief="flat", cursor="hand2",
+            command=self._cancelar)
+        self._btn_cancelar.pack(side="left")
 
         self._lbl_aviso = tk.Label(
-            pie, text="", font=("Segoe UI", 8),
-            fg=_RBTN, bg="#ffffff", wraplength=170, justify="left"
-        )
-        self._lbl_aviso.pack(side="left", padx=10)
+            self._pie_form, text="", font=("Segoe UI", 7),
+            fg=p["aviso_fg"], bg=p["bg"],
+            wraplength=150, justify="left")
+        self._lbl_aviso.pack(side="left", padx=6)
 
-    # ── Helpers UI ─────────────────────────────────────────────────────────────
-    def _validar_cod(self, event=None):
-        """Habilita el botón de captura solo si hay código institucional."""
-        cod = self._entradas["cod_institucional"].get().strip()
-        if cod and not self._capturando and self._capturas_ok < CAPTURAS_REQUERIDAS:
-            self._btn_captura.config(state="normal")
-            self._lbl_cam_msg.config(text="PRESIONE CAPTURAR ROSTRO")
-            self._lbl_cam_sub.config(text="para iniciar el escaneo biometrico")
-        elif not cod:
-            self._btn_captura.config(state="disabled")
-            self._lbl_cam_msg.config(text="INGRESE EL CÓDIGO PRIMERO")
-            self._lbl_cam_sub.config(text="luego presione Capturar Rostro")
+        # Formulario
+        self._form = tk.Frame(self._col_form_frame, bg=p["bg"])
+        self._form.pack(fill="both", expand=True, padx=12, pady=(2, 0))
+        self._form.columnconfigure(0, weight=1)
+        self._form.columnconfigure(1, weight=1)
 
-    def _campo(self, parent, row, col_i, etiqueta, key, editable):
-        padx = (0, 6) if col_i == 0 else (6, 0)
-        sub  = tk.Frame(parent, bg="#ffffff")
-        sub.grid(row=row, column=col_i, padx=padx, pady=3, sticky="ew")
+        self._campo(self._form, 0, 0, "Codigo Institucional", "cod_institucional")
+        self._campo(self._form, 0, 1, "Nombre(s)",            "nombre")
+        self._campo(self._form, 1, 0, "Apellido Paterno",     "apellido_paterno")
+        self._campo(self._form, 1, 1, "Apellido Materno",     "apellido_materno")
+
+        self._recargar_ico_flecha()
+
+        # Programa Académico — siempre visible, desactivado si no es Alumno
+        self._carrera_var = tk.StringVar(value=self.datos.get("carrera", "Software"))
+        sub_c = tk.Frame(self._form, bg=p["bg"])
+        sub_c.grid(row=2, column=0, padx=(0,4), pady=2, sticky="ew")
+        self._reg(sub_c, "bg")
+        self._lbl_carrera = tk.Label(sub_c, text="Programa Académico",
+                                      font=_F_LABEL, fg=p["texto2"], bg=p["bg"])
+        self._lbl_carrera.pack(anchor="w")
+
+        rol_inicial = self.datos.get("rol", "Alumno")
+        habilitado  = rol_inicial in _ROLES_CON_PROGRAMA
+        self._btn_carrera = _hacer_dropdown(
+            sub_c, self._carrera_var, _PROGRAMAS, p,
+            self._ico_flecha, habilitado=habilitado)
+        self._btn_carrera.pack(fill="x", ipady=2, pady=(1,0))
+
+        # Rol
+        self._rol_var = tk.StringVar(value=rol_inicial)
+        sub_r = tk.Frame(self._form, bg=p["bg"])
+        sub_r.grid(row=2, column=1, padx=(4,0), pady=2, sticky="ew")
+        self._reg(sub_r, "bg")
+        tk.Label(sub_r, text="Rol", font=_F_LABEL,
+                 fg=p["texto2"], bg=p["bg"]).pack(anchor="w")
+
+        def _abrir_rol():
+            menu = tk.Menu(sub_r, tearoff=0, font=_F_ENTRY,
+                           bg=p["bg"], fg=p["texto"],
+                           activebackground=p["verde_m"],
+                           activeforeground="#ffffff")
+            for op in ["Alumno", "Maestro", "Admin", "Super Admin"]:
+                menu.add_command(label=op,
+                    command=lambda o=op: [
+                        self._rol_var.set(o),
+                        self._btn_rol.config(text=f"  {o}"),
+                        self._on_rol_cambio(o),
+                    ])
+            menu.tk_popup(self._btn_rol.winfo_rootx(),
+                          self._btn_rol.winfo_rooty() + self._btn_rol.winfo_height())
+
+        self._btn_rol = tk.Button(
+            sub_r, text=f"  {rol_inicial}",
+            image=self._ico_flecha, compound="right",
+            font=_F_ENTRY, anchor="w",
+            fg=p["filtro_fg"], bg=p["filtro_bg"],
+            activebackground=p["borde"],
+            relief="flat", bd=0, padx=6, pady=4,
+            highlightthickness=1, highlightbackground=p["filtro_borde"],
+            cursor="hand2", command=_abrir_rol)
+        self._btn_rol.pack(fill="x", ipady=2, pady=(1,0))
+
+        # Status
+        self._status_var = tk.StringVar(value=self.datos.get("status", "Activo"))
+        sub_s = tk.Frame(self._form, bg=p["bg"])
+        sub_s.grid(row=3, column=0, columnspan=2, pady=2, sticky="ew")
+        self._reg(sub_s, "bg")
+        tk.Label(sub_s, text="Status", font=_F_LABEL,
+                 fg=p["texto2"], bg=p["bg"]).pack(anchor="w")
+        self._btn_status = _hacer_dropdown(
+            sub_s, self._status_var, ["Activo", "Inactivo"], p, self._ico_flecha)
+        self._btn_status.pack(fill="x", ipady=2, pady=(1,0))
+
+        # Contraseña
+        self._sub_password = tk.Frame(self._form, bg=p["bg"])
+        _, self._ent_password, w1, o1 = _campo_password(
+            self._sub_password, p,
+            "Contraseña  (mayúscula, minúscula y número)",
+            self._img_ojo_on, self._img_ojo_off)
+        self._pwd_wrappers.append((w1, o1))
+        tk.Frame(self._sub_password, bg=p["bg"], height=3).pack()
+        _, self._ent_password2, w2, o2 = _campo_password(
+            self._sub_password, p, "Confirmar contraseña",
+            self._img_ojo_on, self._img_ojo_off)
+        self._pwd_wrappers.append((w2, o2))
+        self._entradas["password"]  = self._ent_password
+        self._entradas["password2"] = self._ent_password2
+
+        # Aplicar estado inicial
+        self._on_rol_cambio(rol_inicial, init=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  CAMBIO DE ROL
+    # ══════════════════════════════════════════════════════════════════════════
+    def _on_rol_cambio(self, rol, init=False):
+        p = self._p
+        habilitado = rol in _ROLES_CON_PROGRAMA
+
+        # Destruir y recrear el botón de carrera con el estado correcto
+        self._btn_carrera.destroy()
+        sub_c = self._lbl_carrera.master
+        self._btn_carrera = _hacer_dropdown(
+            sub_c, self._carrera_var, _PROGRAMAS, p,
+            self._ico_flecha, habilitado=habilitado)
+        self._btn_carrera.pack(fill="x", ipady=2, pady=(1,0))
+
+        # Contraseña
+        if rol in _ROLES_CON_PASSWORD:
+            self._sub_password.grid(
+                row=4, column=0, columnspan=2,
+                padx=0, pady=2, sticky="ew")
+        else:
+            self._sub_password.grid_remove()
+            if not init:
+                self._ent_password.delete(0, tk.END)
+                self._ent_password2.delete(0, tk.END)
+
+    def _campo(self, parent, row, col_i, etiqueta, key):
+        p    = self._p
+        padx = (0, 4) if col_i == 0 else (4, 0)
+        sub  = tk.Frame(parent, bg=p["bg"])
+        sub.grid(row=row, column=col_i, padx=padx, pady=2, sticky="ew")
+        self._reg(sub, "bg")
         tk.Label(sub, text=etiqueta, font=_F_LABEL,
-                 fg=_TXT2, bg="#ffffff").pack(anchor="w")
-        ent = tk.Entry(
-            sub, font=_F_ENTRY,
-            fg=_TXT if editable else _TXT2,
-            bg="#ffffff" if editable else "#f5f5f5",
-            relief="solid", bd=1, highlightthickness=0,
-            insertbackground=_VD
-        )
+                 fg=p["texto2"], bg=p["bg"]).pack(anchor="w")
+        ent = tk.Entry(sub, font=_F_ENTRY,
+                       fg=p["texto"], bg=p["campo_bg"],
+                       relief="flat", bd=0,
+                       highlightthickness=1, highlightbackground=p["borde"],
+                       insertbackground=p["texto"])
         ent.insert(0, self.datos.get(key, ""))
-        if not editable:
-            ent.config(state="disabled",
-                       disabledforeground=_TXT2,
-                       disabledbackground="#f5f5f5")
-        ent.pack(fill="x", ipady=5, pady=(2, 0))
+        ent.pack(fill="x", ipady=4, pady=(1,0))
+        if key == "cod_institucional":
+            vcmd = (self.pantalla.winfo_toplevel().register(
+                        lambda s: (s.isdigit() and len(s) <= 8) or s == ""), "%P")
+            ent.configure(validate="key", validatecommand=vcmd)
         self._entradas[key] = ent
 
-    def _mk_optmenu(self, parent, var, opciones):
-        om = tk.OptionMenu(parent, var, *opciones)
-        om.config(font=_F_ENTRY, bg="#ffffff", fg=_TXT,
-                  relief="solid", bd=1, highlightthickness=0,
-                  activebackground="#eeeeee", cursor="hand2", anchor="w")
-        om["menu"].config(font=_F_ENTRY, bg="#ffffff",
-                          activebackground=_VM, activeforeground="#ffffff")
-        return om
+    # ══════════════════════════════════════════════════════════════════════════
+    #  NAVEGACIÓN
+    # ══════════════════════════════════════════════════════════════════════════
+    def _ir_a_captura(self):
+        datos = {
+            "cod_institucional": self._entradas["cod_institucional"].get().strip(),
+            "nombre":            self._entradas["nombre"].get().strip(),
+            "apellido_paterno":  self._entradas["apellido_paterno"].get().strip(),
+            "apellido_materno":  self._entradas["apellido_materno"].get().strip(),
+            "carrera":           self._carrera_var.get(),
+            "rol":               self._rol_var.get(),
+            "status":            self._status_var.get(),
+        }
+        if self._rol_var.get() in _ROLES_CON_PASSWORD:
+            datos["_pwd1"] = self._ent_password.get()
+            datos["_pwd2"] = self._ent_password2.get()
+        self.app.mostrar_pantalla("captura_rostro", datos)
 
-    def _icono_usuario(self, parent):
-        c = tk.Canvas(parent, width=60, height=60,
-                      bg="#ffffff", highlightthickness=0)
-        c.pack()
-        c.create_oval(2, 2, 58, 58, fill="#e0e0e0", outline="#bdbdbd", width=1)
-        c.create_oval(20, 8, 40, 28, fill="#9e9e9e", outline="")
-        c.create_arc(8, 28, 52, 66, start=0, extent=180,
-                     fill="#9e9e9e", outline="", style="chord")
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # LOGICA DE CAPTURA
-    # ═══════════════════════════════════════════════════════════════════════════
-    def _toggle_captura(self):
-        if self._capturando:
-            self._detener_captura()
-        else:
-            self._iniciar_captura()
-
-    def _iniciar_captura(self):
-        self._capturando = True
-        self._btn_captura.config(
-            text="DETENER CAPTURA", bg=_RBTN, activebackground=_RBTN_H)
-        self._lbl_cam_msg.config(text="POR FAVOR NO SE MUEVA")
-        self._lbl_cam_sub.config(text="ESCANEANDO ROSTRO...", fg="#aaaaaa")
-        self._hilo_camara = threading.Thread(target=self._hilo_captura, daemon=True)
-        self._hilo_camara.start()
-
-    def _detener_captura(self):
-        self._capturando = False
-        self._btn_captura.config(
-            text="CAPTURAR ROSTRO", bg=_VBTN, activebackground=_VBTN_H)
-        self._lbl_cam_msg.config(text="CAPTURA PAUSADA")
-        self._lbl_cam_sub.config(
-            text=f"{self._capturas_ok} / {CAPTURAS_REQUERIDAS} capturas guardadas",
-            fg="#aaaaaa")
-
-    def _hilo_captura(self):
-        try:
-            import cv2
-        except ImportError:
-            self.pantalla.after(0, lambda: messagebox.showerror(
-                "Dependencia faltante", "OpenCV no instalado.\n\npip install opencv-python"))
-            self._capturando = False
-            return
-
-        detector = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-        import platform
-        _idx = 1 if platform.machine() in ("aarch64", "armv7l") else 0
-        cam = cv2.VideoCapture(_idx)
-        if not cam.isOpened():
-            self.pantalla.after(0, lambda: messagebox.showerror(
-                "Error de camara", "No se pudo abrir la camara (index 0)."))
-            self._capturando = False
-            return
-
-        cod     = self._entradas["cod_institucional"].get().strip()
-        carpeta = os.path.join(_BASE, "data", "rostros", cod)  # ← ruta absoluta
-        os.makedirs(carpeta, exist_ok=True)
-
-        try:
-            from PIL import Image, ImageTk
-            pil_ok = True
-        except ImportError:
-            pil_ok = False
-
-        rostro_objetivo = None
-
-        def iou(a, b):
-            ax1, ay1, ax2, ay2 = a[0], a[1], a[0]+a[2], a[1]+a[3]
-            bx1, by1, bx2, by2 = b[0], b[1], b[0]+b[2], b[1]+b[3]
-            ix1, iy1 = max(ax1, bx1), max(ay1, by1)
-            ix2, iy2 = min(ax2, bx2), min(ay2, by2)
-            inter = max(0, ix2-ix1) * max(0, iy2-iy1)
-            union = a[2]*a[3] + b[2]*b[3] - inter
-            return inter / union if union > 0 else 0.0
-
-        while self._capturando and self._capturas_ok < CAPTURAS_REQUERIDAS:
-            ok, frame = cam.read()
-            if not ok:
-                break
-
-            frame = cv2.flip(frame, 1)
-            gris  = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            rostros = detector.detectMultiScale(
-                gris, scaleFactor=1.3, minNeighbors=5, minSize=(80, 80))
-
-            if len(rostros) > 0:
-                bbox = tuple(rostros[0])
-                if rostro_objetivo is None:
-                    rostro_objetivo = bbox
-                if iou(rostro_objetivo, bbox) >= 0.40:
-                    rostro_objetivo = bbox
-                    x, y, w, h = bbox
-                    cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 200, 0), 2)
-                    roi  = frame[y:y+h, x:x+w]
-                    ruta = os.path.join(carpeta, f"{self._capturas_ok:03d}.jpg")
-                    cv2.imwrite(ruta, roi)
-                    self._capturas_ok += 1
-                else:
-                    x, y, w, h = bbox
-                    cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 200), 2)
-
-            n = self._capturas_ok
-            if pil_ok:
-                img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                h_f, w_f = img_rgb.shape[:2]
-                nw = 370
-                nh = int(h_f * nw / w_f)
-                img_pil = Image.fromarray(img_rgb).resize((nw, nh), Image.LANCZOS)
-                photo = ImageTk.PhotoImage(img_pil)
-                self.pantalla.after(0, self._actualizar_feed, n, photo)
-            else:
-                self.pantalla.after(0, self._actualizar_feed, n, None)
-
-            cv2.waitKey(80)
-
-        cam.release()
-        cv2.destroyAllWindows()
-        self.pantalla.after(0, self._captura_finalizada, self._capturas_ok)
-
-    def _actualizar_feed(self, n, photo=None):
-        if photo:
-            self._last_photo = photo
-            self._lbl_feed.config(image=photo)
-            self._icono_cam.place_forget()
-        prop = min(n / CAPTURAS_REQUERIDAS, 1.0)
-        self._lbl_cam_sub.config(
-            text=f"ESCANEANDO... {n}/{CAPTURAS_REQUERIDAS}  ({int(prop*100)} %)")
-
-    def _captura_finalizada(self, n):
-        self._capturando = False
-        if n >= CAPTURAS_REQUERIDAS:
-            self._btn_captura.config(
-                text="CAPTURA COMPLETA",
-                bg=_VD, activebackground=_VD, state="disabled")
-            self._lbl_cam_msg.config(text="ESCANEO COMPLETADO")
-            self._lbl_cam_sub.config(
-                text=f"{n} capturas registradas correctamente",
-                fg="#81c784")
-            self._btn_confirmar.config(state="normal")
-            self._lbl_aviso.config(text="")
-        else:
-            self._capturas_ok = 0
-            self._btn_captura.config(
-                text="REINTENTAR CAPTURA",
-                bg=_VBTN, activebackground=_VBTN_H, state="normal")
-            self._lbl_cam_msg.config(text="CAPTURA INCOMPLETA")
-            self._lbl_cam_sub.config(
-                text=f"Solo {n}/{CAPTURAS_REQUERIDAS}. Presione Reintentar.",
-                fg="#ef9a9a")
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # GUARDAR / CANCELAR
-    # ═══════════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════
+    #  GUARDAR
+    # ══════════════════════════════════════════════════════════════════════════
     def _guardar(self):
+        if self._encoding is None:
+            self._lbl_aviso.config(text="Primero captura el rostro.")
+            return
+
         cod       = self._entradas["cod_institucional"].get().strip()
         nombre    = self._entradas["nombre"].get().strip()
         apellidop = self._entradas["apellido_paterno"].get().strip()
+        rol       = self._rol_var.get()
+        carrera   = self._carrera_var.get() if rol in _ROLES_CON_PROGRAMA else None
 
-        if not cod or not nombre or not apellidop:
-            self._lbl_aviso.config(
-                text="Código, Nombre y Apellido Paterno son requeridos.")
+        if not cod:
+            self._lbl_aviso.config(text="El código es requerido.")
+            return
+        if not nombre:
+            self._lbl_aviso.config(text="El nombre es requerido.")
+            return
+        if not apellidop:
+            self._lbl_aviso.config(text="El apellido paterno es requerido.")
             return
 
-        if self._capturas_ok < CAPTURAS_REQUERIDAS:
-            self._lbl_aviso.config(
-                text=f"Se requieren {CAPTURAS_REQUERIDAS} capturas.")
-            return
+        password_plain = None
+        if rol in _ROLES_CON_PASSWORD:
+            pwd1 = self._ent_password.get()
+            pwd2 = self._ent_password2.get()
+            err  = _validar_password(pwd1)
+            if err:
+                self._lbl_aviso.config(text=err)
+                return
+            if pwd1 != pwd2:
+                self._lbl_aviso.config(text="Las contraseñas no coinciden.")
+                return
+            password_plain = pwd1
 
         self._btn_confirmar.config(state="disabled", text="GUARDANDO...")
-        self._lbl_aviso.config(text="Generando encoding facial...")
+        encoding_snap = self._encoding
+        password_snap = password_plain
 
         def _en_hilo():
-            import face_recognition
-            import numpy as np
-
-            carpeta = os.path.join(_BASE, "data", "rostros", cod)  # ← ruta absoluta
-            imagenes = sorted([
-                os.path.join(carpeta, f)
-                for f in os.listdir(carpeta)
-                if f.lower().endswith(".jpg")
-            ])
-
-            encodings = []
-            for ruta in imagenes:
-                try:
-                    img  = face_recognition.load_image_file(ruta)
-                    encs = face_recognition.face_encodings(img)
-                    if encs:
-                        encodings.append(encs[0])
-                except Exception as e:
-                    print(f"[ENCODING] {ruta}: {e}")
-
-            if not encodings:
-                def _sin_encoding():
-                    self._lbl_aviso.config(
-                        text="No se pudo generar encoding. Intente de nuevo.")
-                    self._btn_confirmar.config(state="normal", text="CONFIRMAR")
-                self.pantalla.after(0, _sin_encoding)
-                return
-
-            encoding_promedio = np.mean(encodings, axis=0)
-
-            # ── Borrar fotos temporales — solo se usaron para el encoding ──────
-            try:
-                shutil.rmtree(carpeta)
-                print(f"[ENCODING] Fotos temporales eliminadas: {carpeta}")
-            except Exception as e:
-                print(f"[ENCODING] No se pudieron eliminar las fotos: {e}")
+            password_hash = None
+            if password_snap:
+                import hashlib
+                password_hash = hashlib.sha256(
+                    password_snap.encode("utf-8")).hexdigest()
 
             rol_map = {"Alumno": 4, "Maestro": 3, "Admin": 2, "Super Admin": 1}
-
             datos_bd = {
                 "cod_institucional": cod,
-                "id_rol":            rol_map.get(self._rol_var.get(), 4),
+                "id_rol":            rol_map.get(rol, 4),
                 "primer_nombre":     nombre,
                 "segundo_nombre":    None,
                 "apellido_paterno":  apellidop,
                 "apellido_materno":  self._entradas["apellido_materno"].get().strip() or None,
-                "carrera":           self._entradas["carrera"].get().strip() or None,
+                "carrera":           carrera,
                 "grado":             None,
                 "grupo":             None,
-                "face_encoding":     encoding_promedio,
+                "face_encoding":     encoding_snap,
+                "password_hash":     password_hash,
             }
 
             from core.database import registrar_usuario, inicializar_bd
             inicializar_bd()
             ok, msg = registrar_usuario(datos_bd)
 
-            def _resultado():
+            def _result():
                 if ok:
-                    messagebox.showinfo("Éxito", msg)
-                    self.app.mostrar_pantalla("gestion_real")
+                    modal_info(self.pantalla, msg, titulo="Registro exitoso",
+                               on_ok=lambda: self.app.mostrar_pantalla("gestion_real"))
                 else:
                     self._lbl_aviso.config(text=msg)
                     self._btn_confirmar.config(state="normal", text="CONFIRMAR")
-
-            self.pantalla.after(0, _resultado)
+            self.pantalla.after(0, _result)
 
         threading.Thread(target=_en_hilo, daemon=True).start()
 
     def _cancelar(self):
-        self._capturando = False
         self.app.mostrar_pantalla("gestion_real")
 
 
-# ── Funcion de acceso publico ───────────────────────────────────────────────────
 def crear_pantalla_agregar_usuario(parent, app, datos=None):
     PantallaAgregarUsuario(parent, app, datos)
