@@ -1,10 +1,11 @@
 """
 ui/screens/pantalla_gestion.py
 
-CAMBIOS v4:
+CAMBIOS v5:
+  - Filtro Rol: primera opción "Ninguno" (muestra todos), igual que Mes
+  - Filtro Mes: primera opción "Ninguno"
+  - Menús usan menu.post() para que queden estáticos sin mantener presionado
   - Si BD vacía → tabla vacía (sin _USUARIOS_DEMO)
-  - Mensaje "Sin usuarios registrados" cuando no hay datos
-  - bind("<MouseWheel>") en lugar de bind_all
 """
 
 import tkinter as tk
@@ -70,6 +71,12 @@ _O = {
     "flecha_img":   "arrow_drop_down.png",
 }
 
+# Opciones de filtros — "Ninguno" como primera opción muestra todo
+_OPCIONES_ROL = ["Ninguno", "Alumno", "Maestro", "Admin", "Super Admin"]
+_OPCIONES_MES = ["Ninguno", "Enero", "Febrero", "Marzo", "Abril", "Mayo",
+                 "Junio", "Julio", "Agosto", "Septiembre",
+                 "Octubre", "Noviembre", "Diciembre"]
+
 
 def _paleta(app) -> dict:
     return _O if (hasattr(app, "tema") and app.tema.es_oscuro()) else _C
@@ -82,8 +89,8 @@ class PantallaGestion:
         self.app    = app
         self._p     = _paleta(app)
         self._todos_usuarios      = []
-        self._filtro_rol          = tk.StringVar(value="Rol")
-        self._filtro_mes          = tk.StringVar(value="Mes")
+        self._filtro_rol          = tk.StringVar(value="Ninguno")
+        self._filtro_mes          = tk.StringVar(value="Ninguno")
         self._ico_flecha          = None
         self._widgets_repintables = []
         self._btns_accion         = []
@@ -215,7 +222,6 @@ class PantallaGestion:
             "<Configure>",
             lambda e: self._canvas_scroll.itemconfig(win_id, width=e.width))
 
-        # FIX: bind solo en canvas (no bind_all)
         self._canvas_scroll.bind(
             "<MouseWheel>",
             lambda e: self._canvas_scroll.yview_scroll(
@@ -321,20 +327,25 @@ class PantallaGestion:
         filtros.pack(side="right")
         self._reg(filtros, "card_bg")
 
-        def _abrir_menu_rol(event, btn):
+        # ── Botón Rol ─────────────────────────────────────────────────────────
+        def _abrir_menu_rol():
             cp = self._p
             menu = tk.Menu(filtros, tearoff=0, font=("Segoe UI", 9),
                            bg=cp["card_bg"], fg=cp["texto_oscuro"],
                            activebackground=cp["verde_claro"],
                            activeforeground="#ffffff")
-            for op in ["Rol", "Alumno", "Maestro", "Admin", "Super Admin"]:
+            for op in _OPCIONES_ROL:
                 menu.add_command(label=op,
-                    command=lambda o=op: [self._filtro_rol.set(o),
-                                          btn.config(text=f"  {o}"),
-                                          self._filtrar_tabla()])
-            menu.tk_popup(btn.winfo_rootx(), btn.winfo_rooty() + btn.winfo_height())
+                    command=lambda o=op: [
+                        self._filtro_rol.set(o),
+                        self._btn_rol.config(text=f"  {o}"),
+                        self._filtrar_tabla(),
+                    ])
+            x = self._btn_rol.winfo_rootx()
+            y = self._btn_rol.winfo_rooty() + self._btn_rol.winfo_height()
+            menu.post(x, y)
 
-        self._btn_rol = tk.Button(filtros, text="  Rol",
+        self._btn_rol = tk.Button(filtros, text="  Ninguno",
                             image=self._ico_flecha, compound="right",
                             font=("Segoe UI", 9, "bold"),
                             fg=p["filtro_fg"], bg=p["filtro_bg"],
@@ -342,28 +353,30 @@ class PantallaGestion:
                             relief="flat", bd=0, padx=8, pady=5,
                             highlightthickness=1,
                             highlightbackground=p["filtro_borde"],
-                            cursor="hand2")
-        self._btn_rol.bind("<Button-1>",
-                           lambda e: _abrir_menu_rol(e, self._btn_rol))
+                            cursor="hand2",
+                            command=_abrir_menu_rol)
         self._btn_rol.pack(side="left", padx=(0, 8))
         self._reg(self._btn_rol, "filtro_bg", "filtro_fg")
 
-        def _abrir_menu_mes(event, btn):
+        # ── Botón Mes ─────────────────────────────────────────────────────────
+        def _abrir_menu_mes():
             cp = self._p
             menu = tk.Menu(filtros, tearoff=0, font=("Segoe UI", 9),
                            bg=cp["card_bg"], fg=cp["texto_oscuro"],
                            activebackground=cp["verde_claro"],
                            activeforeground="#ffffff")
-            for op in ["Mes", "Enero", "Febrero", "Marzo", "Abril", "Mayo",
-                       "Junio", "Julio", "Agosto", "Septiembre",
-                       "Octubre", "Noviembre", "Diciembre"]:
+            for op in _OPCIONES_MES:
                 menu.add_command(label=op,
-                    command=lambda o=op: [self._filtro_mes.set(o),
-                                          btn.config(text=f"  {o}"),
-                                          self._filtrar_tabla()])
-            menu.tk_popup(btn.winfo_rootx(), btn.winfo_rooty() + btn.winfo_height())
+                    command=lambda o=op: [
+                        self._filtro_mes.set(o),
+                        self._btn_mes.config(text=f"  {o}"),
+                        self._filtrar_tabla(),
+                    ])
+            x = self._btn_mes.winfo_rootx()
+            y = self._btn_mes.winfo_rooty() + self._btn_mes.winfo_height()
+            menu.post(x, y)
 
-        self._btn_mes = tk.Button(filtros, text="  Mes",
+        self._btn_mes = tk.Button(filtros, text="  Ninguno",
                             image=self._ico_flecha, compound="right",
                             font=("Segoe UI", 9, "bold"),
                             fg=p["filtro_fg"], bg=p["filtro_bg"],
@@ -371,9 +384,8 @@ class PantallaGestion:
                             relief="flat", bd=0, padx=8, pady=5,
                             highlightthickness=1,
                             highlightbackground=p["filtro_borde"],
-                            cursor="hand2")
-        self._btn_mes.bind("<Button-1>",
-                           lambda e: _abrir_menu_mes(e, self._btn_mes))
+                            cursor="hand2",
+                            command=_abrir_menu_mes)
         self._btn_mes.pack(side="left")
         self._reg(self._btn_mes, "filtro_bg", "filtro_fg")
 
@@ -424,7 +436,7 @@ class PantallaGestion:
             item = self.tree_usuarios.identify_row(event.y)
             if item:
                 vals = self.tree_usuarios.item(item, "values")
-                if vals[0] == "":  # fila vacía
+                if vals[0] == "":
                     return
                 self.app.mostrar_pantalla("editar_usuario", datos={
                     "cod_institucional": vals[0],
@@ -495,7 +507,6 @@ class PantallaGestion:
 
     def _cargar_estadisticas(self):
         p = self._p
-        # ── FIX: usar solo datos reales de BD, sin demo ───────────────────────
         usuarios = obtener_usuarios() or []
         accesos  = obtener_accesos(limite=1000) or []
         hoy      = datetime.now().strftime("%Y-%m-%d")
@@ -521,7 +532,6 @@ class PantallaGestion:
         self._todos_usuarios = usuarios
 
     def _cargar_tabla_usuarios(self):
-        # ── FIX: sin fallback a demo — BD vacía = tabla vacía ────────────────
         self._todos_usuarios = obtener_usuarios() or []
         self._filtrar_tabla()
 
@@ -530,7 +540,8 @@ class PantallaGestion:
         mes_f = self._filtro_mes.get()
         datos = self._todos_usuarios
 
-        if rol_f and rol_f != "Rol":
+        # "Ninguno" = sin filtro (mostrar todos)
+        if rol_f and rol_f != "Ninguno":
             datos = [u for u in datos
                      if (u.get("rol") or "").lower() == rol_f.lower()]
 
@@ -539,7 +550,7 @@ class PantallaGestion:
             "Mayo":"05","Junio":"06","Julio":"07","Agosto":"08",
             "Septiembre":"09","Octubre":"10","Noviembre":"11","Diciembre":"12",
         }
-        if mes_f and mes_f != "Mes" and mes_f in meses_num:
+        if mes_f and mes_f != "Ninguno" and mes_f in meses_num:
             m = meses_num[mes_f]
             datos = [u for u in datos
                      if f"-{m}-" in (u.get("fecha_registro") or "")]
@@ -548,7 +559,6 @@ class PantallaGestion:
         t.delete(*t.get_children())
 
         if not datos:
-            # Mostrar fila indicando que no hay datos
             t.insert("", "end", tags=("vacio",),
                      values=("", "Sin usuarios registrados",
                              "", "", "", "", "", "", ""))

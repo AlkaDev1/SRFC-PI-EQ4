@@ -2,12 +2,10 @@
 ui/screens/pantalla_editar_usuario.py
 Pantalla de Edición de Usuario — 800x480
 
-CAMBIOS v4:
-  - Programa/Carrera como dropdown (Software / Mecatrónica)
-  - Campo contraseña con ojito (mostrar/ocultar)
-  - Validaciones contraseña: mayúscula + minúscula + número + mín 6 chars
-  - Campo confirmar contraseña también con ojito
-  - messagebox reemplazado por modal_dialogo
+CAMBIOS v5:
+  - "Ninguno" agregado como primera opción en Programa/Carrera
+  - Menús desplegables usan menu.post() en lugar de tk_popup()
+    para que se mantengan abiertos sin necesidad de mantener presionado
 """
 
 import tkinter as tk
@@ -27,7 +25,7 @@ from core.database import actualizar_usuario
 _RAIZ = Path(__file__).resolve().parents[2]
 
 _ROLES_CON_PASSWORD = {"Admin", "Super Admin"}
-_PROGRAMAS          = ["Software", "Mecatrónica"]
+_PROGRAMAS          = ["Ninguno", "Software", "Mecatrónica"]
 
 _C = {
     "bg_app":       "#f3f4f5",
@@ -81,12 +79,17 @@ def _validar_password(pwd: str) -> str | None:
 
 
 def _hacer_dropdown(parent, var, opciones, p, ico_flecha, on_select=None, font=None):
+    """
+    Dropdown que usa menu.post() para que quede estático
+    sin necesidad de mantener presionado.
+    """
     font = font or ("Segoe UI", 10)
 
     def _abrir():
+        cp = p  # usar paleta actual (puede haber cambiado con el tema)
         menu = tk.Menu(parent, tearoff=0, font=font,
-                       bg=p["card_bg"], fg=p["texto_oscuro"],
-                       activebackground=p["verde_btn"],
+                       bg=cp["card_bg"], fg=cp["texto_oscuro"],
+                       activebackground=cp["verde_btn"],
                        activeforeground="#ffffff")
         for op in opciones:
             def _sel(o=op):
@@ -95,8 +98,10 @@ def _hacer_dropdown(parent, var, opciones, p, ico_flecha, on_select=None, font=N
                 if on_select:
                     on_select(o)
             menu.add_command(label=op, command=_sel)
-        menu.tk_popup(btn.winfo_rootx(),
-                      btn.winfo_rooty() + btn.winfo_height())
+        # post() en lugar de tk_popup() → el menú se mantiene abierto solo
+        x = btn.winfo_rootx()
+        y = btn.winfo_rooty() + btn.winfo_height()
+        menu.post(x, y)
 
     btn = tk.Button(
         parent, text=f"  {var.get()}",
@@ -354,7 +359,6 @@ class PantallaEditarUsuario:
         form.columnconfigure(0, weight=1)
         form.columnconfigure(1, weight=1)
 
-        # Filas de texto
         campos = [
             (0, 0, "No. Institucional", "cod_institucional", False),
             (0, 1, "Nombre",            "nombre",            True),
@@ -391,11 +395,10 @@ class PantallaEditarUsuario:
             e.pack(fill="x", ipady=6, pady=(2, 0))
             self._entradas[key] = e
 
-        # Programa/Carrera — dropdown en fila 2 col 0
-        carrera_actual = self.datos.get("carrera", "Software")
-        # Normalizar si viene diferente
+        # ── Programa/Carrera — ahora incluye "Ninguno" como primera opción ──
+        carrera_actual = self.datos.get("carrera", "Ninguno") or "Ninguno"
         if carrera_actual not in _PROGRAMAS:
-            carrera_actual = "Software"
+            carrera_actual = "Ninguno"
         self._carrera_var = tk.StringVar(value=carrera_actual)
 
         sub_carrera = tk.Frame(form, bg=p["card_bg"])
@@ -407,7 +410,7 @@ class PantallaEditarUsuario:
             sub_carrera, self._carrera_var, _PROGRAMAS, p, self._ico_flecha)
         self._btn_carrera.pack(fill="x", pady=(2, 0))
 
-        # Fila 3: Rol + Status
+        # ── Fila 3: Rol + Status ──
         fila_extra = tk.Frame(form, bg=p["card_bg"])
         fila_extra.grid(row=3, column=0, columnspan=2, sticky="ew", pady=4)
         fila_extra.columnconfigure(0, weight=1)
@@ -438,8 +441,9 @@ class PantallaEditarUsuario:
                         self._btn_rol.config(text=f"  {o}"),
                         self._on_rol_cambio(o),
                     ])
-            menu.tk_popup(self._btn_rol.winfo_rootx(),
-                          self._btn_rol.winfo_rooty() + self._btn_rol.winfo_height())
+            x = self._btn_rol.winfo_rootx()
+            y = self._btn_rol.winfo_rooty() + self._btn_rol.winfo_height()
+            menu.post(x, y)
 
         self._btn_rol = tk.Button(
             sub_rol, text=f"  {self._rol_var.get()}",
@@ -483,7 +487,6 @@ class PantallaEditarUsuario:
         self._ent_password2 = ent2
         self._pwd_wrappers.append((w2, o2))
 
-        # Mostrar automáticamente si ya es Admin/SuperAdmin
         if rol_inicial in _ROLES_CON_PASSWORD:
             self._sub_password.grid(
                 row=4, column=0, columnspan=2,
@@ -541,11 +544,10 @@ class PantallaEditarUsuario:
             modal_warning(self.pantalla, "El apellido paterno no puede estar vacío.")
             return
 
-        # Contraseña opcional al editar
         if rol in _ROLES_CON_PASSWORD:
             pwd1 = self._ent_password.get().strip()
             pwd2 = self._ent_password2.get().strip()
-            if pwd1:  # solo validar si se ingresó algo
+            if pwd1:
                 err = _validar_password(pwd1)
                 if err:
                     modal_warning(self.pantalla, err, titulo="Contraseña inválida")
