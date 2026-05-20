@@ -8,14 +8,16 @@ pyglet.font.add_file(ruta_fuente)
 
 from ui.styles import PALETA, MEDIDAS, configurar_estilos
 from ui.tema import GestorTema
+from ui.idioma import GestorIdioma                          # ← NUEVO
 
 _ES_RASPBERRY = platform.machine() in ("aarch64", "armv7l")
 
 
 class App:
     def __init__(self, root):
-        self.root = root
-        self.tema = GestorTema()
+        self.root   = root
+        self.tema   = GestorTema()
+        self.idioma = GestorIdioma()                        # ← NUEVO
 
         self.contenedor = tk.Frame(root)
         self.contenedor.pack(fill="both", expand=True)

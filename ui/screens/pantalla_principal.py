@@ -1,27 +1,11 @@
 """
 ui/screens/pantalla_principal.py
-Pantalla principal — versión refinada profesional.
 Proyecto: SRFC-PI-EQ4 | Universidad de Colima | 800x480
 
-ESTRUCTURA DE IMÁGENES (en assets/img/):
-  fondo_claro.png   — olas + decorativos modo claro  (800x332px)
-  fondo_oscuro.png  — olas + decorativos modo oscuro (800x332px)
-  pericos.png       — mascota, se recorta circular con PIL
-
-CAPAS DEL CANVAS (de atrás hacia adelante):
-  1. fondo_claro.png / fondo_oscuro.png  — imagen de fondo completa
-  2. Círculo dibujado en código (sombra + aro blanco + relleno verde)
-  3. pericos.png recortado circular y centrado dentro del círculo
-  4. Texto "BIENVENIDOS" + línea decorativa + badge subtítulo
-
-SOPORTE DE TEMA:
-  - Al construirse obtiene la paleta activa de app.tema
-  - Registra _aplicar_tema() en GestorTema
-  - Al cambiar el tema, _aplicar_tema() redibuja el canvas con la nueva imagen
-    y actualiza los colores de la barra de botones
-  - Al destruirse (bind <Destroy>) se desregistra del GestorTema
-  - _Botones usa after(50) al construirse para forzar el color correcto
-    incluso al navegar de vuelta desde otra pantalla
+CAMBIOS vs versión anterior:
+  - Textos "BIENVENIDOS", badge y botones ahora vienen de GestorIdioma
+  - Registra _aplicar_idioma() en GestorIdioma → redibuja canvas y botones
+  - Al destruirse se desregistra también de GestorIdioma
 """
 
 import tkinter as tk
@@ -52,12 +36,6 @@ _FONDO_CLARO            = _RAIZ / "assets" / "img" / "fondo_claro.png"
 _FONDO_OSCURO           = _RAIZ / "assets" / "img" / "fondo_oscuro.png"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  HELPER: recorte circular con PIL
-#  Tkinter no soporta transparencia PNG en Canvas nativamente.
-#  Esta función crea una máscara circular y la aplica como canal alpha,
-#  haciendo que las esquinas sean transparentes sin importar el fondo original.
-# ─────────────────────────────────────────────────────────────────────────────
 def _recortar_circular(img: Image.Image) -> Image.Image:
     img     = img.convert("RGBA")
     mascara = Image.new("L", img.size, 0)
@@ -81,7 +59,6 @@ def crear_pantalla_principal(parent: tk.Frame, app) -> None:
     botones = _Botones(f, app)
 
     # ── Listener de tema ──────────────────────────────────────────────────────
-    # Llamado automáticamente por GestorTema cuando el usuario presiona ☀️/🌙.
     def _aplicar_tema(p: dict):
         try:
             f.configure(bg=p["central_sombra"])
@@ -90,13 +67,24 @@ def crear_pantalla_principal(parent: tk.Frame, app) -> None:
         except tk.TclError:
             pass
 
+    # ── Listener de idioma ────────────────────────────────────────────────────
+    def _aplicar_idioma():
+        try:
+            central._draw()           # redibuja canvas con nuevos textos
+            botones._aplicar_idioma() # actualiza texto de los 3 botones
+        except tk.TclError:
+            pass
+
     if hasattr(app, "tema"):
         app.tema.registrar(_aplicar_tema)
+    if hasattr(app, "idioma"):
+        app.idioma.registrar(_aplicar_idioma)
 
-    # Desregistrar al destruirse el frame para no llamar widgets eliminados
     def _limpiar(evento=None):
         if hasattr(app, "tema"):
             app.tema.desregistrar(_aplicar_tema)
+        if hasattr(app, "idioma"):
+            app.idioma.desregistrar(_aplicar_idioma)
 
     f.bind("<Destroy>", _limpiar)
 
@@ -119,7 +107,6 @@ class _Central(tk.Frame):
         self._cv.bind("<Configure>", self._draw)
 
     def _aplicar_tema(self, p: dict):
-        """Recibe nueva paleta y redibuja el canvas con los nuevos colores e imagen."""
         try:
             bg = p.get("central_bg", V_MID)
             self.configure(bg=bg)
@@ -137,6 +124,7 @@ class _Central(tk.Frame):
         c.delete("all")
 
         es_oscuro = hasattr(self._app, "tema") and self._app.tema.es_oscuro()
+        idioma    = getattr(self._app, "idioma", None)
 
         # ── 1. Imagen de fondo ────────────────────────────────────────────────
         ruta_fondo = _FONDO_OSCURO if es_oscuro else _FONDO_CLARO
@@ -153,7 +141,7 @@ class _Central(tk.Frame):
             c.create_rectangle(0, 0, W, H,
                                fill=O_MID if es_oscuro else V_MID, outline="")
 
-        # ── 2. Círculo dibujado en código ─────────────────────────────────────
+        # ── 2. Círculo ────────────────────────────────────────────────────────
         radio = int(H * 0.36)
         cx    = int(W * 0.20)
         cy    = int(H * 0.44)
@@ -169,7 +157,7 @@ class _Central(tk.Frame):
         c.create_oval(cx-ri, cy-ri, cx+ri, cy+ri,
                       fill=color_circulo, outline="")
 
-        # ── 3. Pericos circular ────────────────────────────────────
+        # ── 3. Pericos ────────────────────────────────────────────────────────
         if _PERICOS.exists():
             try:
                 target   = int(ri * 1.5)
@@ -184,7 +172,10 @@ class _Central(tk.Frame):
             c.create_text(cx, cy, text="🦜🦜",
                           font=("Segoe UI", int(radio * 0.4)), fill=BLANCO)
 
-        # ── 4. Texto "BIENVENIDOS" + línea + badge ────────────────────────────
+        # ── 4. Textos desde idioma ────────────────────────────────────────────
+        txt_bienvenidos = idioma.t("principal.bienvenidos") if idioma else "BIENVENIDOS"
+        txt_badge       = idioma.t("principal.badge")       if idioma else "Sistema de Control Biométrico"
+
         zona_izq   = cx + radio + 20
         zona_ancho = W - zona_izq - 20
         tx  = zona_izq + zona_ancho // 2
@@ -194,10 +185,10 @@ class _Central(tk.Frame):
 
         color_titulo = BLANCO if es_oscuro else "#1B5E20"
 
-        c.create_text(tx+2, ty+3, text="BIENVENIDOS",
+        c.create_text(tx+2, ty+3, text=txt_bienvenidos,
                       font=("Segoe UI", tam, "bold"),
                       fill=color_sombra, anchor="center")
-        c.create_text(tx, ty, text="BIENVENIDOS",
+        c.create_text(tx, ty, text=txt_bienvenidos,
                       font=("Segoe UI", tam, "bold"),
                       fill=color_titulo, anchor="center")
 
@@ -223,7 +214,7 @@ class _Central(tk.Frame):
         _badge(c, badge_x1, badge_y, badge_x2, badge_y + badge_h,
                badge_h // 2, color_badge_bg, color_badge_borde)
         c.create_text((badge_x1 + badge_x2) // 2, badge_y + badge_h // 2,
-                      text="Sistema de Control Biométrico",
+                      text=txt_badge,
                       font=("Segoe UI", int(sub * 0.95), "bold"),
                       fill=color_badge_texto, anchor="center")
 
@@ -248,20 +239,22 @@ class _Botones(tk.Frame):
         self._fila = tk.Frame(self, bg=bg)
         self._fila.pack(expand=True)
 
-        self._btn_acceder = _Btn(self._fila, _ICONO_ACCESO, "ACCEDER",
+        idioma    = getattr(app, "idioma", None)
+        txt_acc   = idioma.t("principal.btn_acceder")         if idioma else "ACCEDER"
+        txt_ges   = idioma.t("principal.btn_gestion")         if idioma else "GESTIÓN"
+        txt_avi   = idioma.t("principal.btn_aviso_privacidad") if idioma else "AVISO DE\nPRIVACIDAD"
+
+        self._btn_acceder = _Btn(self._fila, _ICONO_ACCESO, txt_acc,
                                   lambda: app.mostrar_pantalla("acceso"), es_oscuro, bg)
-        self._btn_gestion = _Btn(self._fila, _ICONO_GESTION, "GESTIÓN",
+        self._btn_gestion = _Btn(self._fila, _ICONO_GESTION, txt_ges,
                                   lambda: app.mostrar_pantalla("gestion"), es_oscuro, bg)
-        self._btn_aviso   = _Btn(self._fila, _ICONO_AVISO_PRIVACIDAD, "AVISO DE\nPRIVACIDAD",
+        self._btn_aviso   = _Btn(self._fila, _ICONO_AVISO_PRIVACIDAD, txt_avi,
                                   lambda: app.mostrar_pantalla("aviso_privacidad"),
                                   es_oscuro, bg)
 
-        # Forzar repintado inicial después de que Tkinter termine de construir
-        # los widgets. Esto corrige el color transparente al volver de otra pantalla.
         self.after(50, self._repintar_inicial)
 
     def _repintar_inicial(self):
-        """Fuerza el color correcto al construirse, especialmente al volver de otra pantalla."""
         if hasattr(self._app, "tema"):
             try:
                 self._aplicar_tema(self._app.tema.paleta())
@@ -269,7 +262,6 @@ class _Botones(tk.Frame):
                 pass
 
     def _aplicar_tema(self, p: dict):
-        """Repinta la barra y sus botones con la nueva paleta."""
         try:
             bg  = p["botones_barra_bg"]
             sep = p["botones_separador"]
@@ -279,6 +271,18 @@ class _Botones(tk.Frame):
             self._btn_acceder._aplicar_tema(p, bg)
             self._btn_gestion._aplicar_tema(p, bg)
             self._btn_aviso._aplicar_tema(p, bg)
+        except tk.TclError:
+            pass
+
+    def _aplicar_idioma(self):
+        """Actualiza el texto de los 3 botones con el idioma activo."""
+        idioma = getattr(self._app, "idioma", None)
+        if not idioma:
+            return
+        try:
+            self._btn_acceder.set_texto(idioma.t("principal.btn_acceder"))
+            self._btn_gestion.set_texto(idioma.t("principal.btn_gestion"))
+            self._btn_aviso.set_texto(idioma.t("principal.btn_aviso_privacidad"))
         except tk.TclError:
             pass
 
@@ -315,8 +319,12 @@ class _Btn:
         self._cv.bind("<Enter>",    lambda e: self._draw(self._hov))
         self._cv.bind("<Leave>",    lambda e: self._draw(self._bg))
 
+    def set_texto(self, txt: str):
+        """Actualiza el texto del botón y lo redibuja."""
+        self._txt = txt
+        self._draw(self._bg)
+
     def _aplicar_tema(self, p: dict, wrap_bg: str):
-        """Actualiza colores del botón según nueva paleta."""
         self._bg     = p["boton_bg"]
         self._hov    = p["boton_hover"]
         self._sombra = p["boton_sombra"]
