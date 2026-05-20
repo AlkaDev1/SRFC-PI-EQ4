@@ -1,50 +1,74 @@
 """
 ui/screens/pantalla_captura_rostro.py
-Pantalla de captura facial — pantalla completa 800x480
-
-FIX cámara: usa exactamente el mismo método que pantalla_acceso.py y validacionUsrs.py
-  _CAM_INDEX = 1 if _ES_RASPBERRY else 0
-  cv2.VideoCapture(_CAM_INDEX) sin backend especial
+Pantalla de captura facial — tema claro/oscuro, colores del sistema biométrico
 """
 
 import tkinter as tk
 import threading
+import queue
+import cv2
+import numpy as np
 import platform
 from pathlib import Path
-
-try:
-    from PIL import Image, ImageTk
-    _PIL_OK = True
-except ImportError:
-    _PIL_OK = False
+from PIL import Image, ImageTk
 
 from ui.components.barra_superior import crear_encabezado
 from ui.styles import PALETA
 from ui.components.modal_dialogo import modal_error
 
-import cv2
+try:
+    import face_recognition
+    FR_DISPONIBLE = True
+except ImportError:
+    FR_DISPONIBLE = False
 
 _ES_RASPBERRY = platform.machine() in ("aarch64", "armv7l")
-# ── MISMO índice que pantalla_acceso y validacionUsrs ────────────────────────
 _CAM_INDEX    = 1 if _ES_RASPBERRY else 0
 
 CAPTURAS_REQUERIDAS = 30
-_UMBRAL_DUPLICADO   = 0.38
+_UMBRAL_DUPLICADO   = 0.50
+SKIP_FRAMES         = 2
+MAX_FRAMES_COLA     = 4
 
+# ── Paleta claro ──────────────────────────────────────────────────────────────
 _C = {
-    "bg":          "#111111",
-    "feed_bg":     "#0a0a0a",
-    "texto":       "#ffffff",
-    "texto2":      "#aaaaaa",
+    "bg":          "#f3f4f5",
+    "feed_bg":     "#1c1c1c",
+    "panel_bg":    "#ffffff",
+    "panel_borde": "#e0e0e0",
+    "texto":       "#1a1a1a",
+    "texto2":      "#757575",
     "verde":       "#43a047",
-    "verde_hover": "#388e3c",
+    "verde_m":     "#4caf50",
     "verde_ok":    "#2e7d32",
+    "verde_hover": "#388e3c",
     "rojo":        "#e53935",
     "rojo_hover":  "#b71c1c",
-    "barra_bg":    "#1a1a1a",
-    "progreso_bg": "#2a2a2a",
-    "progreso_fg": "#43a047",
+    "prog_bg":     "#e0e0e0",
+    "prog_fg":     "#43a047",
 }
+
+# ── Paleta oscuro ─────────────────────────────────────────────────────────────
+_O = {
+    "bg":          "#071E07",
+    "feed_bg":     "#0a0a0a",
+    "panel_bg":    "#0d2a0d",
+    "panel_borde": "#1a3a1a",
+    "texto":       "#d0f0d0",
+    "texto2":      "#7aaa7a",
+    "verde":       "#2D531A",
+    "verde_m":     "#477023",
+    "verde_ok":    "#1a3a1a",
+    "verde_hover": "#477023",
+    "rojo":        "#7f1d1d",
+    "rojo_hover":  "#991b1b",
+    "prog_bg":     "#1a3a1a",
+    "prog_fg":     "#477023",
+}
+
+
+def _paleta(app) -> dict:
+    return _O if (hasattr(app, "tema") and app.tema.es_oscuro()) else _C
 
 
 class PantallaCaptura:
@@ -53,20 +77,58 @@ class PantallaCaptura:
         self.parent  = parent
         self.app     = app
         self.datos   = datos or {}
-        self._p      = _C
+        self._p      = _paleta(app)
 
-        self._capturando  = False
-        self._capturas_ok = 0
-        self._encodings   = []
-        self._last_photo  = None
-        self._cap         = None
-        self._corriendo   = False
+        self._capturando      = False
+        self._capturas_ok     = 0
+        self._encodings       = []
+        self._photo           = None
+
+        self._cap             = None
+        self._corriendo       = False
+        self._cola_frames     = queue.Queue(maxsize=MAX_FRAMES_COLA)
+        self._contador_frames = 0
 
         self._construir_ui()
 
-    # ══════════════════════════════════════════════════════════════════════════
-    #  UI
-    # ══════════════════════════════════════════════════════════════════════════
+        if hasattr(app, "tema"):
+            app.tema.registrar(self._on_tema_cambio)
+        self.pantalla.bind("<Destroy>", self._limpiar_tema)
+
+    def _on_tema_cambio(self, _):
+        self._p = _O if self.app.tema.es_oscuro() else _C
+        self._aplicar_tema()
+
+    def _limpiar_tema(self, event=None):
+        if hasattr(self.app, "tema"):
+            self.app.tema.desregistrar(self._on_tema_cambio)
+
+    def _aplicar_tema(self):
+        p = self._p
+        try:
+            self.pantalla.configure(bg=p["bg"])
+            self._cuerpo.configure(bg=p["bg"])
+            self._col_feed.configure(bg=p["feed_bg"])
+            self.label_video.configure(bg=p["feed_bg"])
+            self._panel.configure(bg=p["panel_bg"],
+                                   highlightbackground=p["panel_borde"])
+            self._lbl_reg.configure(bg=p["panel_bg"], fg=p["texto2"])
+            self._lbl_nombre.configure(bg=p["panel_bg"], fg=p["texto"])
+            self._sep1.configure(bg=p["panel_borde"])
+            self._lbl_cap_titulo.configure(bg=p["panel_bg"], fg=p["texto2"])
+            self._lbl_contador.configure(bg=p["panel_bg"], fg=p["verde"])
+            self._prog_outer.configure(bg=p["prog_bg"])
+            self._prog_inner.configure(bg=p["prog_fg"])
+            self._lbl_estado.configure(bg=p["panel_bg"], fg=p["texto2"])
+            self._sep2.configure(bg=p["panel_borde"])
+            self._btn_frame.configure(bg=p["panel_bg"])
+            self._btn_iniciar.configure(bg=p["verde"],
+                                         activebackground=p["verde_hover"])
+            self._btn_cancelar.configure(bg=p["rojo"],
+                                          activebackground=p["rojo_hover"])
+        except tk.TclError:
+            pass
+
     def _construir_ui(self):
         p = self._p
         self.pantalla = tk.Frame(self.parent, bg=p["bg"])
@@ -75,287 +137,290 @@ class PantallaCaptura:
         crear_encabezado(self.pantalla, self.app)
         tk.Frame(self.pantalla, bg=PALETA["topbar_sistema_fg"], height=3).pack(fill="x")
 
-        cuerpo = tk.Frame(self.pantalla, bg=p["bg"])
-        cuerpo.pack(fill="both", expand=True)
-        cuerpo.columnconfigure(0, weight=1)
-        cuerpo.columnconfigure(1, weight=0)
-        cuerpo.rowconfigure(0, weight=1)
+        self._cuerpo = tk.Frame(self.pantalla, bg=p["bg"])
+        self._cuerpo.pack(fill="both", expand=True)
+        self._cuerpo.columnconfigure(0, weight=1)
+        self._cuerpo.columnconfigure(1, weight=0)
+        self._cuerpo.rowconfigure(0, weight=1)
 
-        # Feed de cámara
-        self._feed_frame = tk.Frame(cuerpo, bg=p["feed_bg"])
-        self._feed_frame.grid(row=0, column=0, sticky="nsew")
+        # ── Columna feed ──────────────────────────────────────────────────────
+        self._col_feed = tk.Frame(self._cuerpo, bg=p["feed_bg"])
+        self._col_feed.grid(row=0, column=0, sticky="nsew")
 
-        self._lbl_feed = tk.Label(self._feed_frame, bg=p["feed_bg"])
-        self._lbl_feed.place(x=0, y=0, relwidth=1, relheight=1)
+        self.label_video = tk.Label(
+            self._col_feed, bg=p["feed_bg"],
+            text="Iniciando cámara...",
+            font=("Segoe UI", 13), fg="#aaaaaa")
+        self.label_video.place(x=0, y=0, relwidth=1, relheight=1)
 
-        self._lbl_instruc = tk.Label(
-            self._feed_frame,
-            text="Presiona  INICIAR  para comenzar\nel escaneo facial",
-            font=("Segoe UI", 14, "bold"),
-            fg="#ffffff", bg="#222222",
-            justify="center", padx=20, pady=14)
-        self._lbl_instruc.place(relx=0.5, rely=0.42, anchor="center")
+        # ── Panel derecho ─────────────────────────────────────────────────────
+        self._panel = tk.Frame(self._cuerpo, bg=p["panel_bg"], width=210,
+                               highlightthickness=1,
+                               highlightbackground=p["panel_borde"])
+        self._panel.grid(row=0, column=1, sticky="nsew")
+        self._panel.pack_propagate(False)
 
-        # Panel de control derecho
-        barra = tk.Frame(cuerpo, bg=p["barra_bg"], width=200)
-        barra.grid(row=0, column=1, sticky="nsew")
-        barra.pack_propagate(False)
+        # Barra verde superior
+        tk.Frame(self._panel, bg=p["verde_m"], height=4).pack(fill="x")
 
         nombre = f"{self.datos.get('nombre','')} {self.datos.get('apellido_paterno','')}".strip()
-        tk.Label(barra, text="REGISTRANDO",
-                 font=("Segoe UI", 8), fg=p["texto2"],
-                 bg=p["barra_bg"]).pack(pady=(16, 2))
-        tk.Label(barra, text=nombre or "Usuario",
-                 font=("Segoe UI", 11, "bold"), fg=p["texto"],
-                 bg=p["barra_bg"], wraplength=170, justify="center").pack()
 
-        tk.Frame(barra, bg="#333333", height=1).pack(fill="x", pady=12, padx=10)
+        self._lbl_reg = tk.Label(self._panel, text="REGISTRANDO",
+                                  font=("Segoe UI", 8), fg=p["texto2"],
+                                  bg=p["panel_bg"])
+        self._lbl_reg.pack(pady=(14, 2))
 
-        tk.Label(barra, text="CAPTURAS",
-                 font=("Segoe UI", 8), fg=p["texto2"],
-                 bg=p["barra_bg"]).pack()
+        self._lbl_nombre = tk.Label(self._panel, text=nombre or "Usuario",
+                                     font=("Segoe UI", 11, "bold"), fg=p["texto"],
+                                     bg=p["panel_bg"], wraplength=185, justify="center")
+        self._lbl_nombre.pack()
+
+        self._sep1 = tk.Frame(self._panel, bg=p["panel_borde"], height=1)
+        self._sep1.pack(fill="x", pady=10, padx=10)
+
+        self._lbl_cap_titulo = tk.Label(self._panel, text="CAPTURAS",
+                                         font=("Segoe UI", 8), fg=p["texto2"],
+                                         bg=p["panel_bg"])
+        self._lbl_cap_titulo.pack()
 
         self._lbl_contador = tk.Label(
-            barra, text=f"0 / {CAPTURAS_REQUERIDAS}",
-            font=("Segoe UI", 20, "bold"),
-            fg=p["verde"], bg=p["barra_bg"])
+            self._panel, text=f"0 / {CAPTURAS_REQUERIDAS}",
+            font=("Segoe UI", 22, "bold"),
+            fg=p["verde"], bg=p["panel_bg"])
         self._lbl_contador.pack(pady=(4, 8))
 
-        self._prog_outer = tk.Frame(barra, bg=p["progreso_bg"],
-                                     height=8, highlightthickness=0)
-        self._prog_outer.pack(fill="x", padx=16, pady=(0, 12))
-        self._prog_inner = tk.Frame(self._prog_outer, bg=p["progreso_fg"],
+        self._prog_outer = tk.Frame(self._panel, bg=p["prog_bg"], height=8)
+        self._prog_outer.pack(fill="x", padx=16, pady=(0, 10))
+        self._prog_inner = tk.Frame(self._prog_outer, bg=p["prog_fg"],
                                      height=8, width=0)
         self._prog_inner.place(x=0, y=0, height=8)
 
         self._lbl_estado = tk.Label(
-            barra,
-            text="Listo para\nescanear",
-            font=("Segoe UI", 10),
-            fg=p["texto2"], bg=p["barra_bg"],
-            justify="center", wraplength=170)
-        self._lbl_estado.pack(pady=(0, 16))
+            self._panel, text="Listo para\nescanear",
+            font=("Segoe UI", 10), fg=p["texto2"],
+            bg=p["panel_bg"], justify="center", wraplength=185)
+        self._lbl_estado.pack(pady=(0, 10))
 
-        tk.Frame(barra, bg="#333333", height=1).pack(fill="x", padx=10)
+        self._sep2 = tk.Frame(self._panel, bg=p["panel_borde"], height=1)
+        self._sep2.pack(fill="x", padx=10)
 
-        btns = tk.Frame(barra, bg=p["barra_bg"])
-        btns.pack(fill="x", padx=12, pady=12)
+        self._btn_frame = tk.Frame(self._panel, bg=p["panel_bg"])
+        self._btn_frame.pack(fill="x", padx=12, pady=10)
 
         self._btn_iniciar = tk.Button(
-            btns, text="▶  INICIAR",
+            self._btn_frame, text="▶  INICIAR",
             font=("Segoe UI", 10, "bold"),
             fg="#ffffff", bg=p["verde"],
             activebackground=p["verde_hover"], activeforeground="#ffffff",
             bd=0, pady=10, relief="flat", cursor="hand2",
-            command=self._toggle_captura)
+            command=self._toggle)
         self._btn_iniciar.pack(fill="x", pady=(0, 6))
 
-        tk.Button(
-            btns, text="✕  CANCELAR",
+        self._btn_cancelar = tk.Button(
+            self._btn_frame, text="✕  CANCELAR",
             font=("Segoe UI", 10, "bold"),
             fg="#ffffff", bg=p["rojo"],
             activebackground=p["rojo_hover"], activeforeground="#ffffff",
             bd=0, pady=10, relief="flat", cursor="hand2",
-            command=self._cancelar).pack(fill="x")
+            command=self._cancelar)
+        self._btn_cancelar.pack(fill="x")
 
     # ══════════════════════════════════════════════════════════════════════════
     #  CAPTURA
     # ══════════════════════════════════════════════════════════════════════════
-    def _toggle_captura(self):
+    def _toggle(self):
         if self._capturando:
             self._detener()
         else:
             self._iniciar()
 
     def _iniciar(self):
-        p = self._p
         self._encodings   = []
         self._capturas_ok = 0
         self._capturando  = True
+        p = self._p
         self._btn_iniciar.config(text="⏹  DETENER", bg=p["rojo"],
                                   activebackground=p["rojo_hover"])
-        self._lbl_estado.config(text="No te muevas\nescaneando...", fg="#81c784")
-        self._lbl_instruc.place_forget()
-        threading.Thread(target=self._hilo, daemon=True).start()
+        self._lbl_estado.config(text="No te muevas\nescaneando...", fg="#43a047")
 
-    def _detener(self):
-        p = self._p
-        self._capturando = False
-        self._corriendo  = False
-        self._btn_iniciar.config(text="▶  INICIAR", bg=p["verde"],
-                                  activebackground=p["verde_hover"])
-        self._lbl_estado.config(text="Detenido", fg=p["texto2"])
-
-    def _hilo(self):
-        try:
-            import face_recognition
-        except ImportError as e:
-            self.pantalla.after(0, lambda: modal_error(
-                self.pantalla, str(e), titulo="Dependencia faltante"))
-            self._capturando = False
-            return
-
-        # ── MISMO método que validacionUsrs / pantalla_acceso ────────────────
         self._cap = cv2.VideoCapture(_CAM_INDEX)
         if not self._cap.isOpened():
-            # Fallback al otro índice
             otro = 1 - _CAM_INDEX
             self._cap = cv2.VideoCapture(otro)
         if not self._cap.isOpened():
-            self.pantalla.after(0, lambda: modal_error(
-                self.pantalla,
-                "No se pudo abrir la cámara.\n"
-                "Verifica que la webcam esté conectada.",
-                titulo="Error de cámara"))
+            modal_error(self.pantalla, "No se pudo abrir la cámara.",
+                        titulo="Error de cámara")
             self._capturando = False
             return
 
         self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         self._corriendo = True
 
-        try:
-            from PIL import Image as PI, ImageTk as ITk
-            pil_ok = True
-        except ImportError:
-            pil_ok = False
+        threading.Thread(target=self._hilo_camara,  daemon=True).start()
+        threading.Thread(target=self._hilo_captura, daemon=True).start()
 
+    def _detener(self):
+        self._capturando = False
+        self._corriendo  = False
+        p = self._p
+        self._btn_iniciar.config(text="▶  INICIAR", bg=p["verde"],
+                                  activebackground=p["verde_hover"])
+        self._lbl_estado.config(text="Detenido", fg=p["texto2"])
+
+    # ── Hilo cámara — igual que validacionUsrs ────────────────────────────────
+    def _hilo_camara(self):
+        self._contador_frames = 0
+        while self._corriendo:
+            ok, frame = self._cap.read()
+            if not ok:
+                break
+            frame = cv2.flip(frame, 1)
+            self._contador_frames += 1
+
+            if self._contador_frames % SKIP_FRAMES == 0:
+                try:
+                    self._cola_frames.put_nowait(frame.copy())
+                except queue.Full:
+                    pass
+
+            try:
+                cw = self.label_video.winfo_width()
+                ch = self.label_video.winfo_height()
+                if cw < 10 or ch < 10:
+                    continue
+                resized = cv2.resize(frame, (cw, ch),
+                                     interpolation=cv2.INTER_LINEAR)
+
+                n   = self._capturas_ok
+                pct = int(n / CAPTURAS_REQUERIDAS * 100)
+                txt = f"ESCANEANDO... {n}/{CAPTURAS_REQUERIDAS}  ({pct}%)"
+                fn  = cv2.FONT_HERSHEY_SIMPLEX
+                (wt, _), _ = cv2.getTextSize(txt, fn, 0.7, 2)
+                cv2.putText(resized, txt, ((cw-wt)//2, 36),
+                            fn, 0.7, (0,0,0), 4, cv2.LINE_AA)
+                cv2.putText(resized, txt, ((cw-wt)//2, 36),
+                            fn, 0.7, (255,255,255), 2, cv2.LINE_AA)
+
+                rgb   = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+                photo = ImageTk.PhotoImage(image=Image.fromarray(rgb))
+                self._photo = photo
+                self.label_video.after(0, self._pintar_frame)
+            except Exception:
+                pass
+
+    def _pintar_frame(self):
+        if self._photo is None:
+            return
+        self.label_video.imgtk = self._photo
+        self.label_video.config(image=self._photo, text="")
+
+    # ── Hilo captura ──────────────────────────────────────────────────────────
+    def _hilo_captura(self):
         detector = cv2.CascadeClassifier(
             cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
-        rostro_obj = None
-
-        def iou(a, b):
-            ax1,ay1,ax2,ay2 = a[0],a[1],a[0]+a[2],a[1]+a[3]
-            bx1,by1,bx2,by2 = b[0],b[1],b[0]+b[2],b[1]+b[3]
-            ix1,iy1 = max(ax1,bx1), max(ay1,by1)
-            ix2,iy2 = min(ax2,bx2), min(ay2,by2)
-            inter   = max(0,ix2-ix1)*max(0,iy2-iy1)
-            union   = a[2]*a[3]+b[2]*b[3]-inter
-            return inter/union if union > 0 else 0.0
-
-        while self._capturando and self._capturas_ok < CAPTURAS_REQUERIDAS:
-            ok, frame = self._cap.read()
-            if not ok or frame is None:
+        while self._corriendo and self._capturas_ok < CAPTURAS_REQUERIDAS:
+            try:
+                frame = self._cola_frames.get(timeout=1.0)
+            except queue.Empty:
                 continue
 
-            frame = cv2.flip(frame, 1)
-            gris  = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            gris    = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             rostros = detector.detectMultiScale(
                 gris, scaleFactor=1.3, minNeighbors=5, minSize=(80, 80))
 
-            if len(rostros) > 0:
-                bbox = tuple(rostros[0])
-                if rostro_obj is None:
-                    rostro_obj = bbox
-                if iou(rostro_obj, bbox) >= 0.40:
-                    rostro_obj = bbox
-                    x, y, w, h = bbox
-                    cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 220, 0), 3)
-                    pct = int(self._capturas_ok / CAPTURAS_REQUERIDAS * 100)
-                    cv2.putText(frame, f"{pct}%",
-                                (x, max(y - 10, 20)),
-                                cv2.FONT_HERSHEY_SIMPLEX,
-                                0.8, (0, 220, 0), 2)
+            if len(rostros) == 0:
+                continue
 
-                    margen = 10
-                    x1 = max(0, x - margen)
-                    y1 = max(0, y - margen)
-                    x2 = min(frame.shape[1], x + w + margen)
-                    y2 = min(frame.shape[0], y + h + margen)
-                    roi = frame[y1:y2, x1:x2]
-                    h_r, w_r = roi.shape[:2]
-                    if w_r > 160:
-                        s = 160 / w_r
-                        roi = cv2.resize(roi, (160, int(h_r*s)),
-                                         interpolation=cv2.INTER_LINEAR)
-                    roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
-                    encs = face_recognition.face_encodings(
-                        roi_rgb, num_jitters=1, model="small")
-                    if encs:
-                        self._encodings.append(encs[0])
-                        self._capturas_ok += 1
-                else:
-                    x, y, w, h = bbox
-                    cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 200), 2)
+            x, y, w, h = max(rostros, key=lambda r: r[2]*r[3])
+            margen = 10
+            x1 = max(0, x - margen)
+            y1 = max(0, y - margen)
+            x2 = min(frame.shape[1], x + w + margen)
+            y2 = min(frame.shape[0], y + h + margen)
+            roi = frame[y1:y2, x1:x2]
+
+            h_r, w_r = roi.shape[:2]
+            if w_r > 160:
+                s   = 160 / w_r
+                roi = cv2.resize(roi, (160, int(h_r*s)),
+                                 interpolation=cv2.INTER_LINEAR)
+
+            roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+
+            if FR_DISPONIBLE:
+                encs = face_recognition.face_encodings(
+                    roi_rgb, num_jitters=1, model="small")
+                if encs:
+                    self._encodings.append(encs[0])
+                    self._capturas_ok += 1
+            else:
+                self._capturas_ok += 1
 
             n = self._capturas_ok
-            if pil_ok:
-                img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                h_f, w_f = img_rgb.shape[:2]
-                nw = 580
-                nh = int(h_f * nw / w_f)
-                img_pil = PI.fromarray(img_rgb).resize((nw, nh), PI.LANCZOS)
-                photo = ITk.PhotoImage(img_pil)
-                self.pantalla.after(0, self._update_ui, n, photo)
-            else:
-                self.pantalla.after(0, self._update_ui, n, None)
-
-            cv2.waitKey(30)
+            self.label_video.after(0, self._actualizar_contador, n)
 
         self._corriendo = False
         if self._cap:
             self._cap.release()
         cv2.destroyAllWindows()
-        self.pantalla.after(0, self._finalizar, self._capturas_ok)
+        self.label_video.after(0, self._finalizar, self._capturas_ok)
 
-    def _update_ui(self, n, photo=None):
-        if photo:
-            self._last_photo = photo
-            # FIX: guardar referencia en el widget igual que validacionUsrs
-            # sin esto Tkinter libera la imagen y se ve negro
-            self._lbl_feed.imgtk = photo
-            self._lbl_feed.config(image=photo, text="")
-
+    def _actualizar_contador(self, n):
         self._lbl_contador.config(text=f"{n} / {CAPTURAS_REQUERIDAS}")
-
         try:
-            ancho_total = self._prog_outer.winfo_width()
-            if ancho_total > 0:
-                ancho_prog = int(ancho_total * n / CAPTURAS_REQUERIDAS)
-                self._prog_inner.place(x=0, y=0, height=8, width=ancho_prog)
+            ancho = self._prog_outer.winfo_width()
+            if ancho > 0:
+                self._prog_inner.place(
+                    x=0, y=0, height=8,
+                    width=int(ancho * n / CAPTURAS_REQUERIDAS))
         except Exception:
             pass
 
     def _finalizar(self, n):
-        p = self._p
         self._capturando = False
+        p = self._p
 
         if n >= CAPTURAS_REQUERIDAS:
-            self._lbl_estado.config(text="¡Escaneo\ncompleto!", fg="#81c784")
-            self._btn_iniciar.config(
-                text="✓  COMPLETADO", bg=p["verde_ok"], state="disabled")
-            self._lbl_contador.config(fg="#81c784")
-
-            import numpy as np
+            self._lbl_estado.config(text="¡Escaneo\ncompleto!", fg=p["verde"])
+            self._btn_iniciar.config(text="✓  COMPLETADO",
+                                      bg=p["verde_ok"], state="disabled")
+            self._lbl_contador.config(fg=p["verde"])
+            self._lbl_estado.config(text="Verificando\nduplicados...",
+                                     fg=p["texto2"])
             encoding_final = np.mean(self._encodings, axis=0)
-
-            self._lbl_estado.config(text="Verificando\nduplicados...")
             threading.Thread(
                 target=self._verificar_y_regresar,
                 args=(encoding_final,), daemon=True).start()
         else:
             self._lbl_estado.config(
                 text=f"Incompleto\n{n}/{CAPTURAS_REQUERIDAS}", fg=p["rojo"])
-            self._btn_iniciar.config(
-                text="▶  REINTENTAR", bg=p["verde"],
-                activebackground=p["verde_hover"], state="normal")
+            self._btn_iniciar.config(text="▶  REINTENTAR",
+                                      bg=p["verde"], state="normal")
 
     def _verificar_y_regresar(self, encoding):
         try:
-            import face_recognition
-            import numpy as np
             from core.database import cargar_todos_encodings
 
             registrados = cargar_todos_encodings()
-            if registrados:
+            print(f"[CAPTURA] Verificando contra {len(registrados)} perfiles")
+
+            if registrados and FR_DISPONIBLE:
                 enc_existentes = [r["encoding"] for r in registrados]
+                coincidencias  = face_recognition.compare_faces(
+                    enc_existentes, encoding, tolerance=_UMBRAL_DUPLICADO)
                 distancias = face_recognition.face_distance(enc_existentes, encoding)
-                idx_min = int(np.argmin(distancias))
-                if distancias[idx_min] < _UMBRAL_DUPLICADO:
+
+                for i, (c, d) in enumerate(zip(coincidencias, distancias)):
+                    print(f"  [{i}] {registrados[i]['nombre']} dist={d:.4f} match={c}")
+
+                if any(coincidencias):
+                    idx_min    = int(np.argmin(distancias))
                     nombre_dup = registrados[idx_min].get("nombre", "—")
                     cod_dup    = registrados[idx_min].get("cod", "—")
+                    print(f"[CAPTURA] DUPLICADO: {nombre_dup} ({cod_dup})")
 
                     def _dup():
                         self._lbl_estado.config(
@@ -363,23 +428,26 @@ class PantallaCaptura:
                             fg=self._p["rojo"])
                         self._btn_iniciar.config(
                             text="▶  REINTENTAR",
-                            bg=self._p["verde"],
-                            activebackground=self._p["verde_hover"],
-                            state="normal")
+                            bg=self._p["verde"], state="normal")
                         self._encodings   = []
                         self._capturas_ok = 0
-                    self.pantalla.after(0, _dup)
+                        self._lbl_contador.config(
+                            text=f"0 / {CAPTURAS_REQUERIDAS}",
+                            fg=self._p["verde"])
+                        self._prog_inner.place(x=0, y=0, height=8, width=0)
+                    self.label_video.after(0, _dup)
                     return
 
-            # Sin duplicados → regresar con encoding
+            print("[CAPTURA] Sin duplicados — regresando")
             datos_con_enc = dict(self.datos)
             datos_con_enc["face_encoding"] = encoding
-            self.pantalla.after(
+            self.label_video.after(
                 0, lambda: self.app.mostrar_pantalla(
                     "agregar_usuario", datos_con_enc))
 
         except Exception as e:
-            self.pantalla.after(0, lambda: modal_error(
+            print(f"[CAPTURA] Error: {e}")
+            self.label_video.after(0, lambda: modal_error(
                 self.pantalla, str(e), titulo="Error"))
 
     def _cancelar(self):
