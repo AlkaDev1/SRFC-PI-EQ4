@@ -1,15 +1,12 @@
 """
 ui/components/barra_superior.py
 
-CAMBIOS vs versión original:
-  - crear_encabezado() ahora acepta (parent, app) donde app es la instancia
-    de App que tiene el atributo .tema (GestorTema).
-  - Es backward compatible: si se pasa root (tk.Tk) en vez de app,
-    el header funciona igual pero el botón de tema no hace nada.
-  - El botón ☀️ ahora llama a app.tema.toggle() al hacer clic.
-  - La barra se registra en GestorTema para repintarse automáticamente
-    cuando el tema cambia.
-  - Al destruirse se desregistra del GestorTema (limpieza automática).
+CAMBIOS vs versión anterior:
+  - Botón 🌐 ahora llama a app.idioma.toggle() al hacer clic.
+  - La barra se registra en GestorIdioma para actualizar los textos
+    del topbar (línea1, línea2, universidad) y la fecha cuando cambia el idioma.
+  - Al destruirse se desregistra de GestorIdioma y GestorTema (limpieza automática).
+  - actualizar_fecha_hora() ahora usa los días/meses del idioma activo.
 """
 
 import tkinter as tk
@@ -19,25 +16,43 @@ from pathlib import Path
 _RAIZ = Path(__file__).resolve().parent.parent.parent
 
 
-def actualizar_fecha_hora(lbl_fecha: tk.Label, lbl_hora: tk.Label, root: tk.Tk) -> None:
+def actualizar_fecha_hora(
+    lbl_fecha: tk.Label,
+    lbl_hora: tk.Label,
+    root: tk.Tk,
+    idioma=None,          # instancia GestorIdioma, opcional
+) -> None:
     if not lbl_fecha.winfo_exists() or not lbl_hora.winfo_exists():
         return
     n = datetime.now()
-    DIAS  = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
-    MESES = ["enero","febrero","marzo","abril","mayo","junio",
-             "julio","agosto","septiembre","octubre","noviembre","diciembre"]
-    lbl_fecha.config(text=f"{DIAS[n.weekday()]} {n.day} de {MESES[n.month-1]} de {n.year}")
+
+    # Usar días/meses del idioma activo si está disponible
+    if idioma:
+        DIAS  = idioma.t("barra_superior.dias")
+        MESES = idioma.t("barra_superior.meses")
+    else:
+        DIAS  = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
+        MESES = ["enero","febrero","marzo","abril","mayo","junio",
+                 "julio","agosto","septiembre","octubre","noviembre","diciembre"]
+
+    # Fallback si t() devuelve string en lugar de lista (clave no encontrada)
+    if not isinstance(DIAS,  list): DIAS  = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+    if not isinstance(MESES, list): MESES = ["Jan","Feb","Mar","Apr","May","Jun",
+                                              "Jul","Aug","Sep","Oct","Nov","Dec"]
+
+    lbl_fecha.config(
+        text=f"{DIAS[n.weekday()]} {n.day} de {MESES[n.month-1]} de {n.year}")
     hora = n.strftime("%I:%M:%S %p").lower().replace("am","a.m.").replace("pm","p.m.")
     lbl_hora.config(text=hora)
-    root.after(1000, lambda: actualizar_fecha_hora(lbl_fecha, lbl_hora, root))
+    root.after(1000, lambda: actualizar_fecha_hora(lbl_fecha, lbl_hora, root, idioma))
 
 
 def crear_encabezado(parent: tk.Frame, app_o_root) -> "_BarraSuperior":
     """Construye el header y lo empaqueta en parent.
 
     Acepta como segundo argumento:
-      - La instancia App (con .tema y .root) → botón de tema funcional
-      - Un tk.Tk directamente → funciona igual, botón decorativo sin acción
+      - La instancia App (con .tema, .idioma y .root) → botones funcionales
+      - Un tk.Tk directamente → funciona igual, botones decorativos sin acción
     """
     return _BarraSuperior(parent, app_o_root)
 
@@ -45,8 +60,9 @@ def crear_encabezado(parent: tk.Frame, app_o_root) -> "_BarraSuperior":
 class _BarraSuperior(tk.Frame):
 
     def __init__(self, parent, app_o_root):
-        # Detectar si tenemos GestorTema disponible
-        self._tema = getattr(app_o_root, "tema", None)
+        # Detectar GestorTema y GestorIdioma
+        self._tema   = getattr(app_o_root, "tema",   None)
+        self._idioma = getattr(app_o_root, "idioma", None)
 
         # Obtener root para el reloj
         if isinstance(app_o_root, tk.Tk):
@@ -54,26 +70,37 @@ class _BarraSuperior(tk.Frame):
         else:
             self._root = getattr(app_o_root, "root", parent.winfo_toplevel())
 
-        # Obtener colores iniciales según el tema activo
+        # Colores iniciales
         p = self._tema.paleta() if self._tema else _colores_claro()
 
         super().__init__(parent, bg=p["topbar_bg"], height=72)
         self.pack(fill="x", side="top")
         self.pack_propagate(False)
 
-        # Lista de (widget, clave_bg, clave_fg) para repintado automático
         self._repintables = []
-        self._img_refs    = []   # proteger imágenes de garbage collection
+        self._img_refs    = []
         self._btn_tema    = None
+        self._btn_idioma  = None
+
+        # Referencias a los labels de texto del topbar (para actualizar con idioma)
+        self._lbl_sistema1   = None
+        self._lbl_sistema2   = None
+        self._lbl_universidad = None
 
         self._construir(p)
 
-        # Registrarse en GestorTema para recibir cambios de tema
+        # Registrar en GestorTema
         if self._tema:
             self._tema.registrar(self._aplicar_tema)
 
+        # Registrar en GestorIdioma
+        if self._idioma:
+            self._idioma.registrar(self._aplicar_idioma)
+
     # ── Construcción ──────────────────────────────────────────────────────────
     def _construir(self, p):
+        i = self._idioma  # shorthand
+
         # Logo
         logo_wrap = tk.Frame(self, bg=p["topbar_bg"])
         logo_wrap.pack(side="left", padx=(14, 0), fill="y")
@@ -97,28 +124,32 @@ class _BarraSuperior(tk.Frame):
         sep.pack(side="left", fill="y", pady=14, padx=10)
         self._reg(sep, "topbar_separador")
 
-        # Nombre del sistema
+        # Nombre del sistema — textos desde GestorIdioma si está disponible
+        txt1 = i.t("topbar.sistema_linea1") if i else "SISTEMA DE CONTROL"
+        txt2 = i.t("topbar.sistema_linea2") if i else "BIOMÉTRICO"
+        txt3 = i.t("topbar.universidad")    if i else "Universidad de Colima"
+
         col = tk.Frame(self, bg=p["topbar_bg"])
         col.pack(side="left")
         self._reg(col, "topbar_bg")
 
-        l1 = tk.Label(col, text="SISTEMA DE CONTROL",
+        self._lbl_sistema1 = tk.Label(col, text=txt1,
                       font=("Segoe UI", 9, "bold"),
                       fg=p["topbar_titulo_fg"], bg=p["topbar_bg"])
-        l1.pack(anchor="w")
-        self._reg(l1, "topbar_bg", "topbar_titulo_fg")
+        self._lbl_sistema1.pack(anchor="w")
+        self._reg(self._lbl_sistema1, "topbar_bg", "topbar_titulo_fg")
 
-        l2 = tk.Label(col, text="BIOMÉTRICO",
+        self._lbl_sistema2 = tk.Label(col, text=txt2,
                       font=("Segoe UI", 10, "bold"),
                       fg=p["topbar_sistema_fg"], bg=p["topbar_bg"])
-        l2.pack(anchor="w")
-        self._reg(l2, "topbar_bg", "topbar_sistema_fg")
+        self._lbl_sistema2.pack(anchor="w")
+        self._reg(self._lbl_sistema2, "topbar_bg", "topbar_sistema_fg")
 
-        l3 = tk.Label(col, text="Universidad de Colima",
+        self._lbl_universidad = tk.Label(col, text=txt3,
                       font=("Segoe UI", 8),
                       fg=p["topbar_dim_fg"], bg=p["topbar_bg"])
-        l3.pack(anchor="w")
-        self._reg(l3, "topbar_bg", "topbar_dim_fg")
+        self._lbl_universidad.pack(anchor="w")
+        self._reg(self._lbl_universidad, "topbar_bg", "topbar_dim_fg")
 
         # Derecha: botones + fecha/hora
         der = tk.Frame(self, bg=p["topbar_bg"])
@@ -129,37 +160,44 @@ class _BarraSuperior(tk.Frame):
         btn_f.pack(side="right", padx=(8, 0), pady=18)
         self._reg(btn_f, "topbar_bg")
 
-        # Botón idioma (decorativo)
+        # ── Botón idioma ← CONECTADO AL GESTORIDIOMA ─────────────────────────
         ruta_idioma = _RAIZ / "assets" / "img" / "languageIcon.png"
-        btn_idioma = tk.Label(btn_f, bg=p["topbar_btn_bg"], padx=7, pady=2, cursor="hand2")
+        self._btn_idioma = tk.Label(
+            btn_f, bg=p["topbar_btn_bg"], padx=7, pady=2, cursor="hand2")
         if ruta_idioma.exists():
             img = self._cargar_img(ruta_idioma)
             if img:
-                btn_idioma.config(image=img)
+                self._btn_idioma.config(image=img)
         else:
-            btn_idioma.config(text="🌐", font=("Segoe UI", 14), fg=p["topbar_btn_fg"])
-            self._reg(btn_idioma, "topbar_btn_bg", "topbar_btn_fg")
-        btn_idioma.pack(side="right", padx=3)
-        self._reg(btn_idioma, "topbar_btn_bg")
-        btn_idioma.bind("<Enter>", lambda e: btn_idioma.config(bg=p["topbar_btn_hover"]))
-        btn_idioma.bind("<Leave>", lambda e: btn_idioma.config(bg=p["topbar_btn_bg"]))
+            self._btn_idioma.config(
+                text="🌐", font=("Segoe UI", 14), fg=p["topbar_btn_fg"])
+            self._reg(self._btn_idioma, "topbar_btn_bg", "topbar_btn_fg")
+        self._btn_idioma.pack(side="right", padx=3)
+        self._reg(self._btn_idioma, "topbar_btn_bg")
+        self._btn_idioma.bind("<Button-1>", lambda e: self._toggle_idioma())
+        self._btn_idioma.bind("<Enter>",
+            lambda e: self._btn_idioma.config(bg=p["topbar_btn_hover"]))
+        self._btn_idioma.bind("<Leave>",
+            lambda e: self._btn_idioma.config(bg=p["topbar_btn_bg"]))
 
         # ── Botón modo oscuro/claro ← CONECTADO AL GESTORTEMA ────────────────
-        # Al hacer clic llama _toggle_tema() → app.tema.toggle()
-        # → GestorTema notifica a todos los listeners → toda la UI se repinta
         ruta_dia = _RAIZ / "assets" / "img" / "lightModeIcon.png"
-        self._btn_tema = tk.Label(btn_f, bg=p["topbar_btn_bg"], padx=7, pady=2, cursor="hand2")
+        self._btn_tema = tk.Label(
+            btn_f, bg=p["topbar_btn_bg"], padx=7, pady=2, cursor="hand2")
         if ruta_dia.exists():
             img = self._cargar_img(ruta_dia)
             if img:
                 self._btn_tema.config(image=img)
         else:
             icono = "☀️" if (self._tema and self._tema.es_oscuro()) else "🌙"
-            self._btn_tema.config(text=icono, font=("Segoe UI", 14), fg=p["topbar_btn_fg"])
+            self._btn_tema.config(
+                text=icono, font=("Segoe UI", 14), fg=p["topbar_btn_fg"])
         self._btn_tema.pack(side="right", padx=3)
         self._btn_tema.bind("<Button-1>", lambda e: self._toggle_tema())
-        self._btn_tema.bind("<Enter>", lambda e: self._btn_tema.config(bg=p["topbar_btn_hover"]))
-        self._btn_tema.bind("<Leave>", lambda e: self._btn_tema.config(bg=p["topbar_btn_bg"]))
+        self._btn_tema.bind("<Enter>",
+            lambda e: self._btn_tema.config(bg=p["topbar_btn_hover"]))
+        self._btn_tema.bind("<Leave>",
+            lambda e: self._btn_tema.config(bg=p["topbar_btn_bg"]))
 
         # Fecha y hora
         dt = tk.Frame(der, bg=p["topbar_bg"])
@@ -206,19 +244,20 @@ class _BarraSuperior(tk.Frame):
         self._lbl_hora.pack(side="left")
         self._reg(self._lbl_hora, "topbar_bg", "topbar_dim_fg")
 
-        actualizar_fecha_hora(self._lbl_fecha, self._lbl_hora, self._root)
+        actualizar_fecha_hora(
+            self._lbl_fecha, self._lbl_hora, self._root, self._idioma)
 
-    # ── Toggle del tema ───────────────────────────────────────────────────────
+    # ── Toggles ───────────────────────────────────────────────────────────────
     def _toggle_tema(self):
-        """Alterna el tema. GestorTema notifica a todos los registrados."""
         if self._tema:
             self._tema.toggle()
 
+    def _toggle_idioma(self):
+        if self._idioma:
+            self._idioma.toggle()
+
     # ── Respuesta al cambio de tema ───────────────────────────────────────────
     def _aplicar_tema(self, p: dict):
-        """Recibe la nueva paleta y repinta todos los widgets del header.
-        Llamado automáticamente por GestorTema cuando el tema cambia.
-        """
         try:
             self.configure(bg=p["topbar_bg"])
             for widget, bg_k, fg_k in self._repintables:
@@ -240,11 +279,30 @@ class _BarraSuperior(tk.Frame):
         except tk.TclError:
             pass
 
+    # ── Respuesta al cambio de idioma ─────────────────────────────────────────
+    def _aplicar_idioma(self):
+        """Actualiza los textos del topbar cuando cambia el idioma."""
+        i = self._idioma
+        if not i:
+            return
+        try:
+            if self._lbl_sistema1 and self._lbl_sistema1.winfo_exists():
+                self._lbl_sistema1.config(text=i.t("topbar.sistema_linea1"))
+            if self._lbl_sistema2 and self._lbl_sistema2.winfo_exists():
+                self._lbl_sistema2.config(text=i.t("topbar.sistema_linea2"))
+            if self._lbl_universidad and self._lbl_universidad.winfo_exists():
+                self._lbl_universidad.config(text=i.t("topbar.universidad"))
+            # La fecha se actualiza sola en el siguiente tick del reloj
+            # (ya usa self._idioma en su loop)
+        except tk.TclError:
+            pass
+
     # ── Destrucción limpia ────────────────────────────────────────────────────
     def destroy(self):
-        """Se desregistra del GestorTema antes de destruirse."""
         if self._tema:
             self._tema.desregistrar(self._aplicar_tema)
+        if self._idioma:
+            self._idioma.desregistrar(self._aplicar_idioma)
         super().destroy()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
