@@ -1,144 +1,147 @@
 """
 core/gpio.py
 Control de GPIO para el sistema de acceso biométrico.
+Usa gpiozero con relé activo en LOW (active_high=False).
 
-Componentes según especificación del equipo:
+Componentes:
   Solenoide  (IN1 relé)      → GPIO 17  (PIN 11)
   Actuador sale (IN2 relé)   → GPIO 27  (PIN 13)
   Actuador entra (IN3 relé)  → GPIO 22  (PIN 15)
   LED RGB Rojo               → GPIO 18  (PIN 12)
   LED RGB Verde              → GPIO 23  (PIN 16)
-  Buzzer                     → GPIO 25  (PIN 22)
+  Buzzer                     → GPIO 25  (PIN 22)  ← pendiente de conectar
 
-En entorno de desarrollo (laptop) simula las llamadas sin error.
+Secuencia acceso concedido:
+  1. LED verde ON
+  2. Solenoide ON → 1.5s → OFF
+  3. Espera 0.5s
+  4. Actuador sale ON → 7s → OFF
+  5. LED verde OFF
+  6. Actuador entra ON → 7s → OFF
+
+Secuencia acceso denegado:
+  1. LED rojo ON → 2s → OFF
 """
 
 import platform
 import threading
+import time
 
-# ── Detectar si estamos en Raspberry Pi ───────────────────────────────────────
 _ES_RASPBERRY = platform.machine() in ("aarch64", "armv7l")
 
-# ── Pines BCM ─────────────────────────────────────────────────────────────────
-PIN_SOLENOIDE      = 17   # IN1 — abre la puerta
-PIN_ACTUADOR_SALE  = 27   # IN2 — actuador lineal sale
-PIN_ACTUADOR_ENTRA = 22   # IN3 — actuador lineal entra
-PIN_LED_R          = 18   # LED RGB rojo
-PIN_LED_V          = 23   # LED RGB verde
-PIN_BUZZER         = 25   # Buzzer
+# ── Setup gpiozero ────────────────────────────────────────────────────────────
+try:
+    from gpiozero import OutputDevice
+    from gpiozero import Device
 
-# ── Setup ─────────────────────────────────────────────────────────────────────
-if _ES_RASPBERRY:
-    try:
-        import RPi.GPIO as GPIO
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)
-        GPIO.setup(PIN_SOLENOIDE,      GPIO.OUT, initial=GPIO.LOW)
-        GPIO.setup(PIN_ACTUADOR_SALE,  GPIO.OUT, initial=GPIO.LOW)
-        GPIO.setup(PIN_ACTUADOR_ENTRA, GPIO.OUT, initial=GPIO.LOW)
-        GPIO.setup(PIN_LED_R,          GPIO.OUT, initial=GPIO.LOW)
-        GPIO.setup(PIN_LED_V,          GPIO.OUT, initial=GPIO.LOW)
-        GPIO.setup(PIN_BUZZER,         GPIO.OUT, initial=GPIO.LOW)
-        _GPIO_OK = True
-        print("[GPIO] Inicializado correctamente")
-    except Exception as e:
-        print(f"[GPIO] Error al inicializar: {e}")
-        _GPIO_OK = False
-else:
-    _GPIO_OK = False
-    print("[GPIO] Modo simulación (no es Raspberry Pi)")
-
-
-# ── Helpers internos ──────────────────────────────────────────────────────────
-def _set(pin, estado):
-    if _ES_RASPBERRY and _GPIO_OK:
-        import RPi.GPIO as GPIO
-        GPIO.output(pin, GPIO.HIGH if estado else GPIO.LOW)
+    if not _ES_RASPBERRY:
+        from gpiozero.pins.mock import MockFactory
+        Device.pin_factory = MockFactory()
+        print("[GPIO] Modo simulación (MockFactory)")
     else:
-        print(f"[GPIO SIM] Pin {pin} → {'HIGH' if estado else 'LOW'}")
+        print("[GPIO] Inicializado en Raspberry Pi con gpiozero")
+
+    # Relé activo en LOW → active_high=False, initial_value=True (relé abierto)
+    solenoide      = OutputDevice(17, active_high=False, initial_value=True)
+    actuador_sale  = OutputDevice(27, active_high=False, initial_value=True)
+    actuador_entra = OutputDevice(22, active_high=False, initial_value=True)
+    led_rojo       = OutputDevice(18, active_high=False, initial_value=True)
+    led_verde      = OutputDevice(23, active_high=False, initial_value=True)
+    # buzzer       = OutputDevice(25, active_high=False, initial_value=True)
+
+    _GPIO_OK = True
+
+except Exception as e:
+    print(f"[GPIO] Error al inicializar: {e}")
+    _GPIO_OK = False
+
+    class _Dummy:
+        def on(self):  print(f"[GPIO SIM] ON")
+        def off(self): print(f"[GPIO SIM] OFF")
+
+    solenoide = _Dummy()
+    actuador_sale = _Dummy()
+    actuador_entra = _Dummy()
+    led_rojo = _Dummy()
+    led_verde = _Dummy()
 
 
-def _pulso(pin, duracion):
-    """Enciende un pin por `duracion` segundos y lo apaga."""
-    _set(pin, True)
-    threading.Timer(duracion, lambda: _set(pin, False)).start()
-
-
-def _beep(frecuencia_ms, repeticiones, pausa_ms):
-    """Genera beeps en el buzzer."""
-    def _secuencia():
-        import time
-        for _ in range(repeticiones):
-            _set(PIN_BUZZER, True)
-            time.sleep(frecuencia_ms / 1000)
-            _set(PIN_BUZZER, False)
-            time.sleep(pausa_ms / 1000)
-    threading.Thread(target=_secuencia, daemon=True).start()
+# ── Tiempos ───────────────────────────────────────────────────────────────────
+_T_SOLENOIDE    = 1.5   # segundos que el solenoide permanece abierto
+_T_PAUSA        = 0.5   # pausa entre solenoide y actuador
+_T_ACTUADOR     = 7.0   # segundos que tarda el actuador (200mm / 30mm·s⁻¹ ≈ 6.7s)
+_T_LED_DENEGADO = 2.0   # segundos que el LED rojo permanece encendido
 
 
 # ── API pública ───────────────────────────────────────────────────────────────
 def acceso_concedido():
     """
-    Acceso OK:
-      - LED verde 3 segundos
-      - 2 beeps cortos
-      - Solenoide abre 0.5s
-      - Actuador sale 2s → pausa → actuador entra 2s
+    Secuencia de acceso concedido (no bloqueante).
+
+      1. LED verde ON
+      2. Solenoide ON → 1.5s → OFF
+      3. Espera 0.5s
+      4. Actuador sale ON → 7s → OFF
+      5. LED verde OFF
+      6. Actuador entra ON → 7s → OFF
     """
     def _secuencia():
-        import time
+        print("[GPIO] Acceso concedido — iniciando secuencia")
 
-        # LED verde + beeps
-        _set(PIN_LED_V, True)
-        _set(PIN_LED_R, False)
-        _beep(frecuencia_ms=100, repeticiones=2, pausa_ms=80)
+        # 1. LED verde
+        led_verde.on()
+        print("[GPIO] LED verde ON")
 
-        # Solenoide abre
-        _set(PIN_SOLENOIDE, True)
-        time.sleep(0.5)
+        # 2. Solenoide
+        solenoide.on()
+        print(f"[GPIO] Solenoide ON → {_T_SOLENOIDE}s")
+        time.sleep(_T_SOLENOIDE)
+        solenoide.off()
+        print("[GPIO] Solenoide OFF")
 
-        # Actuador sale
-        _set(PIN_ACTUADOR_SALE, True)
-        time.sleep(2.0)
-        _set(PIN_ACTUADOR_SALE, False)
+        # 3. Pausa
+        time.sleep(_T_PAUSA)
 
-        # Puerta abierta
-        time.sleep(2.5)
+        # 4. Actuador sale
+        actuador_sale.on()
+        print(f"[GPIO] Actuador SALE ON → {_T_ACTUADOR}s")
+        time.sleep(_T_ACTUADOR)
+        actuador_sale.off()
+        print("[GPIO] Actuador SALE OFF")
 
-        # Actuador entra
-        _set(PIN_ACTUADOR_ENTRA, True)
-        time.sleep(2.0)
-        _set(PIN_ACTUADOR_ENTRA, False)
+        # 5. LED verde OFF
+        led_verde.off()
+        print("[GPIO] LED verde OFF")
 
-        # Solenoide cierra
-        _set(PIN_SOLENOIDE, False)
-
-        # LED verde apaga
-        _set(PIN_LED_V, False)
+        # 6. Actuador entra
+        actuador_entra.on()
+        print(f"[GPIO] Actuador ENTRA ON → {_T_ACTUADOR}s")
+        time.sleep(_T_ACTUADOR)
+        actuador_entra.off()
+        print("[GPIO] Actuador ENTRA OFF — secuencia completa")
 
     threading.Thread(target=_secuencia, daemon=True).start()
 
 
 def acceso_denegado():
     """
-    Acceso DENEGADO:
-      - LED rojo 2 segundos
-      - 3 beeps largos de alerta
+    Secuencia de acceso denegado (no bloqueante).
+      - LED rojo ON → 2s → OFF
       - Solenoide NO se activa
     """
-    _pulso(PIN_LED_R, 2.0)
-    _beep(frecuencia_ms=300, repeticiones=3, pausa_ms=100)
+    def _secuencia():
+        print("[GPIO] Acceso denegado")
+        led_rojo.on()
+        print(f"[GPIO] LED rojo ON → {_T_LED_DENEGADO}s")
+        time.sleep(_T_LED_DENEGADO)
+        led_rojo.off()
+        print("[GPIO] LED rojo OFF")
+
+    threading.Thread(target=_secuencia, daemon=True).start()
 
 
 def apagar_todo():
-    """Apaga todos los pines. Llamar al cerrar la app."""
-    for pin in (PIN_SOLENOIDE, PIN_ACTUADOR_SALE, PIN_ACTUADOR_ENTRA,
-                PIN_LED_R, PIN_LED_V, PIN_BUZZER):
-        _set(pin, False)
-    if _ES_RASPBERRY and _GPIO_OK:
-        try:
-            import RPi.GPIO as GPIO
-            GPIO.cleanup()
-            print("[GPIO] Cleanup realizado")
-        except Exception:
-            pass
+    """Apaga todos los dispositivos. Llamar al cerrar la app."""
+    for device in (solenoide, actuador_sale, actuador_entra, led_rojo, led_verde):
+        device.off()
+    print("[GPIO] Todos los pines apagados")
