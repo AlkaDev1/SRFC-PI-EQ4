@@ -1,10 +1,10 @@
 ﻿"""
 ui/screens/historial_accesos.py
-CAMBIOS v2:
-  - __init__ recibe datos=None con {"id_rol": ...}
-  - _cerrar() redirige según rol:
-      id_rol 1,2 (Admin/SuperAdmin) → "gestion_real"
-      id_rol 3 (Maestro) o None     → "principal"
+
+CAMBIOS v3:
+  - Filtros Rol y Mes: primera opción "Ninguno" (muestra todo)
+  - Menús usan menu.post() en lugar de tk_popup() → se mantienen
+    abiertos sin necesidad de mantener presionado
 """
 
 import sys
@@ -32,6 +32,11 @@ _MESES_NUM = {
     "Mayo":"05","Junio":"06","Julio":"07","Agosto":"08",
     "Septiembre":"09","Octubre":"10","Noviembre":"11","Diciembre":"12",
 }
+
+# Opciones de filtros — "Ninguno" como primera opción muestra todo
+_OPCIONES_ROL = ["Ninguno", "Alumno", "Admin", "Profesor", "SuperAdmin", "SuperUsuario"]
+_OPCIONES_MES = ["Ninguno", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                 "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
 
 _C = {
     "bg_app":"#f3f4f5","card_bg":"#ffffff","texto_titulo":"#1f2328",
@@ -65,11 +70,10 @@ class PantallaHistorialAccesos:
         self.parent  = parent
         self.app     = app
         self._p      = _paleta(app)
-        # ── id_rol del usuario que accedió → determina a dónde regresa ────────
         self._id_rol = (datos or {}).get("id_rol")
 
-        self._filtro_rol = tk.StringVar(value="Todos los roles")
-        self._filtro_mes = tk.StringVar(value="Mes")
+        self._filtro_rol = tk.StringVar(value="Ninguno")
+        self._filtro_mes = tk.StringVar(value="Ninguno")
         self._ico_flecha = None
         self._widgets_repintables = []
 
@@ -206,51 +210,60 @@ class PantallaHistorialAccesos:
     def _construir_botones_filtro(self):
         p = self._p
 
-        def _abrir_rol(event, btn):
+        # ── Botón Rol ─────────────────────────────────────────────────────────
+        def _abrir_rol():
             cp = self._p
             menu = tk.Menu(self._filtros_frame, tearoff=0, font=("Segoe UI", 9),
                            bg=cp["card_bg"], fg=cp["texto_oscuro"],
                            activebackground=cp["btn_bg"], activeforeground="#ffffff")
-            for op in ["Todos los roles","Alumno","Admin","Profesor","SuperAdmin","SuperUsuario"]:
+            for op in _OPCIONES_ROL:
                 menu.add_command(label=op,
-                    command=lambda o=op: [self._filtro_rol.set(o),
-                                          btn.config(text=f"  {o}"),
-                                          self._cargar_datos()])
-            menu.tk_popup(btn.winfo_rootx(), btn.winfo_rooty()+btn.winfo_height())
+                    command=lambda o=op: [
+                        self._filtro_rol.set(o),
+                        self._btn_rol.config(text=f"  {o}"),
+                        self._cargar_datos(),
+                    ])
+            x = self._btn_rol.winfo_rootx()
+            y = self._btn_rol.winfo_rooty() + self._btn_rol.winfo_height()
+            menu.post(x, y)
 
         self._btn_rol = tk.Button(
-            self._filtros_frame, text="  Todos los roles",
+            self._filtros_frame, text="  Ninguno",
             image=self._ico_flecha, compound="right",
             font=("Segoe UI", 9, "bold"),
             fg=p["filtro_fg"], bg=p["filtro_bg"], activebackground=p["borde"],
             relief="flat", bd=0, padx=8, pady=5,
             highlightthickness=2, highlightbackground=p["filtro_borde"],
-            cursor="hand2")
-        self._btn_rol.bind("<Button-1>", lambda e: _abrir_rol(e, self._btn_rol))
+            cursor="hand2",
+            command=_abrir_rol)
         self._btn_rol.pack(side="left", padx=(0, 8))
 
-        def _abrir_mes(event, btn):
+        # ── Botón Mes ─────────────────────────────────────────────────────────
+        def _abrir_mes():
             cp = self._p
             menu = tk.Menu(self._filtros_frame, tearoff=0, font=("Segoe UI", 9),
                            bg=cp["card_bg"], fg=cp["texto_oscuro"],
                            activebackground=cp["btn_bg"], activeforeground="#ffffff")
-            for op in ["Mes","Enero","Febrero","Marzo","Abril","Mayo","Junio",
-                       "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]:
+            for op in _OPCIONES_MES:
                 menu.add_command(label=op,
-                    command=lambda o=op: [self._filtro_mes.set(o),
-                                          btn.config(text=f"  {o}"),
-                                          self._cargar_datos()])
-            menu.tk_popup(btn.winfo_rootx(), btn.winfo_rooty()+btn.winfo_height())
+                    command=lambda o=op: [
+                        self._filtro_mes.set(o),
+                        self._btn_mes.config(text=f"  {o}"),
+                        self._cargar_datos(),
+                    ])
+            x = self._btn_mes.winfo_rootx()
+            y = self._btn_mes.winfo_rooty() + self._btn_mes.winfo_height()
+            menu.post(x, y)
 
         self._btn_mes = tk.Button(
-            self._filtros_frame, text="  Mes",
+            self._filtros_frame, text="  Ninguno",
             image=self._ico_flecha, compound="right",
             font=("Segoe UI", 9, "bold"),
             fg=p["filtro_fg"], bg=p["filtro_bg"], activebackground=p["borde"],
             relief="flat", bd=0, padx=8, pady=5,
             highlightthickness=2, highlightbackground=p["filtro_borde"],
-            cursor="hand2")
-        self._btn_mes.bind("<Button-1>", lambda e: _abrir_mes(e, self._btn_mes))
+            cursor="hand2",
+            command=_abrir_mes)
         self._btn_mes.pack(side="left")
 
     def _construir_tabla(self):
@@ -304,10 +317,11 @@ class PantallaHistorialAccesos:
             WHERE 1=1
         """
         params = []
-        if rol and rol != "Todos los roles":
+        # "Ninguno" = sin filtro
+        if rol and rol != "Ninguno":
             sql += " AND COALESCE(r.nombre,'Sin rol') = ?"
             params.append(rol)
-        if mes and mes not in ("Mes","Todos"):
+        if mes and mes != "Ninguno":
             mes_num = _MESES_NUM.get(mes)
             if mes_num:
                 sql += " AND strftime('%m', a.fecha) = ?"
@@ -350,8 +364,6 @@ class PantallaHistorialAccesos:
         if not hasattr(self.app, "mostrar_pantalla"):
             self.parent.winfo_toplevel().destroy()
             return
-        # Admin/SuperAdmin (id_rol 1 o 2) → volver a gestión
-        # Maestro (id_rol 3) o sin rol   → volver a principal
         if self._id_rol in (1, 2):
             self.app.mostrar_pantalla("gestion_real")
         else:
