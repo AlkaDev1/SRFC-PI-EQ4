@@ -178,6 +178,7 @@ class PantallaAgregarUsuario:
         self.app     = app
         self.datos   = datos or {}
         self._p      = _paleta(app)
+        self._idioma = getattr(app, "idioma", None)
         self._ico_flecha  = None
         self._img_ojo_on  = None
         self._img_ojo_off = None
@@ -190,6 +191,10 @@ class PantallaAgregarUsuario:
         self._entradas    = {}
 
         self._encoding = self.datos.get("face_encoding", None)
+    self._roles_canon     = ["Alumno", "Maestro", "Admin", "Super Admin"]
+    self._programas_canon = ["Software", "Mecatrónica"]
+    self._status_canon_list = ["Activo", "Inactivo"]
+    self._actualizar_mapas_idioma()
 
         self._cargar_iconos()
         self._construir_ui()
@@ -197,6 +202,41 @@ class PantallaAgregarUsuario:
         if hasattr(app, "tema"):
             app.tema.registrar(self._on_tema_cambio)
         self.pantalla.bind("<Destroy>", self._limpiar_tema)
+
+    def _t(self, clave: str, fallback: str = "") -> str:
+        idioma = getattr(self.app, "idioma", None)
+        return idioma.t(clave, fallback) if idioma else fallback
+
+    def _actualizar_mapas_idioma(self):
+        roles_disp = self._t("agregar_usuario.roles", self._roles_canon)
+        programas_disp = self._t("agregar_usuario.programas", self._programas_canon)
+        status_disp = self._t("agregar_usuario.status", self._status_canon_list)
+
+        if not isinstance(roles_disp, list) or len(roles_disp) != len(self._roles_canon):
+            roles_disp = self._roles_canon
+        if not isinstance(programas_disp, list) or len(programas_disp) != len(self._programas_canon):
+            programas_disp = self._programas_canon
+        if not isinstance(status_disp, list) or len(status_disp) != len(self._status_canon_list):
+            status_disp = self._status_canon_list
+
+        self._roles_disp = roles_disp
+        self._programas_disp = programas_disp
+        self._status_disp = status_disp
+        self._rol_a_canon = dict(zip(self._roles_disp, self._roles_canon))
+        self._canon_a_rol = dict(zip(self._roles_canon, self._roles_disp))
+        self._programa_a_canon = dict(zip(self._programas_disp, self._programas_canon))
+        self._canon_a_programa = dict(zip(self._programas_canon, self._programas_disp))
+        self._status_a_canon = dict(zip(self._status_disp, self._status_canon_list))
+        self._canon_a_status = dict(zip(self._status_canon_list, self._status_disp))
+
+    def _rol_canon(self, valor: str) -> str:
+        return self._rol_a_canon.get(valor, valor)
+
+    def _programa_canon(self, valor: str) -> str:
+        return self._programa_a_canon.get(valor, valor)
+
+    def _status_a_canonico(self, valor: str) -> str:
+        return self._status_a_canon.get(valor, valor)
 
     def _cargar_iconos(self):
         if not _PIL_OK:
@@ -391,12 +431,12 @@ class PantallaAgregarUsuario:
         canvas.create_arc(10, 38, 70, 80, start=0, extent=180,
                           fill=p["texto2"], outline="", style="chord")
 
-        tk.Label(self._panel, text="ESCANEO FACIAL",
+        tk.Label(self._panel, text=self._t("agregar_usuario.panel_titulo", "ESCANEO FACIAL"),
                  font=("Segoe UI", 11, "bold"),
                  fg=p["panel_fg"], bg=p["panel_bg"]).pack(pady=(0, 4))
 
         tk.Label(self._panel,
-                 text="Presiona el botón para\ncapturar tu rostro",
+             text=self._t("agregar_usuario.panel_desc", "Presiona el botón para\ncapturar tu rostro"),
                  font=("Segoe UI", 9),
                  fg=p["panel_fg2"], bg=p["panel_bg"],
                  justify="center").pack(pady=(0, 16))
@@ -406,7 +446,7 @@ class PantallaAgregarUsuario:
             return
 
         tk.Button(
-            self._panel, text="📷  CAPTURAR ROSTRO",
+            self._panel, text=self._t("agregar_usuario.btn_capturar", "📷  CAPTURAR ROSTRO"),
             font=("Segoe UI", 10, "bold"),
             fg="#ffffff", bg=p["verde_btn"],
             activebackground=p["verde_hover"], activeforeground="#ffffff",
@@ -414,7 +454,7 @@ class PantallaAgregarUsuario:
             command=self._ir_a_captura).pack(padx=20, fill="x")
 
         tk.Label(self._panel,
-                 text="La captura se realiza\nen pantalla completa",
+                 text=self._t("agregar_usuario.panel_nota", "La captura se realiza\nen pantalla completa"),
                  font=("Segoe UI", 7),
                  fg=p["panel_fg2"], bg=p["panel_bg"],
                  justify="center").pack(pady=(8, 0))
@@ -433,18 +473,18 @@ class PantallaAgregarUsuario:
         c.create_text(35, 35, text="✓", font=("Segoe UI", 28, "bold"),
                       fill="#43a047")
 
-        tk.Label(self._panel, text="ROSTRO CAPTURADO",
+        tk.Label(self._panel, text=self._t("agregar_usuario.panel_capturado_titulo", "ROSTRO CAPTURADO"),
                  font=("Segoe UI", 11, "bold"),
                  fg="#2e7d32", bg=p["panel_bg"]).pack(pady=(0, 4))
 
         tk.Label(self._panel,
-                 text="Encoding facial listo.\nPuedes confirmar el registro.",
+                 text=self._t("agregar_usuario.panel_capturado_desc", "Encoding facial listo.\nPuedes confirmar el registro."),
                  font=("Segoe UI", 9),
                  fg=p["panel_fg2"], bg=p["panel_bg"],
                  justify="center").pack(pady=(0, 16))
 
         tk.Button(
-            self._panel, text="↺  RECAPTURAR",
+            self._panel, text=self._t("agregar_usuario.btn_recapturar", "↺  RECAPTURAR"),
             font=("Segoe UI", 9, "bold"),
             fg="#ffffff", bg="#757575",
             activebackground="#424242", activeforeground="#ffffff",
@@ -468,7 +508,7 @@ class PantallaAgregarUsuario:
 
         encab = tk.Frame(self._col_form_frame, bg=p["bg"])
         encab.pack(fill="x", pady=(4, 0), padx=12)
-        tk.Label(encab, text="Ingrese los datos de la persona",
+        tk.Label(encab, text=self._t("agregar_usuario.instruccion", "Ingrese los datos de la persona"),
                  font=_F_INSTRUC, fg=p["texto2"], bg=p["bg"]).pack(anchor="w")
 
         # Pie siempre visible
@@ -477,7 +517,7 @@ class PantallaAgregarUsuario:
 
         estado_btn = "normal" if self._encoding is not None else "disabled"
         self._btn_confirmar = tk.Button(
-            self._pie_form, text="CONFIRMAR",
+            self._pie_form, text=self._t("agregar_usuario.btn_confirmar", "CONFIRMAR"),
             font=_F_BTN, fg="#ffffff",
             bg=p["verde_btn"], activebackground=p["verde_hover"],
             activeforeground="#ffffff",
@@ -486,7 +526,7 @@ class PantallaAgregarUsuario:
         self._btn_confirmar.pack(side="left", padx=(0, 6))
 
         self._btn_cancelar = tk.Button(
-            self._pie_form, text="CANCELAR",
+            self._pie_form, text=self._t("agregar_usuario.btn_cancelar", "CANCELAR"),
             font=_F_BTN, fg="#ffffff",
             bg=p["rojo_btn"], activebackground=p["rojo_hover"],
             activeforeground="#ffffff",
@@ -506,26 +546,27 @@ class PantallaAgregarUsuario:
         self._form.columnconfigure(0, weight=1)
         self._form.columnconfigure(1, weight=1)
 
-        self._campo(self._form, 0, 0, "Codigo Institucional", "cod_institucional")
-        self._campo(self._form, 0, 1, "Nombre(s)",            "nombre")
-        self._campo(self._form, 1, 0, "Apellido Paterno",     "apellido_paterno")
-        self._campo(self._form, 1, 1, "Apellido Materno",     "apellido_materno")
+        self._campo(self._form, 0, 0, self._t("agregar_usuario.campo_cod", "Codigo Institucional"), "cod_institucional")
+        self._campo(self._form, 0, 1, self._t("agregar_usuario.campo_nombre", "Nombre(s)"),            "nombre")
+        self._campo(self._form, 1, 0, self._t("agregar_usuario.campo_ap_paterno", "Apellido Paterno"),     "apellido_paterno")
+        self._campo(self._form, 1, 1, self._t("agregar_usuario.campo_ap_materno", "Apellido Materno"),     "apellido_materno")
 
         self._recargar_ico_flecha()
 
         # Programa Académico — siempre visible, desactivado si no es Alumno
-        self._carrera_var = tk.StringVar(value=self.datos.get("carrera", "Software"))
+        carrera_base = self.datos.get("carrera", "Software")
+        self._carrera_var = tk.StringVar(value=self._canon_a_programa.get(carrera_base, carrera_base))
         sub_c = tk.Frame(self._form, bg=p["bg"])
         sub_c.grid(row=2, column=0, padx=(0,4), pady=2, sticky="ew")
         self._reg(sub_c, "bg")
-        self._lbl_carrera = tk.Label(sub_c, text="Programa Académico",
+        self._lbl_carrera = tk.Label(sub_c, text=self._t("agregar_usuario.campo_programa", "Programa Académico"),
                                       font=_F_LABEL, fg=p["texto2"], bg=p["bg"])
         self._lbl_carrera.pack(anchor="w")
 
-        rol_inicial = self.datos.get("rol", "Alumno")
+        rol_inicial = self._rol_canon(self.datos.get("rol", "Alumno"))
         habilitado  = rol_inicial in _ROLES_CON_PROGRAMA
         self._btn_carrera = _hacer_dropdown(
-            sub_c, self._carrera_var, _PROGRAMAS, p,
+            sub_c, self._carrera_var, self._programas_disp, p,
             self._ico_flecha, habilitado=habilitado)
         self._btn_carrera.pack(fill="x", ipady=2, pady=(1,0))
 
@@ -534,7 +575,7 @@ class PantallaAgregarUsuario:
         sub_r = tk.Frame(self._form, bg=p["bg"])
         sub_r.grid(row=2, column=1, padx=(4,0), pady=2, sticky="ew")
         self._reg(sub_r, "bg")
-        tk.Label(sub_r, text="Rol", font=_F_LABEL,
+        tk.Label(sub_r, text=self._t("agregar_usuario.campo_rol", "Rol"), font=_F_LABEL,
                  fg=p["texto2"], bg=p["bg"]).pack(anchor="w")
 
         def _abrir_rol():
@@ -542,7 +583,7 @@ class PantallaAgregarUsuario:
                            bg=p["bg"], fg=p["texto"],
                            activebackground=p["verde_m"],
                            activeforeground="#ffffff")
-            for op in ["Alumno", "Maestro", "Admin", "Super Admin"]:
+            for op in self._roles_disp:
                 menu.add_command(label=op,
                     command=lambda o=op: [
                         self._rol_var.set(o),
@@ -564,26 +605,27 @@ class PantallaAgregarUsuario:
         self._btn_rol.pack(fill="x", ipady=2, pady=(1,0))
 
         # Status
-        self._status_var = tk.StringVar(value=self.datos.get("status", "Activo"))
+        status_base = self.datos.get("status", "Activo")
+        self._status_var = tk.StringVar(value=self._canon_a_status.get(status_base, status_base))
         sub_s = tk.Frame(self._form, bg=p["bg"])
         sub_s.grid(row=3, column=0, columnspan=2, pady=2, sticky="ew")
         self._reg(sub_s, "bg")
-        tk.Label(sub_s, text="Status", font=_F_LABEL,
+        tk.Label(sub_s, text=self._t("agregar_usuario.campo_status", "Status"), font=_F_LABEL,
                  fg=p["texto2"], bg=p["bg"]).pack(anchor="w")
         self._btn_status = _hacer_dropdown(
-            sub_s, self._status_var, ["Activo", "Inactivo"], p, self._ico_flecha)
+            sub_s, self._status_var, self._status_disp, p, self._ico_flecha)
         self._btn_status.pack(fill="x", ipady=2, pady=(1,0))
 
         # Contraseña
         self._sub_password = tk.Frame(self._form, bg=p["bg"])
         _, self._ent_password, w1, o1 = _campo_password(
             self._sub_password, p,
-            "Contraseña  (mayúscula, minúscula y número)",
+            self._t("agregar_usuario.campo_password", "Contraseña  (mayúscula, minúscula y número)"),
             self._img_ojo_on, self._img_ojo_off)
         self._pwd_wrappers.append((w1, o1))
         tk.Frame(self._sub_password, bg=p["bg"], height=3).pack()
         _, self._ent_password2, w2, o2 = _campo_password(
-            self._sub_password, p, "Confirmar contraseña",
+            self._sub_password, p, self._t("agregar_usuario.campo_confirmar_password", "Confirmar contraseña"),
             self._img_ojo_on, self._img_ojo_off)
         self._pwd_wrappers.append((w2, o2))
         self._entradas["password"]  = self._ent_password
@@ -597,18 +639,19 @@ class PantallaAgregarUsuario:
     # ══════════════════════════════════════════════════════════════════════════
     def _on_rol_cambio(self, rol, init=False):
         p = self._p
-        habilitado = rol in _ROLES_CON_PROGRAMA
+        rol_canon = self._rol_canon(rol)
+        habilitado = rol_canon in _ROLES_CON_PROGRAMA
 
         # Destruir y recrear el botón de carrera con el estado correcto
         self._btn_carrera.destroy()
         sub_c = self._lbl_carrera.master
         self._btn_carrera = _hacer_dropdown(
-            sub_c, self._carrera_var, _PROGRAMAS, p,
+            sub_c, self._carrera_var, self._programas_disp, p,
             self._ico_flecha, habilitado=habilitado)
         self._btn_carrera.pack(fill="x", ipady=2, pady=(1,0))
 
         # Contraseña
-        if rol in _ROLES_CON_PASSWORD:
+        if rol_canon in _ROLES_CON_PASSWORD:
             self._sub_password.grid(
                 row=4, column=0, columnspan=2,
                 padx=0, pady=2, sticky="ew")
@@ -643,16 +686,18 @@ class PantallaAgregarUsuario:
     #  NAVEGACIÓN
     # ══════════════════════════════════════════════════════════════════════════
     def _ir_a_captura(self):
+        rol_canon = self._rol_canon(self._rol_var.get())
+        carrera_canon = self._programa_canon(self._carrera_var.get())
         datos = {
             "cod_institucional": self._entradas["cod_institucional"].get().strip(),
             "nombre":            self._entradas["nombre"].get().strip(),
             "apellido_paterno":  self._entradas["apellido_paterno"].get().strip(),
             "apellido_materno":  self._entradas["apellido_materno"].get().strip(),
-            "carrera":           self._carrera_var.get(),
-            "rol":               self._rol_var.get(),
-            "status":            self._status_var.get(),
+            "carrera":           carrera_canon,
+            "rol":               rol_canon,
+            "status":            self._status_a_canonico(self._status_var.get()),
         }
-        if self._rol_var.get() in _ROLES_CON_PASSWORD:
+        if rol_canon in _ROLES_CON_PASSWORD:
             datos["_pwd1"] = self._ent_password.get()
             datos["_pwd2"] = self._ent_password2.get()
         self.app.mostrar_pantalla("captura_rostro", datos)
@@ -662,23 +707,23 @@ class PantallaAgregarUsuario:
     # ══════════════════════════════════════════════════════════════════════════
     def _guardar(self):
         if self._encoding is None:
-            self._lbl_aviso.config(text="Primero captura el rostro.")
+            self._lbl_aviso.config(text=self._t("agregar_usuario.error_sin_rostro", "Primero captura el rostro."))
             return
 
         cod       = self._entradas["cod_institucional"].get().strip()
         nombre    = self._entradas["nombre"].get().strip()
         apellidop = self._entradas["apellido_paterno"].get().strip()
-        rol       = self._rol_var.get()
-        carrera   = self._carrera_var.get() if rol in _ROLES_CON_PROGRAMA else None
+        rol       = self._rol_canon(self._rol_var.get())
+        carrera   = self._programa_canon(self._carrera_var.get()) if rol in _ROLES_CON_PROGRAMA else None
 
         if not cod:
-            self._lbl_aviso.config(text="El código es requerido.")
+            self._lbl_aviso.config(text=self._t("agregar_usuario.error_cod", "El código es requerido."))
             return
         if not nombre:
-            self._lbl_aviso.config(text="El nombre es requerido.")
+            self._lbl_aviso.config(text=self._t("agregar_usuario.error_nombre", "El nombre es requerido."))
             return
         if not apellidop:
-            self._lbl_aviso.config(text="El apellido paterno es requerido.")
+            self._lbl_aviso.config(text=self._t("agregar_usuario.error_apellido", "El apellido paterno es requerido."))
             return
 
         password_plain = None
@@ -690,11 +735,11 @@ class PantallaAgregarUsuario:
                 self._lbl_aviso.config(text=err)
                 return
             if pwd1 != pwd2:
-                self._lbl_aviso.config(text="Las contraseñas no coinciden.")
+                self._lbl_aviso.config(text=self._t("agregar_usuario.error_pwd_no_coinciden", "Las contraseñas no coinciden."))
                 return
             password_plain = pwd1
 
-        self._btn_confirmar.config(state="disabled", text="GUARDANDO...")
+        self._btn_confirmar.config(state="disabled", text=self._t("agregar_usuario.btn_confirmar_guardando", "GUARDANDO..."))
         encoding_snap = self._encoding
         password_snap = password_plain
 
@@ -726,11 +771,11 @@ class PantallaAgregarUsuario:
 
             def _result():
                 if ok:
-                    modal_info(self.pantalla, msg, titulo="Registro exitoso",
+                    modal_info(self.pantalla, msg, titulo=self._t("agregar_usuario.modal_exito_titulo", "Registro exitoso"),
                                on_ok=lambda: self.app.mostrar_pantalla("gestion_real"))
                 else:
                     self._lbl_aviso.config(text=msg)
-                    self._btn_confirmar.config(state="normal", text="CONFIRMAR")
+                    self._btn_confirmar.config(state="normal", text=self._t("agregar_usuario.btn_confirmar", "CONFIRMAR"))
             self.pantalla.after(0, _result)
 
         threading.Thread(target=_en_hilo, daemon=True).start()

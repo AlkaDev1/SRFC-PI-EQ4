@@ -18,6 +18,8 @@ class App:
         self.root   = root
         self.tema   = GestorTema()
         self.idioma = GestorIdioma()                        # ← NUEVO
+        self._pantalla_actual = None
+        self._datos_actuales = None
 
         self.contenedor = tk.Frame(root)
         self.contenedor.pack(fill="both", expand=True)
@@ -29,9 +31,14 @@ class App:
         else:
             self.teclado = None
 
+        self.idioma.registrar(self._refrescar_por_idioma)
+
         self.mostrar_pantalla("principal")
 
     def mostrar_pantalla(self, nombre, datos=None):
+        self._pantalla_actual = nombre
+        self._datos_actuales = datos
+
         for widget in self.contenedor.winfo_children():
             widget.destroy()
 
@@ -77,6 +84,12 @@ class App:
         elif nombre == "aviso_privacidad":
             from ui.screens.pantalla_aviso_privacidad import crear_pantalla_aviso_privacidad
             crear_pantalla_aviso_privacidad(self.contenedor, self)
+
+    def _refrescar_por_idioma(self):
+        """Redibuja la pantalla actual al cambiar idioma."""
+        if not self._pantalla_actual:
+            return
+        self.mostrar_pantalla(self._pantalla_actual, self._datos_actuales)
 
 
 def app():
