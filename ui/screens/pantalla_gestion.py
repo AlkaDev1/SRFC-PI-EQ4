@@ -8,13 +8,6 @@ CAMBIOS v5:
   - Si BD vacía → tabla vacía (sin _USUARIOS_DEMO)
 """
 
-import sys
-from pathlib import Path
-
-BASE_DIR = Path(__file__).resolve().parents[2]
-if str(BASE_DIR) not in sys.path:
-    sys.path.insert(0, str(BASE_DIR))
-
 import tkinter as tk
 from tkinter import ttk
 from datetime import datetime
@@ -96,18 +89,11 @@ class PantallaGestion:
         self.app    = app
         self._p     = _paleta(app)
         self._todos_usuarios      = []
-        self._idioma              = getattr(app, "idioma", None)
-    self._filtro_rol          = tk.StringVar(value="Ninguno")
-    self._filtro_mes          = tk.StringVar(value="Ninguno")
+        self._filtro_rol          = tk.StringVar(value="Ninguno")
+        self._filtro_mes          = tk.StringVar(value="Ninguno")
         self._ico_flecha          = None
         self._widgets_repintables = []
         self._btns_accion         = []
-        self._roles_canon         = ["Rol", "Alumno", "Maestro", "Admin", "Super Admin"]
-        self._meses_canon         = ["Mes", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-                         "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-        self._actualizar_mapas_idioma()
-        self._filtro_rol          = tk.StringVar(value=self._roles_disp[0])
-        self._filtro_mes          = tk.StringVar(value=self._meses_disp[0])
         inicializar_bd()
         self._construir_ui()
         self.pantalla.after(100, self._cargar_todo)
@@ -115,44 +101,6 @@ class PantallaGestion:
         if hasattr(app, "tema"):
             app.tema.registrar(self._on_tema_cambio)
         self.pantalla.bind("<Destroy>", self._limpiar_tema)
-
-    def _t(self, clave: str, fallback: str = "") -> str:
-        idioma = getattr(self.app, "idioma", None)
-        return idioma.t(clave, fallback) if idioma else fallback
-
-    def _actualizar_mapas_idioma(self):
-        roles_disp = self._t("gestion.roles", self._roles_canon)
-        meses_disp = self._t("gestion.meses", self._meses_canon)
-        columnas_disp = self._t("gestion.columnas", ["No. Inst.", "Nombre", "Ap. Paterno", "Ap. Materno",
-                                                     "Programa", "Rol", "Fecha/Hora", "Status", "Editar"])
-
-        if not isinstance(roles_disp, list) or len(roles_disp) != len(self._roles_canon):
-            roles_disp = self._roles_canon
-        if not isinstance(meses_disp, list) or len(meses_disp) != len(self._meses_canon):
-            meses_disp = self._meses_canon
-        if not isinstance(columnas_disp, list) or len(columnas_disp) != 9:
-            columnas_disp = ["No. Inst.", "Nombre", "Ap. Paterno", "Ap. Materno",
-                             "Programa", "Rol", "Fecha/Hora", "Status", "Editar"]
-
-        self._roles_disp = roles_disp
-        self._meses_disp = meses_disp
-        self._columnas_disp = columnas_disp
-        self._rol_a_canon = dict(zip(self._roles_disp, self._roles_canon))
-        self._canon_a_rol = dict(zip(self._roles_canon, self._roles_disp))
-
-    def _rol_canon(self, valor: str) -> str:
-        mapa = {
-            "student": "Alumno",
-            "teacher": "Maestro",
-            "profesor": "Maestro",
-            "maestro": "Maestro",
-            "alumno": "Alumno",
-            "admin": "Admin",
-            "super admin": "Super Admin",
-            "superadmin": "Super Admin",
-            "superusuario": "Super Admin",
-        }
-        return mapa.get((valor or "").lower().strip(), valor or "Rol")
 
     # ══════════════════════════════════════════════════════════════════════════
     #  TEMA
@@ -317,10 +265,10 @@ class PantallaGestion:
 
         self._tarjetas = {}
         specs = [
-            ("accesos_hoy",   self._t("gestion.tarjeta_accesos_hoy", "ACCESOS HOY"),      p["verde_claro"], "accesos_hoy_sub"),
-            ("total_alumnos", self._t("gestion.tarjeta_alumnos", "ALUMNOS"),           p["verde_claro"], "alumnos_sub"),
-            ("total_admins",  self._t("gestion.tarjeta_profesores", "PROFESORES"),        p["verde_claro"], "admins_sub"),
-            ("acc_denegados", self._t("gestion.tarjeta_denegados", "ACCESOS DENEGADOS"), p["rojo"],        "deny_sub"),
+            ("accesos_hoy",   "ACCESOS HOY",      p["verde_claro"], "accesos_hoy_sub"),
+            ("total_alumnos", "ALUMNOS",           p["verde_claro"], "alumnos_sub"),
+            ("total_admins",  "PROFESORES",        p["verde_claro"], "admins_sub"),
+            ("acc_denegados", "ACCESOS DENEGADOS", p["rojo"],        "deny_sub"),
         ]
 
         for i, (key, titulo, color_barra, key_sub) in enumerate(specs):
@@ -370,7 +318,7 @@ class PantallaGestion:
         cab.pack(fill="x", padx=16, pady=(10, 6))
         self._reg(cab, "card_bg")
 
-        lbl_u = tk.Label(cab, text=self._t("gestion.titulo_tabla", " USUARIOS "), font=("Segoe UI", 10, "bold"),
+        lbl_u = tk.Label(cab, text=" USUARIOS ", font=("Segoe UI", 10, "bold"),
                          fg="#ffffff", bg=p["verde_btn"], padx=8, pady=3)
         lbl_u.pack(side="left")
         self._reg(lbl_u, "verde_btn")
@@ -386,11 +334,7 @@ class PantallaGestion:
                            bg=cp["card_bg"], fg=cp["texto_oscuro"],
                            activebackground=cp["verde_claro"],
                            activeforeground="#ffffff")
-<<<<<<< HEAD
             for op in _OPCIONES_ROL:
-=======
-            for op in self._roles_disp:
->>>>>>> origin/nahum
                 menu.add_command(label=op,
                     command=lambda o=op: [
                         self._filtro_rol.set(o),
@@ -401,11 +345,7 @@ class PantallaGestion:
             y = self._btn_rol.winfo_rooty() + self._btn_rol.winfo_height()
             menu.post(x, y)
 
-<<<<<<< HEAD
         self._btn_rol = tk.Button(filtros, text="  Ninguno",
-=======
-        self._btn_rol = tk.Button(filtros, text=f"  {self._roles_disp[0]}",
->>>>>>> origin/nahum
                             image=self._ico_flecha, compound="right",
                             font=("Segoe UI", 9, "bold"),
                             fg=p["filtro_fg"], bg=p["filtro_bg"],
@@ -425,11 +365,7 @@ class PantallaGestion:
                            bg=cp["card_bg"], fg=cp["texto_oscuro"],
                            activebackground=cp["verde_claro"],
                            activeforeground="#ffffff")
-<<<<<<< HEAD
             for op in _OPCIONES_MES:
-=======
-            for op in self._meses_disp:
->>>>>>> origin/nahum
                 menu.add_command(label=op,
                     command=lambda o=op: [
                         self._filtro_mes.set(o),
@@ -440,11 +376,7 @@ class PantallaGestion:
             y = self._btn_mes.winfo_rooty() + self._btn_mes.winfo_height()
             menu.post(x, y)
 
-<<<<<<< HEAD
         self._btn_mes = tk.Button(filtros, text="  Ninguno",
-=======
-        self._btn_mes = tk.Button(filtros, text=f"  {self._meses_disp[0]}",
->>>>>>> origin/nahum
                             image=self._ico_flecha, compound="right",
                             font=("Segoe UI", 9, "bold"),
                             fg=p["filtro_fg"], bg=p["filtro_bg"],
@@ -473,16 +405,17 @@ class PantallaGestion:
         frame_t.pack(fill="both", expand=True, padx=14, pady=(0, 12))
         self._reg(frame_t, "card_bg")
 
-        cols = tuple(self._columnas_disp)
+        cols = ("No. Inst.", "Nombre", "Ap. Paterno", "Ap. Materno",
+                "Programa", "Rol", "Fecha/Hora", "Status", "Editar")
 
         self.tree_usuarios = ttk.Treeview(frame_t, columns=cols, show="headings",
                                           height=6, style="U.Treeview")
         anchos = {
-            self._columnas_disp[0]: 80, self._columnas_disp[1]: 80, self._columnas_disp[2]: 90,
-            self._columnas_disp[3]: 90, self._columnas_disp[4]: 110, self._columnas_disp[5]: 70,
-            self._columnas_disp[6]: 95, self._columnas_disp[7]: 60, self._columnas_disp[8]: 50,
+            "No. Inst.":   80, "Nombre":      80, "Ap. Paterno": 90,
+            "Ap. Materno": 90, "Programa":   110, "Rol":         70,
+            "Fecha/Hora":  95, "Status":      60, "Editar":      50,
         }
-        centradas = {self._columnas_disp[7], self._columnas_disp[8], self._columnas_disp[5]}
+        centradas = {"Status", "Editar", "Rol"}
         for col in cols:
             self.tree_usuarios.heading(col, text=col)
             self.tree_usuarios.column(
@@ -539,7 +472,7 @@ class PantallaGestion:
         self._ico_historial = self._cargar_icono("history.png")
         self._ico_cerrar    = self._cargar_icono("exit_to_app.png")
 
-        tk.Button(pie, text=self._t("gestion.btn_cerrar_sesion", "  CERRAR SESIÓN"),
+        tk.Button(pie, text="  CERRAR SESIÓN",
                   image=self._ico_cerrar, compound="left",
                   font=("Segoe UI", 9, "bold"),
                   fg="#ffffff", bg="#212121",
@@ -548,9 +481,9 @@ class PantallaGestion:
                   command=self._volver).pack(side="right")
 
         for texto, icono, cmd in [
-            (self._t("gestion.btn_agregar", "  AGREGAR USUARIO"), self._ico_agregar,
+            ("  AGREGAR USUARIO", self._ico_agregar,
              lambda: self.app.mostrar_pantalla("agregar_usuario")),
-            (self._t("gestion.btn_historial", "  HISTORIAL"), self._ico_historial,
+            ("  HISTORIAL", self._ico_historial,
              lambda: self.app.mostrar_pantalla("historial", {"id_rol": 2})),
         ]:
             btn = tk.Button(pie, text=texto,
@@ -586,15 +519,15 @@ class PantallaGestion:
         acc_hoy = len([a for a in accesos if a.get("fecha") == hoy])
 
         self._tarjetas["accesos_hoy"].config(text=str(acc_hoy))
-        self._tarjetas["accesos_hoy_sub"].config(text=self._t("gestion.tarjeta_accesos_sub", "accesos registrados hoy"))
+        self._tarjetas["accesos_hoy_sub"].config(text="accesos registrados hoy")
         self._tarjetas["total_alumnos"].config(text=str(alumnos))
         self._tarjetas["alumnos_sub"].config(
-            text=f"{round(alumnos/total*100)}% del total" if total else self._t("gestion.tarjeta_sin_registros", "Sin registros"))
+            text=f"{round(alumnos/total*100)}% del total" if total else "Sin registros")
         self._tarjetas["total_admins"].config(text=str(admins))
         self._tarjetas["admins_sub"].config(
-            text=f"{round(admins/total*100)}% del total" if total else self._t("gestion.tarjeta_sin_registros", "Sin registros"))
+            text=f"{round(admins/total*100)}% del total" if total else "Sin registros")
         self._tarjetas["acc_denegados"].config(text="0")
-        self._tarjetas["deny_sub"].config(text=self._t("gestion.tarjeta_denegados_sub", "accesos denegados hoy"),
+        self._tarjetas["deny_sub"].config(text="accesos denegados hoy",
                                           fg=p["rojo_claro"])
         self._todos_usuarios = usuarios
 
@@ -607,13 +540,17 @@ class PantallaGestion:
         mes_f = self._filtro_mes.get()
         datos = self._todos_usuarios
 
-        rol_f_canon = self._rol_canon(rol_f)
-        if rol_f and rol_f_canon != "Rol":
+        # "Ninguno" = sin filtro (mostrar todos)
+        if rol_f and rol_f != "Ninguno":
             datos = [u for u in datos
-                     if self._rol_canon(u.get("rol") or "") == rol_f_canon]
+                     if (u.get("rol") or "").lower() == rol_f.lower()]
 
-        meses_num = {nombre: f"{i:02d}" for i, nombre in enumerate(self._meses_disp[1:], 1)}
-        if mes_f and mes_f != self._meses_disp[0] and mes_f in meses_num:
+        meses_num = {
+            "Enero":"01","Febrero":"02","Marzo":"03","Abril":"04",
+            "Mayo":"05","Junio":"06","Julio":"07","Agosto":"08",
+            "Septiembre":"09","Octubre":"10","Noviembre":"11","Diciembre":"12",
+        }
+        if mes_f and mes_f != "Ninguno" and mes_f in meses_num:
             m = meses_num[mes_f]
             datos = [u for u in datos
                      if f"-{m}-" in (u.get("fecha_registro") or "")]
@@ -623,7 +560,7 @@ class PantallaGestion:
 
         if not datos:
             t.insert("", "end", tags=("vacio",),
-                     values=("", self._t("gestion.sin_usuarios", "Sin usuarios registrados"),
+                     values=("", "Sin usuarios registrados",
                              "", "", "", "", "", "", ""))
             return
 
@@ -649,15 +586,3 @@ class PantallaGestion:
 
 def crear_pantalla_gestion_real(parent, app):
     PantallaGestion(parent, app)
-
-
-if __name__ == "__main__":
-    class _AppDemo:
-        def mostrar_pantalla(self, _nombre):
-            pass
-
-    raiz = tk.Tk()
-    raiz.title("SRFC | Gestión de usuarios")
-    raiz.geometry("1200x760")
-    PantallaGestion(raiz, _AppDemo())
-    raiz.mainloop()
