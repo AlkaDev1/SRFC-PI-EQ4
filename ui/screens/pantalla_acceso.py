@@ -49,6 +49,7 @@ class PantallaAcceso:
     def __init__(self, parent, app):
         self.parent = parent
         self.app    = app
+        self._idioma = getattr(app, "idioma", None)
 
         self._p = app.tema.paleta() if hasattr(app, "tema") else _paleta_fallback()
 
@@ -82,6 +83,9 @@ class PantallaAcceso:
 
         if hasattr(app, "tema"):
             app.tema.registrar(self._aplicar_tema)
+
+    def _t(self, clave: str, fallback: str = "") -> str:
+        return self._idioma.t(clave, fallback) if self._idioma else fallback
 
     # ══════════════════════════════════════════
     #  Perfiles — siempre frescos desde BD
@@ -167,7 +171,7 @@ class PantallaAcceso:
 
         self.label_video = tk.Label(
             self.capa_escaneo, bg=p["acceso_fondo"],
-            text="Iniciando cámara...",
+            text=self._t("acceso.iniciando_camara", "Iniciando cámara..."),
             font=("Segoe UI", 13), fg=p["acceso_hud_fg"])
         self.label_video.place(x=0, y=0, relwidth=1, relheight=1)
 
@@ -197,7 +201,7 @@ class PantallaAcceso:
         self._badge_ok.place(relx=0.5, rely=0.22, anchor="sw", x=44, y=-4)
 
         self._lbl_acceso_concedido = tk.Label(
-            self.capa_ok, text="ACCESO CONCEDIDO",
+            self.capa_ok, text=self._t("acceso.acceso_concedido", "ACCESO CONCEDIDO"),
             font=("Segoe UI", 17, "bold"),
             fg=p["acceso_ok_texto"], bg=verde)
         self._lbl_acceso_concedido.place(relx=0.5, rely=0.52, anchor="center")
@@ -306,13 +310,18 @@ class PantallaAcceso:
                         cv2.rectangle(resized, (x1,y1), (x2,y2), color_bbox, 2)
 
                     msgs = {
-                        "escaneando":  ("POR FAVOR NO SE MUEVA",  "ESCANEANDO ROSTRO..."),
-                        "detectado":   ("ROSTRO DETECTADO",       "Verificando identidad..."),
-                        "sin_rostro":  ("ACERCATE A LA CAMARA",   "No se detecta ningun rostro"),
-                        "sin_camara":  ("CAMARA NO DISPONIBLE",   "Verifique la conexion"),
-                        "acceso_deny": ("ACCESO DENEGADO",        "No autorizado"),
+                        "escaneando":  (self._t("acceso.estado_escaneando_titulo", "POR FAVOR NO SE MUEVA"),
+                                         self._t("acceso.estado_escaneando_sub", "ESCANEANDO ROSTRO...")),
+                        "detectado":   (self._t("acceso.estado_detectado_titulo", "ROSTRO DETECTADO"),
+                                         self._t("acceso.estado_detectado_sub", "Verificando identidad...")),
+                        "sin_rostro":  (self._t("acceso.estado_sin_rostro_titulo", "ACERCATE A LA CAMARA"),
+                                         self._t("acceso.estado_sin_rostro_sub", "No se detecta ningun rostro")),
+                        "sin_camara":  (self._t("acceso.estado_sin_camara_titulo", "CAMARA NO DISPONIBLE"),
+                                         self._t("acceso.estado_sin_camara_sub", "Verifique la conexion")),
+                        "acceso_deny": (self._t("acceso.estado_deny_titulo", "ACCESO DENEGADO"),
+                                         self._t("acceso.estado_deny_sub", "No autorizado")),
                     }
-                    titulo, sub = msgs.get(self._estado, ("ESCANEANDO...", ""))
+                    titulo, sub = msgs.get(self._estado, (self._t("acceso.estado_default_titulo", "ESCANEANDO..."), ""))
                     fuente = cv2.FONT_HERSHEY_SIMPLEX
                     (wt, _), _ = cv2.getTextSize(titulo, fuente, 0.8, 2)
                     (ws, _), _ = cv2.getTextSize(sub,    fuente, 0.5, 1)
@@ -477,8 +486,8 @@ class PantallaAcceso:
                                   args=(cod,), daemon=True).start()
             self._mostrar_capa("ok")
             hora = datetime.now().strftime("%I:%M %p").lower()
-            self.lbl_nombre_ok.config(text=nombre or "Usuario")
-            self.lbl_info_ok.config(text=f"Acceso registrado · {hora}")
+            self.lbl_nombre_ok.config(text=nombre or self._t("acceso.usuario_default", "Usuario"))
+            self.lbl_info_ok.config(text=f"{self._t('acceso.acceso_registrado', 'Acceso registrado · ')}{hora}")
             c = self.canvas_foto
             c.delete("all")
             c.create_oval(5, 5, 115, 115, fill="#ffffff", outline="#c8f0c8", width=3)

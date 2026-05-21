@@ -1,4 +1,4 @@
-﻿"""
+"""
 ui/screens/historial_accesos.py
 
 CAMBIOS v3:
