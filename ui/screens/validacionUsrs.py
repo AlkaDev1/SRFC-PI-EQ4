@@ -61,6 +61,8 @@ class ValidacionUsrs:
         self._angulo            = 0
         self._after_anim        = None
         self._after_reset       = None
+        self._after_paint       = None
+        self._after_bio         = None
         self._pantalla_destino  = "gestion_real"
         self._id_rol_reconocido = None   # ← se guarda al confirmar acceso
 
@@ -94,8 +96,7 @@ class ValidacionUsrs:
             self._nombres.append(p["nombre"])
             self._id_roles.append(p["id_rol"])
             self._roles.append(p["rol"])
-            print(f"[PERFIL] {p['nombre']} - rol id={p['id_rol']}")
-        print(f"[ACCESO] {len(self._encodings)} perfiles listos")
+            # Se eliminaron los prints por seguridad
 
     # ══════════════════════════════════════════
     #  Helpers de navegación
@@ -305,7 +306,8 @@ class ValidacionUsrs:
                     from PIL import Image as PILImage
                     photo = ImageTk.PhotoImage(image=PILImage.fromarray(rgb))
                     self._photo = photo
-                    self.label_video.after(0, self._pintar_frame)
+                    if self._corriendo and self.label_video.winfo_exists():
+                        self._after_paint = self.label_video.after(0, self._pintar_frame)
                 except Exception:
                     pass
 
@@ -317,7 +319,8 @@ class ValidacionUsrs:
                 continue
             r = self._reconocer(frame)
             try:
-                self.label_video.after(0, lambda r=r: self._aplicar_resultado(r))
+                if self._corriendo and self.label_video.winfo_exists():
+                    self._after_bio = self.label_video.after(0, lambda r=r: self._aplicar_resultado(r))
             except Exception:
                 pass
 
@@ -366,10 +369,16 @@ class ValidacionUsrs:
                     "ubicacion":(y,x+w,y+h,x),"nombre":"","id_rol":None,"rol":None}
 
     def _pintar_frame(self):
-        if self._photo is None:
+        if self._photo is None or not self._corriendo:
             return
-        self.label_video.imgtk = self._photo
-        self.label_video.config(image=self._photo, text="")
+        # Verificar si el widget aún existe
+        try:
+            if not self.label_video.winfo_exists():
+                return
+            self.label_video.imgtk = self._photo
+            self.label_video.config(image=self._photo, text="")
+        except tk.TclError:
+            return
 
     # ══════════════════════════════════════════
     #  Resultado biométrico
@@ -480,7 +489,7 @@ class ValidacionUsrs:
         self._corriendo = False
         if self._cap:
             self._cap.release()
-        for aid in (self._after_anim, self._after_reset):
+        for aid in (self._after_anim, self._after_reset, self._after_paint, self._after_bio):
             if aid:
                 try:
                     self.canvas_icono.after_cancel(aid)

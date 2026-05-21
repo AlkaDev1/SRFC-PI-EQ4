@@ -16,11 +16,11 @@ FIX: al cambiar tema en vivo, se fuerza redibujado del fondo con
 """
 
 import tkinter as tk
+from pathlib import Path
 from PIL import Image, ImageTk
 
 from ui.styles import PALETA, FUENTES, MEDIDAS
 from ui.components.barra_superior import crear_encabezado
-from ui.screens.pantalla_principal import _rr
 
 # ── Paleta modo claro ─────────────────────────────────────────────────────────
 _LC = {
@@ -161,7 +161,7 @@ class PantallaLogin:
 
         def _dibujar_btn(color):
             self._cv_btn.delete("all")
-            _rr(self._cv_btn, 0, 0, ANCHO_BTN, ALTO_BTN, RADIO_BTN, color)
+            self._rect_redondeado(self._cv_btn, 0, 0, ANCHO_BTN, ALTO_BTN, RADIO_BTN, color)
             self._cv_btn.create_text(ANCHO_BTN // 2, ALTO_BTN // 2,
                                       text="INGRESAR",
                                       font=("Segoe UI", 10, "bold"),
@@ -194,27 +194,50 @@ class PantallaLogin:
         self._btn_radio  = RADIO_BTN
 
     # ── Botón volver ──────────────────────────────────────────────────────────
+    def _crear_rect_redondeado(self, canvas, x1, y1, x2, y2, r, **kwargs):
+        """Crea un rectángulo redondeado usando puntos suaves."""
+        puntos = [x1+r, y1, x2-r, y1, x2, y1, x2, y1+r, x2, y2-r, x2, y2,
+                  x2-r, y2, x1+r, y2, x1, y2, x1, y2-r, x1, y1+r, x1, y1]
+        return canvas.create_polygon(puntos, smooth=True, **kwargs)
+
     def _construir_boton_volver(self):
+        """Crea el botón de regresar idéntico a pantalla_acceso."""
         p = self._p
-        ANCHO_BACK, ALTO_BACK, RADIO_BACK = 60, 40, 10
+        BG_NORMAL = "#333333"
+        BG_HOVER = "#444444"
+        
+        w, h = 60, 40
+        self.canvas_back = tk.Canvas(self.pantalla, width=w, height=h,
+                                      bg=BG_NORMAL, highlightthickness=0, cursor="hand2")
+        self.canvas_back.place(x=14, rely=1.0, anchor="sw", y=-14)
+        
+        rect_id = self._crear_rect_redondeado(
+            self.canvas_back, 2, 2, w-2, h-2, 8,
+            fill=BG_NORMAL, outline="#ffffff", width=2)
 
-        self.canvas_back = tk.Canvas(self.pantalla,
-                                      width=ANCHO_BACK, height=ALTO_BACK,
-                                      highlightthickness=0, cursor="hand2")
-        self.canvas_back.place(relx=0.03, rely=0.88)
+        if not hasattr(self, '_img_return'):
+            ruta = Path(__file__).resolve().parent.parent.parent / "assets" / "img" / "return_icon.png"
+            try:
+                self._img_return = tk.PhotoImage(file=str(ruta)) if ruta.exists() else None
+            except Exception:
+                self._img_return = None
 
-        def _dibujar_back(color):
-            self.canvas_back.delete("all")
-            _rr(self.canvas_back, 0, 0, ANCHO_BACK, ALTO_BACK, RADIO_BACK, color)
-            self.canvas_back.create_text(ANCHO_BACK // 2, ALTO_BACK // 2,
-                                          text="←", font=("Segoe UI", 16, "bold"),
-                                          fill=BLANCO, anchor="center")
+        if self._img_return:
+            content_id = self.canvas_back.create_image(w//2, h//2, image=self._img_return)
+        else:
+            content_id = self.canvas_back.create_text(w//2, h//2, text="←",
+                                                      fill="#ffffff", font=("Segoe UI", 16, "bold"))
 
-        self._dibujar_back = _dibujar_back
-        _dibujar_back(p["btn_back_bg"])
-        self.canvas_back.bind("<Button-1>", lambda e: self.app.mostrar_pantalla("principal"))
-        self.canvas_back.bind("<Enter>",    lambda e: _dibujar_back(self._p["btn_back_hov"]))
-        self.canvas_back.bind("<Leave>",    lambda e: _dibujar_back(self._p["btn_back_bg"]))
+        self.canvas_back.bind("<Enter>",    lambda e: self.canvas_back.itemconfig(rect_id, fill=BG_HOVER))
+        self.canvas_back.bind("<Leave>",    lambda e: self.canvas_back.itemconfig(rect_id, fill=BG_NORMAL))
+        self.canvas_back.bind("<Button-1>", lambda e: self._volver())
+        self.canvas_back.tag_bind(rect_id,    "<Button-1>", lambda e: self._volver())
+        self.canvas_back.tag_bind(content_id, "<Button-1>", lambda e: self._volver())
+
+    def _volver(self):
+        """Regresa a la pantalla principal."""
+        self._limpiar_tema()
+        self.app.mostrar_pantalla("principal")
 
     # ══════════════════════════════════════════
     #  SOPORTE DE TEMA
@@ -280,10 +303,6 @@ class PantallaLogin:
             if self._cv_btn.winfo_exists():
                 self._cv_btn.configure(bg=p["card_bg"])
                 self._dibujar_btn_login(p["verde"])
-
-            # ── 6. Botón volver ───────────────────────────────────────────────
-            if self.canvas_back and self.canvas_back.winfo_exists():
-                self._dibujar_back(p["btn_back_bg"])
 
         except tk.TclError:
             pass
@@ -355,7 +374,7 @@ class PantallaLogin:
         entry = tk.Entry(wrapper, font=("Segoe UI", 10), bd=0, relief="flat",
                          bg=p["campo_bg"], fg=p["texto_sec"],
                          insertbackground=p["texto"],
-                         show="●" if es_password else "")
+                         show="")
         entry.pack(side="left", fill="both", expand=True, ipady=6)
         entry.insert(0, placeholder)
 
@@ -378,6 +397,8 @@ class PantallaLogin:
             if entry.get() == placeholder:
                 entry.delete(0, "end")
                 entry.config(fg=self._p["texto"])
+                if es_password and not self._mostrar_clave:
+                    entry.config(show="●")
             wrapper.config(highlightbackground=self._p["borde_focus"], bg=self._p["campo_bg"])
             icono_lbl.config(bg=self._p["campo_bg"])
             entry.config(bg=self._p["campo_bg"])
@@ -387,8 +408,10 @@ class PantallaLogin:
         def focus_out(e):
             if entry.get() == "":
                 entry.insert(0, placeholder)
-                entry.config(fg=self._p["texto_sec"],
-                             show="" if entry.get() == placeholder else "●")
+                entry.config(fg=self._p["texto_sec"], show="")
+            else:
+                if es_password and not self._mostrar_clave:
+                    entry.config(show="●")
             wrapper.config(highlightbackground=self._p["borde"], bg=self._p["campo_bg"])
             icono_lbl.config(bg=self._p["campo_bg"])
             entry.config(bg=self._p["campo_bg"])
@@ -416,12 +439,48 @@ class PantallaLogin:
     #  LOGIN
     # ══════════════════════════════════════════
     def _login(self):
-        u = self.entry_usuario.get()
+        u = self.entry_usuario.get().strip()
         c = self.entry_clave.get()
-        if u == "admin" and c == "1234":
-            self.app.mostrar_pantalla("gestion_real")
-        else:
-            self.lbl_error.config(text="⚠ Credenciales incorrectas")
+        
+        if not u or not c or u == "Número de trabajador" or c == "Contraseña":
+            self.lbl_error.config(text="⚠ Ingrese todos los campos")
+            return
+
+        import hashlib
+        from core.database import obtener_conexion
+
+        # Generar hash de la contraseña ingresada
+        password_hash = hashlib.sha256(c.encode("utf-8")).hexdigest()
+
+        con = obtener_conexion()
+        if not con:
+            self.lbl_error.config(text="⚠ Error de conexión a la base de datos")
+            return
+
+        try:
+            # Buscar el usuario en la BD
+            # cod_institucional es la llave primaria / "Número de trabajador"
+            row = con.execute(
+                "SELECT password_hash, estado FROM Usuarios WHERE cod_institucional = ?",
+                (u,)
+            ).fetchone()
+
+            if row:
+                if row["estado"] != 1:
+                    self.lbl_error.config(text="⚠ El usuario está inactivo")
+                elif row["password_hash"] == password_hash:
+                    # Usuario y contraseña correctos
+                    self.lbl_error.config(text="")
+                    self.app.mostrar_pantalla("gestion_real")
+                else:
+                    self.lbl_error.config(text="⚠ Credenciales incorrectas")
+            else:
+                self.lbl_error.config(text="⚠ Credenciales incorrectas")
+        except Exception as e:
+            print(f"[Login Error]: {e}")
+            self.lbl_error.config(text="⚠ Error interno al validar")
+        finally:
+            con.close()
 
 
 def crear_pantalla_login(parent, app):
