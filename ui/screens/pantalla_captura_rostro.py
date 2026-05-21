@@ -2,13 +2,15 @@
 ui/screens/pantalla_captura_rostro.py
 Pantalla de captura facial — tema claro/oscuro
 
-CAMBIOS v2:
-  - Detección de duplicado TEMPRANA: al acumular 5 capturas se verifica
-    contra la BD. Si ya está registrado se detiene inmediatamente y muestra
-    mensaje, sin esperar las 30 capturas.
-  - _verificar_duplicado_rapido() corre en hilo, compara con BD y si hay
-    match llama _on_duplicado_detectado() en el hilo de UI.
-  - El escaneo completo sigue verificando al final como respaldo.
+CAMBIOS v3:
+  - FIX CRÍTICO: Validación de consistencia de rostro único.
+    Se establece un encoding de referencia con las primeras 3 capturas válidas.
+    Cada captura posterior se compara contra esa referencia; si la distancia
+    supera _UMBRAL_CONSISTENCIA (0.45) se DESCARTA silenciosamente.
+    Esto impide que 2 personas en el mismo frame contaminen el encoding final.
+  - Si se acumulan muchas capturas descartadas seguidas, se avisa al usuario
+    que aleje a otras personas del encuadre.
+  - Chequeo rápido de duplicado mantiene igual (v2).
 """
 
 import tkinter as tk
@@ -33,11 +35,15 @@ except ImportError:
 _ES_RASPBERRY = platform.machine() in ("aarch64", "armv7l")
 _CAM_INDEX    = 1 if _ES_RASPBERRY else 0
 
-CAPTURAS_REQUERIDAS   = 30
-CAPTURAS_PARA_CHEQUEO = 5      # cuántas capturas antes de verificar duplicado
-_UMBRAL_DUPLICADO     = 0.50
-SKIP_FRAMES           = 2
-MAX_FRAMES_COLA       = 4
+CAPTURAS_REQUERIDAS    = 30
+CAPTURAS_REFERENCIA    = 3      # capturas para establecer el encoding de referencia
+CAPTURAS_PARA_CHEQUEO  = 5      # capturas antes de verificar duplicado en BD
+_UMBRAL_DUPLICADO      = 0.50   # distancia máxima para considerar duplicado
+_UMBRAL_CONSISTENCIA   = 0.45   # distancia máxima para aceptar captura del mismo rostro
+_MAX_DESCARTES_SEGUIDOS = 15    # cuántos descartes seguidos antes de avisar
+
+SKIP_FRAMES      = 2
+MAX_FRAMES_COLA  = 4
 
 _C = {
     "bg":          "#f3f4f5",
@@ -90,9 +96,13 @@ class PantallaCaptura:
         self._capturas_ok       = 0
         self._encodings         = []
         self._photo             = None
-        self._chequeo_rapido    = False   # True una vez que se lanzó el chequeo rápido
-        self._duplicado_nombre  = None    # Nombre del duplicado detectado (para dibujar bbox rojo)
-        self._ultimo_bbox       = None    # Último bbox detectado (top, right, bottom, left)
+        self._chequeo_rapido    = False
+        self._duplicado_nombre  = None
+        self._ultimo_bbox       = None
+
+        # ── Nuevo: referencia de consistencia ────────────────────────────────
+        self._enc_referencia     = None   # encoding promedio de las primeras N capturas
+        self._descartes_seguidos = 0      # contador de capturas rechazadas por inconsistencia
 
         self._cap             = None
         self._corriendo       = False
@@ -245,13 +255,15 @@ class PantallaCaptura:
             self._iniciar()
 
     def _iniciar(self):
-        self._encodings         = []
-        self._capturas_ok       = 0
-        self._capturando        = True
-        self._chequeo_rapido    = False
-        self._duplicado_nombre  = None
-        self._ultimo_bbox       = None
-        p = self._p
+        self._encodings          = []
+        self._capturas_ok        = 0
+        self._capturando         = True
+        self._chequeo_rapido     = False
+        self._duplicado_nombre   = None
+        self._ultimo_bbox        = None
+        self._enc_referencia     = None   # reset referencia de consistencia
+        self._descartes_seguidos = 0
+
         p = self._p
         self._btn_iniciar.config(text="⏹  DETENER", bg=p["rojo"],
                                   activebackground=p["rojo_hover"])
@@ -312,7 +324,6 @@ class PantallaCaptura:
                 resized = cv2.resize(frame, (cw, ch),
                                      interpolation=cv2.INTER_LINEAR)
 
-                # ── Detectar cara para bbox ───────────────────────────────────
                 gris    = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
                 rostros = detector.detectMultiScale(
                     gris, scaleFactor=1.3, minNeighbors=5, minSize=(60, 60))
@@ -323,15 +334,12 @@ class PantallaCaptura:
                 dup_nombre = self._duplicado_nombre
 
                 if dup_nombre and self._ultimo_bbox is not None:
-                    # ── Modo duplicado: recuadro ROJO + nombre (PIL → soporta tildes/ñ) ──
                     x, y, w, h = self._ultimo_bbox
-                    # Recuadro rojo doble
                     cv2.rectangle(resized, (x-2, y-2), (x+w+2, y+h+2),
                                   (0, 0, 180), 1)
                     cv2.rectangle(resized, (x, y), (x+w, y+h),
                                   (0, 0, 255), 3)
 
-                    # Convertir a PIL para texto con UTF-8
                     pil_img = Image.fromarray(cv2.cvtColor(resized, cv2.COLOR_BGR2RGB))
                     draw    = ImageDraw.Draw(pil_img)
                     try:
@@ -342,7 +350,6 @@ class PantallaCaptura:
                         font_nom = ImageFont.load_default()
                         font_avi = font_nom
 
-                    # Medir y dibujar fondo rojo + nombre encima del bbox
                     pad = 6
                     bb  = draw.textbbox((0, 0), dup_nombre, font=font_nom)
                     tw, th = bb[2] - bb[0], bb[3] - bb[1]
@@ -352,7 +359,6 @@ class PantallaCaptura:
                     draw.text((x + pad, ty - th - pad + 1),
                               dup_nombre, font=font_nom, fill=(255, 255, 255))
 
-                    # "YA REGISTRADO" centrado debajo del bbox
                     aviso = "YA REGISTRADO"
                     ab    = draw.textbbox((0, 0), aviso, font=font_avi)
                     aw    = ab[2] - ab[0]
@@ -361,11 +367,9 @@ class PantallaCaptura:
                     draw.text((ax+1, ay+1), aviso, font=font_avi, fill=(0, 0, 0))
                     draw.text((ax,   ay),   aviso, font=font_avi, fill=(255, 80, 80))
 
-                    # Volver a BGR
                     resized = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
                 else:
-                    # ── Modo normal: texto de progreso ────────────────────────
                     n   = self._capturas_ok
                     pct = int(n / CAPTURAS_REQUERIDAS * 100)
                     txt = f"ESCANEANDO... {n}/{CAPTURAS_REQUERIDAS}  ({pct}%)"
@@ -376,7 +380,6 @@ class PantallaCaptura:
                     cv2.putText(resized, txt, ((cw-wt)//2, 36),
                                 fn, 0.7, (255,255,255), 2, cv2.LINE_AA)
 
-                    # Dibujar bbox verde si hay cara detectada
                     if self._ultimo_bbox is not None:
                         bx, by, bw, bh = self._ultimo_bbox
                         cv2.rectangle(resized, (bx, by), (bx+bw, by+bh),
@@ -395,6 +398,9 @@ class PantallaCaptura:
         self.label_video.imgtk = self._photo
         self.label_video.config(image=self._photo, text="")
 
+    # ══════════════════════════════════════════════════════════════════════════
+    #  HILO DE CAPTURA — con validación de consistencia
+    # ══════════════════════════════════════════════════════════════════════════
     def _hilo_captura(self):
         detector = cv2.CascadeClassifier(
             cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
@@ -428,22 +434,55 @@ class PantallaCaptura:
 
             roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
 
-            if FR_DISPONIBLE:
-                encs = face_recognition.face_encodings(
-                    roi_rgb, num_jitters=1, model="small")
-                if encs:
-                    self._encodings.append(encs[0])
-                    self._capturas_ok += 1
-            else:
+            if not FR_DISPONIBLE:
+                # Sin face_recognition, aceptar sin validar consistencia
                 self._capturas_ok += 1
+                self.label_video.after(0, self._actualizar_contador, self._capturas_ok)
+                continue
 
-            n = self._capturas_ok
-            self.label_video.after(0, self._actualizar_contador, n)
+            encs = face_recognition.face_encodings(
+                roi_rgb, num_jitters=1, model="small")
+            if not encs:
+                continue
 
-            # ── CHEQUEO RÁPIDO: al llegar a CAPTURAS_PARA_CHEQUEO ────────────
-            # Se lanza una sola vez; si hay duplicado detiene todo de inmediato
-            if (FR_DISPONIBLE
-                    and not self._chequeo_rapido
+            enc_nuevo = encs[0]
+
+            # ── FASE 1: acumular capturas de referencia ───────────────────────
+            if len(self._encodings) < CAPTURAS_REFERENCIA:
+                self._encodings.append(enc_nuevo)
+                self._capturas_ok += 1
+                self._descartes_seguidos = 0
+
+                # Al completar las capturas de referencia, calcular el promedio
+                if len(self._encodings) == CAPTURAS_REFERENCIA:
+                    self._enc_referencia = np.mean(self._encodings, axis=0)
+                    print(f"[CAPTURA] Referencia establecida con {CAPTURAS_REFERENCIA} capturas.")
+
+                self.label_video.after(0, self._actualizar_contador, self._capturas_ok)
+                continue
+
+            # ── FASE 2: validar consistencia contra la referencia ─────────────
+            distancia = face_recognition.face_distance([self._enc_referencia], enc_nuevo)[0]
+
+            if distancia > _UMBRAL_CONSISTENCIA:
+                # Rostro diferente — descartar silenciosamente
+                self._descartes_seguidos += 1
+                print(f"[CAPTURA] Descartado — dist={distancia:.4f} (otro rostro en frame)")
+
+                if self._descartes_seguidos >= _MAX_DESCARTES_SEGUIDOS:
+                    # Llevan demasiados descartes seguidos → avisar en UI
+                    self.label_video.after(0, self._avisar_rostro_extrano)
+                    self._descartes_seguidos = 0   # resetear para no spam
+                continue
+
+            # Captura válida — del mismo rostro
+            self._descartes_seguidos = 0
+            self._encodings.append(enc_nuevo)
+            self._capturas_ok += 1
+            self.label_video.after(0, self._actualizar_contador, self._capturas_ok)
+
+            # ── CHEQUEO RÁPIDO de duplicado en BD ────────────────────────────
+            if (not self._chequeo_rapido
                     and self._capturas_ok >= CAPTURAS_PARA_CHEQUEO):
                 self._chequeo_rapido = True
                 enc_parcial = np.mean(self._encodings[:CAPTURAS_PARA_CHEQUEO], axis=0)
@@ -451,27 +490,38 @@ class PantallaCaptura:
                     target=self._verificar_duplicado_rapido,
                     args=(enc_parcial,), daemon=True).start()
 
-        # Fin del bucle — solo llegar aquí si NO se detectó duplicado temprano
+        # Fin del bucle
         self._corriendo = False
         if self._cap:
             self._cap.release()
         cv2.destroyAllWindows()
         self.label_video.after(0, self._finalizar, self._capturas_ok)
 
+    def _avisar_rostro_extrano(self):
+        """Avisa en UI que hay otro rostro en el encuadre."""
+        try:
+            self._lbl_estado.config(
+                text="Aleja a otras\npersonas del\nencuadre",
+                fg=self._p["rojo"])
+            # Volver al mensaje normal tras 2 segundos
+            self.label_video.after(
+                2000,
+                lambda: self._lbl_estado.config(
+                    text="No te muevas\nescaneando...",
+                    fg="#43a047") if self._capturando else None)
+        except tk.TclError:
+            pass
+
     # ══════════════════════════════════════════════════════════════════════════
-    #  CHEQUEO RÁPIDO DE DUPLICADO (corre en hilo propio)
+    #  CHEQUEO RÁPIDO DE DUPLICADO
     # ══════════════════════════════════════════════════════════════════════════
     def _verificar_duplicado_rapido(self, encoding_parcial):
-        """
-        Verifica con solo ~5 capturas si el rostro ya existe en BD.
-        Si hay coincidencia detiene el escaneo inmediatamente.
-        """
         try:
             from core.database import cargar_todos_encodings
             registrados = cargar_todos_encodings()
 
             if not registrados:
-                return  # sin registros, no hay duplicado posible
+                return
 
             enc_existentes = [r["encoding"] for r in registrados]
             distancias     = face_recognition.face_distance(enc_existentes, encoding_parcial)
@@ -483,8 +533,7 @@ class PantallaCaptura:
             if dist_min <= _UMBRAL_DUPLICADO:
                 nombre_dup = registrados[idx_min].get("nombre", "—")
                 cod_dup    = registrados[idx_min].get("cod", "—")
-                print(f"[CAPTURA-RÁPIDO] DUPLICADO DETECTADO: {nombre_dup} ({cod_dup})")
-                # Detener captura y notificar en el hilo de UI
+                print(f"[CAPTURA-RÁPIDO] DUPLICADO: {nombre_dup} ({cod_dup})")
                 self._corriendo  = False
                 self._capturando = False
                 self.label_video.after(0, self._on_duplicado_detectado, nombre_dup)
@@ -493,12 +542,9 @@ class PantallaCaptura:
             print(f"[CAPTURA-RÁPIDO] Error: {e}")
 
     def _on_duplicado_detectado(self, nombre_dup: str):
-        """Se ejecuta en el hilo de UI cuando se detecta duplicado temprano."""
         p = self._p
         try:
-            # Activar bbox rojo en el hilo de cámara
-            self._duplicado_nombre = nombre_dup
-
+            self._duplicado_nombre   = nombre_dup
             self._lbl_estado.config(
                 text=f"Rostro ya\nregistrado:\n{nombre_dup}",
                 fg=p["rojo"])
@@ -511,10 +557,11 @@ class PantallaCaptura:
                 text=f"0 / {CAPTURAS_REQUERIDAS}",
                 fg=p["rojo"])
             self._prog_inner.place(x=0, y=0, height=8, width=0)
-            # Resetear contadores (el nombre se mantiene para el bbox rojo)
-            self._encodings      = []
-            self._capturas_ok    = 0
-            self._chequeo_rapido = False
+            self._encodings          = []
+            self._capturas_ok        = 0
+            self._chequeo_rapido     = False
+            self._enc_referencia     = None
+            self._descartes_seguidos = 0
         except tk.TclError:
             pass
 
@@ -548,7 +595,6 @@ class PantallaCaptura:
                 target=self._verificar_y_regresar,
                 args=(encoding_final,), daemon=True).start()
         else:
-            # Si n < CAPTURAS_REQUERIDAS pero no hubo duplicado = se detuvo manualmente
             if not self._chequeo_rapido or n > 0:
                 self._lbl_estado.config(
                     text=f"Incompleto\n{n}/{CAPTURAS_REQUERIDAS}", fg=p["rojo"])

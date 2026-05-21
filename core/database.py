@@ -65,7 +65,7 @@ def _normalizar_rol(rol: str) -> str:
 
 
 # ══════════════════════════════════════════════
-#  Inicialización
+#  inicialización
 # ══════════════════════════════════════════════
 def inicializar_bd() -> bool:
     sql = """
@@ -126,24 +126,28 @@ def inicializar_bd() -> bool:
         con.executemany(
             "INSERT OR IGNORE INTO Roles (id_rol, nombre, usuario_registro) VALUES (?,?,?)",
             [
-                (1, "SuperAdmin",  "Sistema"),
-                (2, "Admin",       "Sistema"),
-                (3, "Maestro",     "Sistema"),   # ← antes era "SuperUsuario"
-                (4, "Alumno",      "Sistema"),
+                (1, "SuperAdmin", "Sistema"),
+                (2, "Admin",      "Sistema"),
+                (3, "Maestro",    "Sistema"),
+                (4, "Alumno",     "Sistema"),
             ]
         )
 
-        # ── Migración automática ──────────────────────────────────────────────
-        # Si la BD ya existía con "SuperUsuario" en id_rol=3, lo renombra a "Maestro"
-        # para que las búsquedas por nombre funcionen correctamente.
-        # Esta operación es idempotente (puede ejecutarse múltiples veces sin daño).
-        con.execute("""
-            UPDATE Roles
-            SET nombre = 'Maestro',
-                fecha_actualizacion = CURRENT_TIMESTAMP,
-                usuario_actualizacion = 'Migración v2'
-            WHERE id_rol = 3 AND nombre = 'SuperUsuario'
-        """)
+        # ── Migración silenciosa ──────────────────────────────────────────────
+        # Solo actualiza si el nombre sigue siendo "SuperUsuario" (registros viejos).
+        # NO toca fecha_actualizacion ni usuario_actualizacion si ya está migrado,
+        # por eso los campos de auditoría de Roles quedan limpios tras la 1ª ejecución.
+        necesita_migrar = con.execute(
+            "SELECT 1 FROM Roles WHERE id_rol = 3 AND nombre = 'SuperUsuario'"
+        ).fetchone()
+
+        if necesita_migrar:
+            con.execute("""
+                UPDATE Roles
+                SET nombre = 'Maestro'
+                WHERE id_rol = 3 AND nombre = 'SuperUsuario'
+            """)
+            print("[DB] Migración v2: 'SuperUsuario' → 'Maestro' completada.")
 
         con.commit()
         return True
@@ -175,10 +179,8 @@ def obtener_roles() -> list:
 def registrar_usuario(datos: dict) -> tuple:
     """
     Inserta usuario + detalle + encoding en una transacción.
-    datos: cod_institucional, id_rol, primer_nombre, segundo_nombre,
-           apellido_paterno, apellido_materno, carrera, grado, grupo,
-           face_encoding (np.ndarray o None)
-    Retorna (bool, str)
+    Usa INSERT OR REPLACE en Alumnos_Detalle para evitar UNIQUE constraint
+    en caso de registros huérfanos previos.
     """
     con = obtener_conexion()
     if not con:
@@ -194,26 +196,38 @@ def registrar_usuario(datos: dict) -> tuple:
         con.execute("""
             INSERT INTO Usuarios
                 (cod_institucional, id_rol, primer_nombre, segundo_nombre,
-                 apellido_paterno, apellido_materno, estado, usuario_registro)
-            VALUES (?,?,?,?,?,?,1,'Sistema')
+                 apellido_paterno, apellido_materno, password_hash,
+                 estado, usuario_registro)
+            VALUES (?,?,?,?,?,?,?,1,'Sistema')
         """, (
             datos["cod_institucional"], datos["id_rol"],
             datos["primer_nombre"],    datos.get("segundo_nombre") or None,
             datos["apellido_paterno"], datos.get("apellido_materno") or None,
+            datos.get("password_hash") or None,
         ))
 
+        # INSERT OR REPLACE evita el UNIQUE constraint si existía un registro
+        # huérfano en Alumnos_Detalle del mismo cod_institucional
         con.execute("""
-            INSERT INTO Alumnos_Detalle (cod_institucional, grado, grupo, carrera)
+            INSERT OR REPLACE INTO Alumnos_Detalle
+                (cod_institucional, grado, grupo, carrera)
             VALUES (?,?,?,?)
-        """, (datos["cod_institucional"], datos.get("grado"),
-              datos.get("grupo"),        datos.get("carrera")))
+        """, (
+            datos["cod_institucional"],
+            datos.get("grado")   or None,
+            datos.get("grupo")   or None,
+            datos.get("carrera") or None,
+        ))
 
         if datos.get("face_encoding") is not None:
             con.execute("""
-                INSERT INTO Rostros_encoding (cod_institucional, face_encoding)
+                INSERT OR REPLACE INTO Rostros_encoding
+                    (cod_institucional, face_encoding)
                 VALUES (?,?)
-            """, (datos["cod_institucional"],
-                  _enc_a_blob(datos["face_encoding"])))
+            """, (
+                datos["cod_institucional"],
+                _enc_a_blob(datos["face_encoding"]),
+            ))
 
         con.commit()
         return True, "Usuario registrado correctamente."

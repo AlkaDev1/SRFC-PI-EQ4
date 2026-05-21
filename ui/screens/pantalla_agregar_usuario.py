@@ -2,10 +2,13 @@
 ui/screens/pantalla_agregar_usuario.py
 Pantalla de Agregar Usuario -- 800x480 táctil (Raspberry Pi 5)
 
-CAMBIOS v13:
-  - Campo Programa Académico siempre visible pero DESACTIVADO para Maestro/Admin/SuperAdmin
-  - Solo Alumno puede seleccionar programa
-  - Panel izquierdo blanco
+CAMBIOS v14:
+  - Nombre único: si contiene espacio se divide en primer_nombre + segundo_nombre
+  - Grado y Grupo aparecen solo al seleccionar rol Alumno (igual que Carrera)
+  - Carrera también solo visible/activa para Alumno
+  - password_hash corregido: se guarda correctamente para Admin y Super Admin
+  - Migración BD silenciada (no toca fecha_actualizacion si ya está migrado)
+  - Dropdowns carrera/rol siempre tienen valor inicial visible
 """
 
 import tkinter as tk
@@ -30,8 +33,10 @@ _F_BTN     = ("Segoe UI", 9, "bold")
 _F_INSTRUC = ("Segoe UI", 8)
 
 _ROLES_CON_PASSWORD = {"Admin", "Super Admin"}
-_ROLES_CON_PROGRAMA = {"Alumno"}   # solo Alumno puede elegir programa
+_ROLES_CON_DETALLE  = {"Alumno"}          # muestra carrera + grado + grupo
 _PROGRAMAS          = ["Software", "Mecatrónica"]
+_GRADOS             = ["1°", "2°", "3°", "4°", "5°", "6°", "7°", "8°", "9°"]
+_GRUPOS             = ["A", "B", "C", "D", "E"]
 
 _C = {
     "bg":           "#f3f4f5",
@@ -100,6 +105,17 @@ def _validar_password(pwd: str):
     return None
 
 
+def _separar_nombres(nombre_completo: str) -> tuple[str, str | None]:
+    """
+    Divide 'Brandom Yair' → ('Brandom', 'Yair')
+    Un solo nombre → ('Brandom', None)
+    """
+    partes = nombre_completo.strip().split(None, 1)   # split en primer espacio
+    primer  = partes[0] if partes else ""
+    segundo = partes[1].strip() if len(partes) > 1 else None
+    return primer, segundo
+
+
 def _hacer_dropdown(parent, var, opciones, p, ico_flecha,
                     on_select=None, font=None, habilitado=True):
     font = font or _F_ENTRY
@@ -121,8 +137,8 @@ def _hacer_dropdown(parent, var, opciones, p, ico_flecha,
         menu.tk_popup(btn.winfo_rootx(),
                       btn.winfo_rooty() + btn.winfo_height())
 
-    bg = p["filtro_bg"]   if habilitado else p["filtro_dis_bg"]
-    fg = p["filtro_fg"]   if habilitado else p["filtro_dis_fg"]
+    bg = p["filtro_bg"]    if habilitado else p["filtro_dis_bg"]
+    fg = p["filtro_fg"]    if habilitado else p["filtro_dis_fg"]
     bd = p["filtro_borde"] if habilitado else p["borde"]
 
     btn = tk.Button(
@@ -185,7 +201,10 @@ class PantallaAgregarUsuario:
         self._btn_rol     = None
         self._btn_status  = None
         self._btn_carrera = None
-        self._sub_password = None
+        self._btn_grado   = None
+        self._btn_grupo   = None
+        self._sub_password    = None
+        self._sub_detalle_alu = None   # contenedor grado+grupo+carrera
         self._pwd_wrappers = []
         self._entradas    = {}
 
@@ -198,6 +217,7 @@ class PantallaAgregarUsuario:
             app.tema.registrar(self._on_tema_cambio)
         self.pantalla.bind("<Destroy>", self._limpiar_tema)
 
+    # ─────────────────────────────────────────────────────────────────────────
     def _cargar_iconos(self):
         if not _PIL_OK:
             return
@@ -250,7 +270,6 @@ class PantallaAgregarUsuario:
             self._btn_cancelar.configure(bg=p["rojo_btn"],
                                          activebackground=p["rojo_hover"])
 
-            # Repintar todos los widgets registrados
             for widget, bg_k, fg_k in self._widgets_repintables:
                 try:
                     if not widget.winfo_exists():
@@ -261,7 +280,6 @@ class PantallaAgregarUsuario:
                 except tk.TclError:
                     pass
 
-            # Repintar Entry — recorrer TODOS los hijos del formulario
             def _repintar_widget(w):
                 try:
                     if not w.winfo_exists():
@@ -273,7 +291,6 @@ class PantallaAgregarUsuario:
                             show = w.cget("show")
                         except Exception:
                             pass
-                        # Contraseña o deshabilitado
                         if show in ("•", "●"):
                             w.configure(bg=p["campo_bg"], fg=p["texto"],
                                         highlightbackground=p["borde"],
@@ -298,9 +315,10 @@ class PantallaAgregarUsuario:
             _repintar_widget(self._form)
             _repintar_widget(self._pie_form)
 
-            # Repintar dropdowns
             self._recargar_ico_flecha()
-            for btn in (self._btn_rol, self._btn_status, self._btn_carrera):
+            todos_dd = [self._btn_rol, self._btn_status,
+                        self._btn_carrera, self._btn_grado, self._btn_grupo]
+            for btn in todos_dd:
                 if btn is None:
                     continue
                 try:
@@ -310,7 +328,6 @@ class PantallaAgregarUsuario:
                 except tk.TclError:
                     pass
 
-            # Repintar panel izquierdo completo
             for child in self._panel.winfo_children():
                 try:
                     cls = child.winfo_class()
@@ -320,7 +337,6 @@ class PantallaAgregarUsuario:
                         child.configure(bg=p["panel_bg"], fg=p["panel_fg2"])
                     elif cls == "Canvas":
                         child.configure(bg=p["panel_bg"])
-                        # Redibujar ícono usuario con colores del tema actual
                         child.delete("all")
                         child.create_oval(4, 4, 76, 76,
                                           fill=p["campo_bg"],
@@ -334,7 +350,6 @@ class PantallaAgregarUsuario:
                 except tk.TclError:
                     pass
 
-            # Fix encabezado formulario
             try:
                 for child in self._col_form_frame.winfo_children():
                     if isinstance(child, tk.Frame) and child != self._form and child != self._pie_form:
@@ -351,7 +366,7 @@ class PantallaAgregarUsuario:
             pass
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  UI
+    #  UI PRINCIPAL
     # ══════════════════════════════════════════════════════════════════════════
     def _construir_ui(self):
         p = self._p
@@ -506,33 +521,24 @@ class PantallaAgregarUsuario:
         self._form.columnconfigure(0, weight=1)
         self._form.columnconfigure(1, weight=1)
 
+        # Fila 0: Código y Nombre(s)
         self._campo(self._form, 0, 0, "Codigo Institucional", "cod_institucional")
-        self._campo(self._form, 0, 1, "Nombre(s)",            "nombre")
-        self._campo(self._form, 1, 0, "Apellido Paterno",     "apellido_paterno")
-        self._campo(self._form, 1, 1, "Apellido Materno",     "apellido_materno")
+        self._campo(self._form, 0, 1,
+                    "Nombre(s)  [si tiene 2 nombres sepáralos con espacio]",
+                    "nombre")
+
+        # Fila 1: Apellidos
+        self._campo(self._form, 1, 0, "Apellido Paterno",  "apellido_paterno")
+        self._campo(self._form, 1, 1, "Apellido Materno",  "apellido_materno")
 
         self._recargar_ico_flecha()
 
-        # Programa Académico — siempre visible, desactivado si no es Alumno
-        self._carrera_var = tk.StringVar(value=self.datos.get("carrera", "Software"))
-        sub_c = tk.Frame(self._form, bg=p["bg"])
-        sub_c.grid(row=2, column=0, padx=(0,4), pady=2, sticky="ew")
-        self._reg(sub_c, "bg")
-        self._lbl_carrera = tk.Label(sub_c, text="Programa Académico",
-                                      font=_F_LABEL, fg=p["texto2"], bg=p["bg"])
-        self._lbl_carrera.pack(anchor="w")
-
+        # ── Fila 2: Rol ───────────────────────────────────────────────────────
         rol_inicial = self.datos.get("rol", "Alumno")
-        habilitado  = rol_inicial in _ROLES_CON_PROGRAMA
-        self._btn_carrera = _hacer_dropdown(
-            sub_c, self._carrera_var, _PROGRAMAS, p,
-            self._ico_flecha, habilitado=habilitado)
-        self._btn_carrera.pack(fill="x", ipady=2, pady=(1,0))
-
-        # Rol
         self._rol_var = tk.StringVar(value=rol_inicial)
+
         sub_r = tk.Frame(self._form, bg=p["bg"])
-        sub_r.grid(row=2, column=1, padx=(4,0), pady=2, sticky="ew")
+        sub_r.grid(row=2, column=0, padx=(0, 4), pady=2, sticky="ew")
         self._reg(sub_r, "bg")
         tk.Label(sub_r, text="Rol", font=_F_LABEL,
                  fg=p["texto2"], bg=p["bg"]).pack(anchor="w")
@@ -561,20 +567,62 @@ class PantallaAgregarUsuario:
             relief="flat", bd=0, padx=6, pady=4,
             highlightthickness=1, highlightbackground=p["filtro_borde"],
             cursor="hand2", command=_abrir_rol)
-        self._btn_rol.pack(fill="x", ipady=2, pady=(1,0))
+        self._btn_rol.pack(fill="x", ipady=2, pady=(1, 0))
 
-        # Status
+        # ── Fila 2 col 1: Status ──────────────────────────────────────────────
         self._status_var = tk.StringVar(value=self.datos.get("status", "Activo"))
         sub_s = tk.Frame(self._form, bg=p["bg"])
-        sub_s.grid(row=3, column=0, columnspan=2, pady=2, sticky="ew")
+        sub_s.grid(row=2, column=1, padx=(4, 0), pady=2, sticky="ew")
         self._reg(sub_s, "bg")
         tk.Label(sub_s, text="Status", font=_F_LABEL,
                  fg=p["texto2"], bg=p["bg"]).pack(anchor="w")
         self._btn_status = _hacer_dropdown(
             sub_s, self._status_var, ["Activo", "Inactivo"], p, self._ico_flecha)
-        self._btn_status.pack(fill="x", ipady=2, pady=(1,0))
+        self._btn_status.pack(fill="x", ipady=2, pady=(1, 0))
 
-        # Contraseña
+        # ── Fila 3: Detalle Alumno (Carrera + Grado + Grupo) — oculto por defecto
+        self._carrera_var = tk.StringVar(value=self.datos.get("carrera", "Software"))
+        self._grado_var   = tk.StringVar(value=self.datos.get("grado",   "1°"))
+        self._grupo_var   = tk.StringVar(value=self.datos.get("grupo",   "A"))
+
+        self._sub_detalle_alu = tk.Frame(self._form, bg=p["bg"])
+        # 3 columnas internas: carrera | grado | grupo
+        self._sub_detalle_alu.columnconfigure(0, weight=2)
+        self._sub_detalle_alu.columnconfigure(1, weight=1)
+        self._sub_detalle_alu.columnconfigure(2, weight=1)
+
+        # Carrera
+        sub_ca = tk.Frame(self._sub_detalle_alu, bg=p["bg"])
+        sub_ca.grid(row=0, column=0, padx=(0, 4), sticky="ew")
+        self._reg(sub_ca, "bg")
+        self._lbl_carrera = tk.Label(sub_ca, text="Programa Académico",
+                                     font=_F_LABEL, fg=p["texto2"], bg=p["bg"])
+        self._lbl_carrera.pack(anchor="w")
+        self._btn_carrera = _hacer_dropdown(
+            sub_ca, self._carrera_var, _PROGRAMAS, p, self._ico_flecha)
+        self._btn_carrera.pack(fill="x", ipady=2, pady=(1, 0))
+
+        # Grado
+        sub_gr = tk.Frame(self._sub_detalle_alu, bg=p["bg"])
+        sub_gr.grid(row=0, column=1, padx=(4, 4), sticky="ew")
+        self._reg(sub_gr, "bg")
+        tk.Label(sub_gr, text="Grado", font=_F_LABEL,
+                 fg=p["texto2"], bg=p["bg"]).pack(anchor="w")
+        self._btn_grado = _hacer_dropdown(
+            sub_gr, self._grado_var, _GRADOS, p, self._ico_flecha)
+        self._btn_grado.pack(fill="x", ipady=2, pady=(1, 0))
+
+        # Grupo
+        sub_gp = tk.Frame(self._sub_detalle_alu, bg=p["bg"])
+        sub_gp.grid(row=0, column=2, padx=(4, 0), sticky="ew")
+        self._reg(sub_gp, "bg")
+        tk.Label(sub_gp, text="Grupo", font=_F_LABEL,
+                 fg=p["texto2"], bg=p["bg"]).pack(anchor="w")
+        self._btn_grupo = _hacer_dropdown(
+            sub_gp, self._grupo_var, _GRUPOS, p, self._ico_flecha)
+        self._btn_grupo.pack(fill="x", ipady=2, pady=(1, 0))
+
+        # ── Contraseña (Admin / Super Admin) ──────────────────────────────────
         self._sub_password = tk.Frame(self._form, bg=p["bg"])
         _, self._ent_password, w1, o1 = _campo_password(
             self._sub_password, p,
@@ -589,26 +637,26 @@ class PantallaAgregarUsuario:
         self._entradas["password"]  = self._ent_password
         self._entradas["password2"] = self._ent_password2
 
-        # Aplicar estado inicial
+        # Aplicar estado visual inicial
         self._on_rol_cambio(rol_inicial, init=True)
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  CAMBIO DE ROL
+    #  CAMBIO DE ROL — controla qué secciones son visibles
     # ══════════════════════════════════════════════════════════════════════════
     def _on_rol_cambio(self, rol, init=False):
-        p = self._p
-        habilitado = rol in _ROLES_CON_PROGRAMA
+        es_alumno    = rol in _ROLES_CON_DETALLE
+        es_admin_pwd = rol in _ROLES_CON_PASSWORD
 
-        # Destruir y recrear el botón de carrera con el estado correcto
-        self._btn_carrera.destroy()
-        sub_c = self._lbl_carrera.master
-        self._btn_carrera = _hacer_dropdown(
-            sub_c, self._carrera_var, _PROGRAMAS, p,
-            self._ico_flecha, habilitado=habilitado)
-        self._btn_carrera.pack(fill="x", ipady=2, pady=(1,0))
+        # ── Detalle alumno (carrera + grado + grupo) ──────────────────────────
+        if es_alumno:
+            self._sub_detalle_alu.grid(
+                row=3, column=0, columnspan=2,
+                padx=0, pady=2, sticky="ew")
+        else:
+            self._sub_detalle_alu.grid_remove()
 
-        # Contraseña
-        if rol in _ROLES_CON_PASSWORD:
+        # ── Contraseña ────────────────────────────────────────────────────────
+        if es_admin_pwd:
             self._sub_password.grid(
                 row=4, column=0, columnspan=2,
                 padx=0, pady=2, sticky="ew")
@@ -618,6 +666,7 @@ class PantallaAgregarUsuario:
                 self._ent_password.delete(0, tk.END)
                 self._ent_password2.delete(0, tk.END)
 
+    # ─────────────────────────────────────────────────────────────────────────
     def _campo(self, parent, row, col_i, etiqueta, key):
         p    = self._p
         padx = (0, 4) if col_i == 0 else (4, 0)
@@ -632,7 +681,7 @@ class PantallaAgregarUsuario:
                        highlightthickness=1, highlightbackground=p["borde"],
                        insertbackground=p["texto"])
         ent.insert(0, self.datos.get(key, ""))
-        ent.pack(fill="x", ipady=4, pady=(1,0))
+        ent.pack(fill="x", ipady=4, pady=(1, 0))
         if key == "cod_institucional":
             vcmd = (self.pantalla.winfo_toplevel().register(
                         lambda s: (s.isdigit() and len(s) <= 8) or s == ""), "%P")
@@ -649,6 +698,8 @@ class PantallaAgregarUsuario:
             "apellido_paterno":  self._entradas["apellido_paterno"].get().strip(),
             "apellido_materno":  self._entradas["apellido_materno"].get().strip(),
             "carrera":           self._carrera_var.get(),
+            "grado":             self._grado_var.get(),
+            "grupo":             self._grupo_var.get(),
             "rol":               self._rol_var.get(),
             "status":            self._status_var.get(),
         }
@@ -665,22 +716,31 @@ class PantallaAgregarUsuario:
             self._lbl_aviso.config(text="Primero captura el rostro.")
             return
 
-        cod       = self._entradas["cod_institucional"].get().strip()
-        nombre    = self._entradas["nombre"].get().strip()
-        apellidop = self._entradas["apellido_paterno"].get().strip()
-        rol       = self._rol_var.get()
-        carrera   = self._carrera_var.get() if rol in _ROLES_CON_PROGRAMA else None
+        cod        = self._entradas["cod_institucional"].get().strip()
+        nombre_raw = self._entradas["nombre"].get().strip()
+        apellidop  = self._entradas["apellido_paterno"].get().strip()
+        rol        = self._rol_var.get()
 
         if not cod:
             self._lbl_aviso.config(text="El código es requerido.")
             return
-        if not nombre:
+        if not nombre_raw:
             self._lbl_aviso.config(text="El nombre es requerido.")
             return
         if not apellidop:
             self._lbl_aviso.config(text="El apellido paterno es requerido.")
             return
 
+        # ── Separar primer y segundo nombre automáticamente ───────────────────
+        primer_nombre, segundo_nombre = _separar_nombres(nombre_raw)
+
+        # ── Detalle alumno ─────────────────────────────────────────────────────
+        es_alumno = rol in _ROLES_CON_DETALLE
+        carrera   = self._carrera_var.get() if es_alumno else None
+        grado     = self._grado_var.get()   if es_alumno else None
+        grupo     = self._grupo_var.get()   if es_alumno else None
+
+        # ── Contraseña ─────────────────────────────────────────────────────────
         password_plain = None
         if rol in _ROLES_CON_PASSWORD:
             pwd1 = self._ent_password.get()
@@ -709,15 +769,15 @@ class PantallaAgregarUsuario:
             datos_bd = {
                 "cod_institucional": cod,
                 "id_rol":            rol_map.get(rol, 4),
-                "primer_nombre":     nombre,
-                "segundo_nombre":    None,
+                "primer_nombre":     primer_nombre,
+                "segundo_nombre":    segundo_nombre,    # None si solo tiene 1 nombre
                 "apellido_paterno":  apellidop,
                 "apellido_materno":  self._entradas["apellido_materno"].get().strip() or None,
                 "carrera":           carrera,
-                "grado":             None,
-                "grupo":             None,
+                "grado":             grado,
+                "grupo":             grupo,
                 "face_encoding":     encoding_snap,
-                "password_hash":     password_hash,
+                "password_hash":     password_hash,     # guardado correctamente
             }
 
             from core.database import registrar_usuario, inicializar_bd
