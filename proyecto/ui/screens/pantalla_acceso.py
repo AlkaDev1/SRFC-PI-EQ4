@@ -214,10 +214,9 @@ class PantallaAcceso:
             fg=p["acceso_ok_texto"], bg=verde)
         self.lbl_info_ok.place(relx=0.5, rely=0.73, anchor="center")
 
-        # Botón volver — se guarda para mostrarlo solo al terminar la secuencia GPIO
-        self._btn_volver_ok = self._crear_boton_volver(
+        btn_volver = self._crear_boton_volver(
             self.capa_ok, bg_normal="#2d7d32", bg_hover="#1b5e20")
-        # No se coloca aún — aparece cuando la secuencia GPIO termina
+        btn_volver.place(x=14, rely=1.0, anchor="sw", y=-14)
 
     def _mostrar_capa(self, capa):
         if getattr(self, "_capa_actual", None) == capa:
@@ -442,6 +441,7 @@ class PantallaAcceso:
                 self._cambiar_estado("acceso_ok",
                                      nombre=r.get("nombre", ""),
                                      cod=r.get("cod", ""))
+                self._after_reset = self.canvas_icono.after(4000, self._resetear)
         else:
             self._frames_ok    = 0
             self._frames_deny += 1
@@ -451,10 +451,6 @@ class PantallaAcceso:
                 self._bloqueado   = True
                 self._cambiar_estado("acceso_deny")
                 self._after_reset = self.canvas_icono.after(2000, self._resetear)
-
-    def _fin_secuencia_ok(self):
-        """Llamado cuando termina la secuencia GPIO completa en acceso_ok."""
-        self._volver()
 
     def _resetear(self):
         self._bloqueado = False
@@ -484,10 +480,6 @@ class PantallaAcceso:
             c.create_oval(5, 5, 115, 115, fill="#ffffff", outline="#c8f0c8", width=3)
             c.create_text(60, 60, text="👤", font=("Segoe UI", 40),
                           fill=p["acceso_ok_bg"])
-            # Ocultar botón volver — aparece solo al terminar la secuencia GPIO
-            self._btn_volver_ok.place_forget()
-            # Tiempo total GPIO: 2s solenoide + 7s sale + 3s espera + 7s entra + 1s margen = 20s
-            self._after_reset = self.canvas_icono.after(20000, self._fin_secuencia_ok)
         elif estado == "acceso_deny":
             threading.Thread(target=self._gpio_acceso_deny, daemon=True).start()
             self._mostrar_capa("escaneo")
