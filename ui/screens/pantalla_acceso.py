@@ -106,7 +106,7 @@ class PantallaAcceso:
             self._nombres.append(p["nombre"])
             self._cods.append(p["cod"])
 
-        print(f"[ACCESO] {len(self._encodings)} perfiles cargados desde BD")
+        # Se eliminaron los prints por seguridad
 
     # ══════════════════════════════════════════
     #  UI

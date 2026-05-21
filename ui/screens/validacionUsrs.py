@@ -96,8 +96,7 @@ class ValidacionUsrs:
             self._nombres.append(p["nombre"])
             self._id_roles.append(p["id_rol"])
             self._roles.append(p["rol"])
-            print(f"[PERFIL] {p['nombre']} - rol id={p['id_rol']}")
-        print(f"[ACCESO] {len(self._encodings)} perfiles listos")
+            # Se eliminaron los prints por seguridad
 
     # ══════════════════════════════════════════
     #  Helpers de navegación
