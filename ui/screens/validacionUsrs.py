@@ -48,7 +48,6 @@ class ValidacionUsrs:
     def __init__(self, parent, app):
         self.parent = parent
         self.app    = app
-        self._idioma = getattr(app, "idioma", None)
 
         self._p = app.tema.paleta() if hasattr(app, "tema") else _paleta_fallback()
 
@@ -83,9 +82,6 @@ class ValidacionUsrs:
         if hasattr(app, "tema"):
             app.tema.registrar(self._aplicar_tema)
 
-    def _t(self, clave: str, fallback: str = "") -> str:
-        return self._idioma.t(clave, fallback) if self._idioma else fallback
-
     # ══════════════════════════════════════════
     #  Perfiles
     # ══════════════════════════════════════════
@@ -110,18 +106,15 @@ class ValidacionUsrs:
 
     def _titulo_para_rol(self, id_rol):
         config = _ROL_CONFIG.get(id_rol)
-        if config:
-            return self._t("validacion.admin_reconocido" if id_rol in (1, 2) else "validacion.usuario_reconocido",
-                           config[0])
-        return self._t("validacion.usuario_reconocido", "USUARIO RECONOCIDO")
+        return config[0] if config else "USUARIO RECONOCIDO"
 
     def _msg_redireccion(self, id_rol):
         destino = self._resolver_destino(id_rol)
         if destino == "historial":
-            return self._t("validacion.redir_historial", "Redirigiendo al historial de accesos...")
+            return "Redirigiendo al historial de accesos..."
         if destino == "gestion_real":
-            return self._t("validacion.redir_gestion", "Redirigiendo al panel de gestión...")
-        return self._t("validacion.redirigiendo", "Redirigiendo...")
+            return "Redirigiendo al panel de gestión..."
+        return "Redirigiendo..."
 
     # ══════════════════════════════════════════
     #  UI
@@ -169,7 +162,7 @@ class ValidacionUsrs:
         p = self._p
         self.capa_escaneo = tk.Frame(self.contenedor, bg=p["acceso_fondo"])
         self.label_video  = tk.Label(self.capa_escaneo, bg=p["acceso_fondo"],
-                                     text=self._t("validacion.iniciando_camara", "Iniciando cámara..."),
+                                     text="Iniciando cámara...",
                                      font=("Segoe UI", 13), fg=p["acceso_hud_fg"])
         self.label_video.place(x=0, y=0, relwidth=1, relheight=1)
 
@@ -200,7 +193,7 @@ class ValidacionUsrs:
                                   fg="#ffffff", bg=verde, padx=4, pady=2)
         self._badge_ok.place(relx=0.5, rely=0.22, anchor="sw", x=44, y=-4)
 
-        self._lbl_titulo_ok = tk.Label(self.capa_ok, text=self._t("validacion.usuario_reconocido", "USUARIO RECONOCIDO"),
+        self._lbl_titulo_ok = tk.Label(self.capa_ok, text="USUARIO RECONOCIDO",
                                        font=("Segoe UI", 17, "bold"),
                                        fg=p["acceso_ok_texto"], bg=verde)
         self._lbl_titulo_ok.place(relx=0.5, rely=0.52, anchor="center")
@@ -292,18 +285,13 @@ class ValidacionUsrs:
                         color = (0,0,255) if self._estado=="acceso_deny" else (80,175,76)
                         cv2.rectangle(resized, (x1,y1), (x2,y2), color, 2)
                     msgs = {
-                        "escaneando":  (self._t("validacion.estado_escaneando_titulo", "VALIDACION DE GESTION"),
-                                         self._t("validacion.estado_escaneando_sub", "ESCANEANDO ROSTRO...")),
-                        "detectado":   (self._t("validacion.estado_detectado_titulo", "ROSTRO DETECTADO"),
-                                         self._t("validacion.estado_detectado_sub", "Verificando permisos...")),
-                        "sin_rostro":  (self._t("validacion.estado_sin_rostro_titulo", "ACERCATE A LA CAMARA"),
-                                         self._t("validacion.estado_sin_rostro_sub", "No se detecta ningun rostro")),
-                        "sin_camara":  (self._t("validacion.estado_sin_camara_titulo", "CAMARA NO DISPONIBLE"),
-                                         self._t("validacion.estado_sin_camara_sub", "Verifique la conexion")),
-                        "acceso_deny": (self._t("validacion.estado_deny_titulo", "ACCESO DENEGADO"),
-                                         self._t("validacion.estado_deny_sub", "No eres administrador...")),
+                        "escaneando":  ("VALIDACION DE GESTION",  "ESCANEANDO ROSTRO..."),
+                        "detectado":   ("ROSTRO DETECTADO",       "Verificando permisos..."),
+                        "sin_rostro":  ("ACERCATE A LA CAMARA",   "No se detecta ningun rostro"),
+                        "sin_camara":  ("CAMARA NO DISPONIBLE",   "Verifique la conexion"),
+                        "acceso_deny": ("ACCESO DENEGADO",        "No eres administrador..."),
                     }
-                    titulo, sub = msgs.get(self._estado, (self._t("validacion.estado_default_titulo", "ESCANEANDO..."), ""))
+                    titulo, sub = msgs.get(self._estado, ("ESCANEANDO...", ""))
                     fn = cv2.FONT_HERSHEY_SIMPLEX
                     (wt,_),_ = cv2.getTextSize(titulo, fn, 0.8, 2)
                     (ws,_),_ = cv2.getTextSize(sub,    fn, 0.5, 1)
@@ -435,7 +423,7 @@ class ValidacionUsrs:
         self.capa_ok.configure(bg=p["acceso_ok_bg"])
         self.canvas_foto.configure(bg=p["acceso_ok_bg"])
         self._badge_ok.configure(bg=p["acceso_ok_bg"], text="✓")
-        self._lbl_titulo_ok.configure(bg=p["acceso_ok_bg"], text=self._t("validacion.usuario_reconocido", "USUARIO RECONOCIDO"))
+        self._lbl_titulo_ok.configure(bg=p["acceso_ok_bg"], text="USUARIO RECONOCIDO")
         self._cambiar_estado("escaneando")
 
     def _cambiar_estado(self, estado, nombre="", id_rol=None, rol=None):
@@ -451,9 +439,9 @@ class ValidacionUsrs:
                 self.canvas_foto.configure(bg="#d32f2f")
                 self._badge_ok.configure(bg="#d32f2f", text="✗")
                 self._lbl_titulo_ok.configure(bg="#d32f2f",
-                                              text=self._t("validacion.no_autorizado", "USUARIO NO AUTORIZADO"), fg="#ffffff")
-                self.lbl_nombre_ok.configure(bg="#d32f2f", text=self._t("validacion.acceso_denegado_label", "ACCESO DENEGADO"))
-                self.lbl_info_ok.configure(bg="#d32f2f", text=self._t("validacion.solo_personal", "Solo personal autorizado"))
+                                              text="USUARIO NO AUTORIZADO", fg="#ffffff")
+                self.lbl_nombre_ok.configure(bg="#d32f2f", text="ACCESO DENEGADO")
+                self.lbl_info_ok.configure(bg="#d32f2f", text="Solo personal autorizado")
                 self.pantalla.after(2000, self._resetear)
                 return
 

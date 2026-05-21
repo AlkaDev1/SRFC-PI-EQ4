@@ -160,7 +160,6 @@ class PantallaEditarUsuario:
         self.app    = app
         self.datos  = datos or {}
         self._p     = _paleta(app)
-        self._idioma = getattr(app, "idioma", None)
         self._ico_flecha          = None
         self._img_ojo_on          = None
         self._img_ojo_off         = None
@@ -172,10 +171,6 @@ class PantallaEditarUsuario:
         self._btn_guardar         = None
         self._sub_password        = None
         self._pwd_wrappers        = []
-        self._roles_canon         = ["Alumno", "Maestro", "Admin", "Super Admin"]
-        self._programas_canon     = ["Software", "Mecatrónica"]
-        self._status_canon        = ["Activo", "Inactivo"]
-        self._actualizar_mapas_idioma()
 
         self._cargar_iconos_ojo()
         self._construir_ui()
@@ -183,32 +178,6 @@ class PantallaEditarUsuario:
         if hasattr(app, "tema"):
             app.tema.registrar(self._on_tema_cambio)
         self.pantalla.bind("<Destroy>", self._limpiar_tema)
-
-    def _t(self, clave: str, fallback: str = "") -> str:
-        idioma = getattr(self.app, "idioma", None)
-        return idioma.t(clave, fallback) if idioma else fallback
-
-    def _actualizar_mapas_idioma(self):
-        roles_disp = self._t("editar_usuario.roles", self._roles_canon)
-        programas_disp = self._t("editar_usuario.programas", self._programas_canon)
-        status_disp = self._t("editar_usuario.status", self._status_canon)
-
-        if not isinstance(roles_disp, list) or len(roles_disp) != len(self._roles_canon):
-            roles_disp = self._roles_canon
-        if not isinstance(programas_disp, list) or len(programas_disp) != len(self._programas_canon):
-            programas_disp = self._programas_canon
-        if not isinstance(status_disp, list) or len(status_disp) != len(self._status_canon):
-            status_disp = self._status_canon
-
-        self._roles_disp = roles_disp
-        self._programas_disp = programas_disp
-        self._status_disp = status_disp
-        self._rol_a_canon = dict(zip(self._roles_disp, self._roles_canon))
-        self._canon_a_rol = dict(zip(self._roles_canon, self._roles_disp))
-        self._programa_a_canon = dict(zip(self._programas_disp, self._programas_canon))
-        self._canon_a_programa = dict(zip(self._programas_canon, self._programas_disp))
-        self._status_a_canon = dict(zip(self._status_disp, self._status_canon))
-        self._canon_a_status = dict(zip(self._status_canon, self._status_disp))
 
     def _cargar_iconos_ojo(self):
         try:
@@ -335,7 +304,7 @@ class PantallaEditarUsuario:
         self._encab_frame = tk.Frame(cuerpo, bg=p["bg_app"])
         self._encab_frame.grid(row=0, column=0, sticky="ew", pady=(0, 6))
 
-        lbl_titulo = tk.Label(self._encab_frame, text=self._t("editar_usuario.titulo", "EDITAR USUARIO"),
+        lbl_titulo = tk.Label(self._encab_frame, text="EDITAR USUARIO",
                               font=("Segoe UI", 16, "bold"),
                               fg=p["texto_oscuro"], bg=p["bg_app"])
         lbl_titulo.pack(side="left")
@@ -365,7 +334,7 @@ class PantallaEditarUsuario:
         self._pie.grid(row=2, column=0, sticky="ew", pady=(8, 4))
 
         self._btn_guardar = tk.Button(
-            self._pie, text=self._t("editar_usuario.btn_guardar", "GUARDAR CAMBIOS"),
+            self._pie, text="GUARDAR CAMBIOS",
             font=("Segoe UI", 10, "bold"),
             fg="#ffffff", bg=p["verde_btn"],
             activebackground=p["verde_hover"], activeforeground="#ffffff",
@@ -374,7 +343,7 @@ class PantallaEditarUsuario:
         self._btn_guardar.pack(side="left", padx=(0, 10))
 
         tk.Button(
-            self._pie, text=self._t("editar_usuario.btn_cancelar", "CANCELAR"),
+            self._pie, text="CANCELAR",
             font=("Segoe UI", 10, "bold"),
             fg="#ffffff", bg="#424242",
             activebackground="#212121", activeforeground="#ffffff",
@@ -391,11 +360,11 @@ class PantallaEditarUsuario:
         form.columnconfigure(1, weight=1)
 
         campos = [
-            (0, 0, self._t("editar_usuario.campo_cod", "No. Institucional"), "cod_institucional", False),
-            (0, 1, self._t("editar_usuario.campo_nombre", "Nombre"),            "nombre",            True),
-            (1, 0, self._t("editar_usuario.campo_ap_paterno", "Apellido Paterno"),  "apellido_paterno",  True),
-            (1, 1, self._t("editar_usuario.campo_ap_materno", "Apellido Materno"),  "apellido_materno",  True),
-            (2, 1, self._t("editar_usuario.campo_fecha_hora", "Fecha y Hora"),      "fecha_hora",         False),
+            (0, 0, "No. Institucional", "cod_institucional", False),
+            (0, 1, "Nombre",            "nombre",            True),
+            (1, 0, "Apellido Paterno",  "apellido_paterno",  True),
+            (1, 1, "Apellido Materno",  "apellido_materno",  True),
+            (2, 1, "Fecha y Hora",      "fecha_hora",         False),
         ]
 
         for row, col, label, key, editable in campos:
@@ -429,14 +398,13 @@ class PantallaEditarUsuario:
         # ── Programa/Carrera — ahora incluye "Ninguno" como primera opción ──
         carrera_actual = self.datos.get("carrera", "Ninguno") or "Ninguno"
         if carrera_actual not in _PROGRAMAS:
-            carrera_actual = "Software"
-        carrera_visible = self._canon_a_programa.get(carrera_actual, carrera_actual)
-        self._carrera_var = tk.StringVar(value=carrera_visible)
+            carrera_actual = "Ninguno"
+        self._carrera_var = tk.StringVar(value=carrera_actual)
 
         sub_carrera = tk.Frame(form, bg=p["card_bg"])
         sub_carrera.grid(row=2, column=0, padx=(0, 12), pady=3, sticky="ew")
         self._reg(sub_carrera, "card_bg")
-        tk.Label(sub_carrera, text=self._t("editar_usuario.campo_programa", "Programa / Carrera"), font=("Segoe UI", 8),
+        tk.Label(sub_carrera, text="Programa / Carrera", font=("Segoe UI", 8),
                  fg=p["texto_gris"], bg=p["card_bg"]).pack(anchor="w")
         self._btn_carrera = _hacer_dropdown(
             sub_carrera, self._carrera_var, _PROGRAMAS, p, self._ico_flecha)
@@ -453,13 +421,12 @@ class PantallaEditarUsuario:
         sub_rol = tk.Frame(fila_extra, bg=p["card_bg"])
         sub_rol.grid(row=0, column=0, padx=(0, 12), sticky="ew")
         self._reg(sub_rol, "card_bg")
-        tk.Label(sub_rol, text=self._t("editar_usuario.campo_rol", "Rol"), font=("Segoe UI", 8),
+        tk.Label(sub_rol, text="Rol", font=("Segoe UI", 8),
                  fg=p["texto_gris"], bg=p["card_bg"]).pack(anchor="w")
         self._reg(sub_rol.winfo_children()[-1], "card_bg", "texto_gris")
 
         rol_inicial = self._normalizar_rol(self.datos.get("rol", "Alumno"))
-        rol_visible = self._canon_a_rol.get(rol_inicial, rol_inicial)
-        self._rol_var = tk.StringVar(value=rol_visible)
+        self._rol_var = tk.StringVar(value=rol_inicial)
 
         def _abrir_rol():
             cp = self._p
@@ -467,7 +434,7 @@ class PantallaEditarUsuario:
                            bg=cp["card_bg"], fg=cp["texto_oscuro"],
                            activebackground=cp["verde_btn"],
                            activeforeground="#ffffff")
-            for op in self._roles_disp:
+            for op in ["Alumno", "Maestro", "Admin", "Super Admin"]:
                 menu.add_command(label=op,
                     command=lambda o=op: [
                         self._rol_var.set(o),
@@ -479,7 +446,7 @@ class PantallaEditarUsuario:
             menu.post(x, y)
 
         self._btn_rol = tk.Button(
-            sub_rol, text=f"  {rol_visible}",
+            sub_rol, text=f"  {self._rol_var.get()}",
             image=self._ico_flecha, compound="right",
             font=("Segoe UI", 10), anchor="w",
             fg=p["filtro_fg"], bg=p["filtro_bg"],
@@ -493,13 +460,12 @@ class PantallaEditarUsuario:
         sub_status = tk.Frame(fila_extra, bg=p["card_bg"])
         sub_status.grid(row=0, column=1, padx=(12, 0), sticky="ew")
         self._reg(sub_status, "card_bg")
-        tk.Label(sub_status, text=self._t("editar_usuario.campo_status", "Status"), font=("Segoe UI", 8),
+        tk.Label(sub_status, text="Status", font=("Segoe UI", 8),
                  fg=p["texto_gris"], bg=p["card_bg"]).pack(anchor="w")
 
-        status_base = self.datos.get("status", "Activo")
-        self._status_var = tk.StringVar(value=self._canon_a_status.get(status_base, status_base))
+        self._status_var = tk.StringVar(value=self.datos.get("status", "Activo"))
         self._btn_status = _hacer_dropdown(
-            sub_status, self._status_var, self._status_disp, p, self._ico_flecha)
+            sub_status, self._status_var, ["Activo", "Inactivo"], p, self._ico_flecha)
         self._btn_status.pack(fill="x", pady=(2, 0))
 
         # Fila 4: Contraseña con ojito (dinámica)
@@ -507,7 +473,7 @@ class PantallaEditarUsuario:
 
         ent1, w1, o1 = _campo_password_editar(
             self._sub_password, p,
-            self._t("editar_usuario.campo_password", "Nueva Contraseña  (mayúscula, minúscula y número — vacío = no cambiar)"),
+            "Nueva Contraseña  (mayúscula, minúscula y número — vacío = no cambiar)",
             self._img_ojo_on, self._img_ojo_off)
         self._ent_password = ent1
         self._pwd_wrappers.append((w1, o1))
@@ -516,7 +482,7 @@ class PantallaEditarUsuario:
 
         ent2, w2, o2 = _campo_password_editar(
             self._sub_password, p,
-            self._t("editar_usuario.campo_confirmar_password", "Confirmar nueva contraseña"),
+            "Confirmar nueva contraseña",
             self._img_ojo_on, self._img_ojo_off)
         self._ent_password2 = ent2
         self._pwd_wrappers.append((w2, o2))
@@ -530,7 +496,7 @@ class PantallaEditarUsuario:
     #  CONTRASEÑA DINÁMICA
     # ══════════════════════════════════════════════════════════════════════════
     def _on_rol_cambio(self, rol: str):
-        if self._rol_a_canon.get(rol, rol) in _ROLES_CON_PASSWORD:
+        if rol in _ROLES_CON_PASSWORD:
             self._sub_password.grid(
                 row=4, column=0, columnspan=2,
                 padx=0, pady=3, sticky="ew")
@@ -559,23 +525,23 @@ class PantallaEditarUsuario:
     #  GUARDAR
     # ══════════════════════════════════════════════════════════════════════════
     def _guardar(self):
-        rol = self._rol_a_canon.get(self._rol_var.get(), self._rol_var.get())
+        rol = self._rol_var.get()
 
         datos_actualizados = {
             "cod_institucional": self.datos.get("cod_institucional", ""),
             "nombre":            self._entradas["nombre"].get().strip(),
             "apellido_paterno":  self._entradas["apellido_paterno"].get().strip(),
             "apellido_materno":  self._entradas["apellido_materno"].get().strip(),
-            "carrera":           self._programa_a_canon.get(self._carrera_var.get(), self._carrera_var.get()),
+            "carrera":           self._carrera_var.get(),
             "rol":               rol,
-            "status":            self._status_a_canon.get(self._status_var.get(), self._status_var.get()),
+            "status":            self._status_var.get(),
         }
 
         if not datos_actualizados["nombre"]:
-            modal_warning(self.pantalla, self._t("editar_usuario.error_nombre", "El nombre no puede estar vacío."))
+            modal_warning(self.pantalla, "El nombre no puede estar vacío.")
             return
         if not datos_actualizados["apellido_paterno"]:
-            modal_warning(self.pantalla, self._t("editar_usuario.error_apellido", "El apellido paterno no puede estar vacío."))
+            modal_warning(self.pantalla, "El apellido paterno no puede estar vacío.")
             return
 
         if rol in _ROLES_CON_PASSWORD:
@@ -584,10 +550,10 @@ class PantallaEditarUsuario:
             if pwd1:
                 err = _validar_password(pwd1)
                 if err:
-                    modal_warning(self.pantalla, err, titulo=self._t("editar_usuario.modal_pwd_invalida", "Contraseña inválida"))
+                    modal_warning(self.pantalla, err, titulo="Contraseña inválida")
                     return
                 if pwd1 != pwd2:
-                    modal_warning(self.pantalla, self._t("editar_usuario.error_pwd_no_coinciden", "Las contraseñas no coinciden."))
+                    modal_warning(self.pantalla, "Las contraseñas no coinciden.")
                     self._pwd_wrappers[1][0].configure(
                         highlightbackground="#e53935", highlightthickness=2)
                     return
@@ -599,10 +565,10 @@ class PantallaEditarUsuario:
 
         ok, msg = actualizar_usuario(datos_actualizados)
         if ok:
-            modal_info(self.pantalla, msg, titulo=self._t("editar_usuario.modal_guardado", "Guardado"),
+            modal_info(self.pantalla, msg, titulo="Guardado",
                        on_ok=lambda: self.app.mostrar_pantalla("gestion_real"))
         else:
-            modal_error(self.pantalla, msg, titulo=self._t("editar_usuario.modal_error_guardar", "Error al guardar"))
+            modal_error(self.pantalla, msg, titulo="Error al guardar")
 
     def _cancelar(self):
         self.app.mostrar_pantalla("gestion_real")

@@ -99,10 +99,6 @@ class PantallaAvisoPrivacidad:
             app.tema.registrar(self._on_tema_cambio)
         self.pantalla.bind("<Destroy>", self._limpiar_tema)
 
-    def _t(self, clave: str, fallback: str = "") -> str:
-        idioma = getattr(self.app, "idioma", None)
-        return idioma.t(clave, fallback) if idioma else fallback
-
     # ══════════════════════════════════════════════════════════════════════════
     #  SOPORTE DE TEMA
     # ══════════════════════════════════════════════════════════════════════════
@@ -312,7 +308,7 @@ class PantallaAvisoPrivacidad:
 
         self._btn_aceptar = tk.Button(
             self._frame_botones,
-            text=self._t("aviso_privacidad.btn_aceptar", "     Aceptar"),
+            text="     Aceptar",
             font=("Segoe UI", 11, "bold"),
             image=self._iconos_btn["normal"],
             compound="center",
@@ -343,20 +339,20 @@ class PantallaAvisoPrivacidad:
                 self._icono_candado = ImageTk.PhotoImage(img_pil)
                 self._titulo = tk.Label(
                     self._titulo_frame,
-                    text=self._t("aviso_privacidad.titulo", "Aviso de Privacidad"),
+                    text="Aviso de Privacidad",
                     font=FUENTES.get("modal_titulo", ("Segoe UI", 16, "bold")),
                     bg=p["card_bg"], fg=p["texto_titulo"],
                     image=self._icono_candado, compound="left")
             except Exception:
                 self._titulo = tk.Label(
                     self._titulo_frame,
-                    text=f"🔒 {self._t('aviso_privacidad.titulo', 'Aviso de Privacidad')}",
+                    text="🔒 Aviso de Privacidad",
                     font=FUENTES.get("modal_titulo", ("Segoe UI", 16, "bold")),
                     bg=p["card_bg"], fg=p["texto_titulo"])
         else:
             self._titulo = tk.Label(
                 self._titulo_frame,
-                text=f"🔒 {self._t('aviso_privacidad.titulo', 'Aviso de Privacidad')}",
+                text="🔒 Aviso de Privacidad",
                 font=FUENTES.get("modal_titulo", ("Segoe UI", 16, "bold")),
                 bg=p["card_bg"], fg=p["texto_titulo"])
         self._titulo.pack(side="left")
@@ -389,7 +385,7 @@ class PantallaAvisoPrivacidad:
         )
         self._scrollbar.config(command=self._texto.yview)
         self._texto.pack(fill="both", expand=True)
-        self._texto.insert("1.0", self._t("aviso_privacidad.contenido", TEXTO_AVISO))
+        self._texto.insert("1.0", TEXTO_AVISO)
         self._texto.config(state="disabled")
 
         # ── Bindings táctiles v2 ──────────────────────────────────────────────

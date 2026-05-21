@@ -77,10 +77,6 @@ class PantallaLogin:
             app.tema.registrar(self._aplicar_tema)
         self.pantalla.bind("<Destroy>", self._limpiar_tema)
 
-    def _t(self, clave: str, fallback: str = "") -> str:
-        idioma = getattr(self.app, "idioma", None)
-        return idioma.t(clave, fallback) if idioma else fallback
-
     # ══════════════════════════════════════════
     #  UI
     # ══════════════════════════════════════════
@@ -145,15 +141,15 @@ class PantallaLogin:
 
         self._lbl_instruccion = tk.Label(
             card,
-            text=self._t("login.instruccion", "Indique su número de trabajador\ny su clave de acceso."),
+            text="Indique su número de trabajador\ny su clave de acceso.",
             font=("Segoe UI", 9),
             fg=p["texto_sec"], bg=p["card_bg"], justify="center")
         self._lbl_instruccion.pack(pady=(8, 20))
 
-        self._campo_con_icono(card, self._t("login.placeholder_usuario", "Número de trabajador"), "entry_usuario", False)
+        self._campo_con_icono(card, "Número de trabajador", "entry_usuario", False)
         self._spacer = tk.Frame(card, height=10, bg=p["card_bg"])
         self._spacer.pack()
-        self._campo_con_icono(card, self._t("login.placeholder_clave", "Contraseña"), "entry_clave", True)
+        self._campo_con_icono(card, "Contraseña", "entry_clave", True)
         self._spacer2 = tk.Frame(card, height=6, bg=p["card_bg"])
         self._spacer2.pack()
 
@@ -167,7 +163,7 @@ class PantallaLogin:
             self._cv_btn.delete("all")
             _rr(self._cv_btn, 0, 0, ANCHO_BTN, ALTO_BTN, RADIO_BTN, color)
             self._cv_btn.create_text(ANCHO_BTN // 2, ALTO_BTN // 2,
-                                      text=self._t("login.btn_ingresar", "INGRESAR"),
+                                      text="INGRESAR",
                                       font=("Segoe UI", 10, "bold"),
                                       fill=BLANCO, anchor="center")
 
@@ -406,7 +402,7 @@ class PantallaLogin:
         setattr(self, attr, entry)
 
     def _toggle_clave(self, entry, ojo_lbl):
-        placeholder = self._t("login.placeholder_clave", "Contraseña")
+        placeholder = "Contraseña"
         if entry.get() == placeholder:
             return
         self._mostrar_clave = not self._mostrar_clave
@@ -425,7 +421,7 @@ class PantallaLogin:
         if u == "admin" and c == "1234":
             self.app.mostrar_pantalla("gestion_real")
         else:
-            self.lbl_error.config(text=self._t("login.error_credenciales", "⚠ Credenciales incorrectas"))
+            self.lbl_error.config(text="⚠ Credenciales incorrectas")
 
 
 def crear_pantalla_login(parent, app):

@@ -91,7 +91,6 @@ class PantallaCaptura:
         self.app     = app
         self.datos   = datos or {}
         self._p      = _paleta(app)
-        self._idioma = getattr(app, "idioma", None)
 
         self._capturando        = False
         self._capturas_ok       = 0
@@ -115,10 +114,6 @@ class PantallaCaptura:
         if hasattr(app, "tema"):
             app.tema.registrar(self._on_tema_cambio)
         self.pantalla.bind("<Destroy>", self._limpiar_tema)
-
-    def _t(self, clave: str, fallback: str = "") -> str:
-        idioma = getattr(self.app, "idioma", None)
-        return idioma.t(clave, fallback) if idioma else fallback
 
     def _on_tema_cambio(self, _):
         self._p = _O if self.app.tema.es_oscuro() else _C
@@ -176,7 +171,7 @@ class PantallaCaptura:
 
         self.label_video = tk.Label(
             self._col_feed, bg=p["feed_bg"],
-            text=self._t("acceso.iniciando_camara", "Iniciando cámara..."),
+            text="Iniciando cámara...",
             font=("Segoe UI", 13), fg="#aaaaaa")
         self.label_video.place(x=0, y=0, relwidth=1, relheight=1)
 
@@ -190,12 +185,12 @@ class PantallaCaptura:
 
         nombre = f"{self.datos.get('nombre','')} {self.datos.get('apellido_paterno','')}".strip()
 
-        self._lbl_reg = tk.Label(self._panel, text=self._t("captura_rostro.registrando", "REGISTRANDO"),
+        self._lbl_reg = tk.Label(self._panel, text="REGISTRANDO",
                                   font=("Segoe UI", 8), fg=p["texto2"],
                                   bg=p["panel_bg"])
         self._lbl_reg.pack(pady=(14, 2))
 
-        self._lbl_nombre = tk.Label(self._panel, text=nombre or self._t("captura_rostro.usuario_default", "Usuario"),
+        self._lbl_nombre = tk.Label(self._panel, text=nombre or "Usuario",
                                      font=("Segoe UI", 11, "bold"), fg=p["texto"],
                                      bg=p["panel_bg"], wraplength=185, justify="center")
         self._lbl_nombre.pack()
@@ -203,7 +198,7 @@ class PantallaCaptura:
         self._sep1 = tk.Frame(self._panel, bg=p["panel_borde"], height=1)
         self._sep1.pack(fill="x", pady=10, padx=10)
 
-        self._lbl_cap_titulo = tk.Label(self._panel, text=self._t("captura_rostro.label_capturas", "CAPTURAS"),
+        self._lbl_cap_titulo = tk.Label(self._panel, text="CAPTURAS",
                                          font=("Segoe UI", 8), fg=p["texto2"],
                                          bg=p["panel_bg"])
         self._lbl_cap_titulo.pack()
@@ -221,7 +216,7 @@ class PantallaCaptura:
         self._prog_inner.place(x=0, y=0, height=8)
 
         self._lbl_estado = tk.Label(
-            self._panel, text=self._t("captura_rostro.listo", "Listo para\nescanear"),
+            self._panel, text="Listo para\nescanear",
             font=("Segoe UI", 10), fg=p["texto2"],
             bg=p["panel_bg"], justify="center", wraplength=185)
         self._lbl_estado.pack(pady=(0, 10))
@@ -233,7 +228,7 @@ class PantallaCaptura:
         self._btn_frame.pack(fill="x", padx=12, pady=10)
 
         self._btn_iniciar = tk.Button(
-            self._btn_frame, text=self._t("captura_rostro.btn_iniciar", "▶  INICIAR"),
+            self._btn_frame, text="▶  INICIAR",
             font=("Segoe UI", 10, "bold"),
             fg="#ffffff", bg=p["verde"],
             activebackground=p["verde_hover"], activeforeground="#ffffff",
@@ -242,7 +237,7 @@ class PantallaCaptura:
         self._btn_iniciar.pack(fill="x", pady=(0, 6))
 
         self._btn_cancelar = tk.Button(
-            self._btn_frame, text=self._t("captura_rostro.btn_cancelar", "✕  CANCELAR"),
+            self._btn_frame, text="✕  CANCELAR",
             font=("Segoe UI", 10, "bold"),
             fg="#ffffff", bg=p["rojo"],
             activebackground=p["rojo_hover"], activeforeground="#ffffff",
@@ -270,17 +265,17 @@ class PantallaCaptura:
         self._descartes_seguidos = 0
 
         p = self._p
-        self._btn_iniciar.config(text=self._t("captura_rostro.btn_detener", "⏹  DETENER"), bg=p["rojo"],
+        self._btn_iniciar.config(text="⏹  DETENER", bg=p["rojo"],
                                   activebackground=p["rojo_hover"])
-        self._lbl_estado.config(text=self._t("captura_rostro.escaneando", "No te muevas\nescaneando..."), fg="#43a047")
+        self._lbl_estado.config(text="No te muevas\nescaneando...", fg="#43a047")
 
         self._cap = cv2.VideoCapture(_CAM_INDEX)
         if not self._cap.isOpened():
             otro = 1 - _CAM_INDEX
             self._cap = cv2.VideoCapture(otro)
         if not self._cap.isOpened():
-            modal_error(self.pantalla, self._t("captura_rostro.error_camara_msg", "No se pudo abrir la cámara."),
-                        titulo=self._t("captura_rostro.error_camara_titulo", "Error de cámara"))
+            modal_error(self.pantalla, "No se pudo abrir la cámara.",
+                        titulo="Error de cámara")
             self._capturando = False
             return
 
@@ -296,9 +291,9 @@ class PantallaCaptura:
         self._capturando = False
         self._corriendo  = False
         p = self._p
-        self._btn_iniciar.config(text=self._t("captura_rostro.btn_iniciar", "▶  INICIAR"), bg=p["verde"],
+        self._btn_iniciar.config(text="▶  INICIAR", bg=p["verde"],
                                   activebackground=p["verde_hover"])
-        self._lbl_estado.config(text=self._t("captura_rostro.detenido", "Detenido"), fg=p["texto2"])
+        self._lbl_estado.config(text="Detenido", fg=p["texto2"])
 
     # ══════════════════════════════════════════════════════════════════════════
     #  HILOS
@@ -589,21 +584,22 @@ class PantallaCaptura:
         p = self._p
 
         if n >= CAPTURAS_REQUERIDAS:
-            self._lbl_estado.config(text=self._t("captura_rostro.completo", "¡Escaneo\ncompleto!"), fg=p["verde"])
+            self._lbl_estado.config(text="¡Escaneo\ncompleto!", fg=p["verde"])
             self._btn_iniciar.config(text="✓  COMPLETADO",
                                       bg=p["verde_ok"], state="disabled")
             self._lbl_contador.config(fg=p["verde"])
-            self._lbl_estado.config(text=self._t("captura_rostro.verificando_dup", "Verificando\nduplicados..."),
+            self._lbl_estado.config(text="Verificando\nduplicados...",
                                      fg=p["texto2"])
             encoding_final = np.mean(self._encodings, axis=0)
             threading.Thread(
                 target=self._verificar_y_regresar,
                 args=(encoding_final,), daemon=True).start()
         else:
-            self._lbl_estado.config(
-                text=f"{self._t('captura_rostro.incompleto', 'Incompleto')}\n{n}/{CAPTURAS_REQUERIDAS}", fg=p["rojo"])
-            self._btn_iniciar.config(text=self._t("captura_rostro.btn_reintentar", "▶  REINTENTAR"),
-                                      bg=p["verde"], state="normal")
+            if not self._chequeo_rapido or n > 0:
+                self._lbl_estado.config(
+                    text=f"Incompleto\n{n}/{CAPTURAS_REQUERIDAS}", fg=p["rojo"])
+                self._btn_iniciar.config(text="▶  REINTENTAR",
+                                          bg=p["verde"], state="normal")
 
     def _verificar_y_regresar(self, encoding):
         """Verificación final de duplicados (respaldo tras 30 capturas)."""
@@ -626,22 +622,8 @@ class PantallaCaptura:
                     idx_min    = int(np.argmin(distancias))
                     nombre_dup = registrados[idx_min].get("nombre", "—")
                     cod_dup    = registrados[idx_min].get("cod", "—")
-                    print(f"[CAPTURA] DUPLICADO: {nombre_dup} ({cod_dup})")
-
-                    def _dup():
-                        self._lbl_estado.config(
-                            text=f"{self._t('captura_rostro.dup_encontrado', 'Rostro ya\nregistrado:\n')}{nombre_dup}",
-                            fg=self._p["rojo"])
-                        self._btn_iniciar.config(
-                            text=self._t("captura_rostro.btn_reintentar", "▶  REINTENTAR"),
-                            bg=self._p["verde"], state="normal")
-                        self._encodings   = []
-                        self._capturas_ok = 0
-                        self._lbl_contador.config(
-                            text=f"0 / {CAPTURAS_REQUERIDAS}",
-                            fg=self._p["verde"])
-                        self._prog_inner.place(x=0, y=0, height=8, width=0)
-                    self.label_video.after(0, _dup)
+                    print(f"[CAPTURA] DUPLICADO FINAL: {nombre_dup} ({cod_dup})")
+                    self.label_video.after(0, self._on_duplicado_detectado, nombre_dup)
                     return
 
             print("[CAPTURA] Sin duplicados — regresando a agregar_usuario")
@@ -654,7 +636,7 @@ class PantallaCaptura:
         except Exception as e:
             print(f"[CAPTURA] Error: {e}")
             self.label_video.after(0, lambda: modal_error(
-                self.pantalla, str(e), titulo=self._t("captura_rostro.error_camara_titulo", "Error")))
+                self.pantalla, str(e), titulo="Error"))
 
     def _cancelar(self):
         self._capturando = False
