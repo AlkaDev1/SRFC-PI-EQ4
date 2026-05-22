@@ -2,13 +2,12 @@
 ui/screens/pantalla_agregar_usuario.py
 Pantalla de Agregar Usuario -- 800x480 táctil (Raspberry Pi 5)
 
-CAMBIOS v14:
-  - Nombre único: si contiene espacio se divide en primer_nombre + segundo_nombre
-  - Grado y Grupo aparecen solo al seleccionar rol Alumno (igual que Carrera)
-  - Carrera también solo visible/activa para Alumno
-  - password_hash corregido: se guarda correctamente para Admin y Super Admin
-  - Migración BD silenciada (no toca fecha_actualizacion si ya está migrado)
-  - Dropdowns carrera/rol siempre tienen valor inicial visible
+CAMBIOS v15:
+  - BUG 1 FIX: _campo_password ya no crea sub-Frame interno con pack().
+    Ahora trabaja directo sobre el parent para evitar conflicto con grid().
+    El campo "Confirmar contraseña" ahora es visible correctamente.
+  - BUG 2 FIX: _PROGRAMAS incluye "Ninguno" como primera opción.
+    Al guardar, "Ninguno" se convierte a None en la BD.
 """
 
 import tkinter as tk
@@ -33,8 +32,9 @@ _F_BTN     = ("Segoe UI", 9, "bold")
 _F_INSTRUC = ("Segoe UI", 8)
 
 _ROLES_CON_PASSWORD = {"Admin", "Super Admin"}
-_ROLES_CON_DETALLE  = {"Alumno"}          # muestra carrera + grado + grupo
-_PROGRAMAS          = ["Software", "Mecatrónica"]
+_ROLES_CON_DETALLE  = {"Alumno"}
+# BUG 2 FIX: "Ninguno" agregado como primera opción
+_PROGRAMAS          = ["Ninguno", "Software", "Mecatrónica"]
 _GRADOS             = ["1°", "2°", "3°", "4°", "5°", "6°", "7°", "8°", "9°"]
 _GRUPOS             = ["A", "B", "C", "D", "E"]
 
@@ -105,12 +105,8 @@ def _validar_password(pwd: str):
     return None
 
 
-def _separar_nombres(nombre_completo: str) -> tuple[str, str | None]:
-    """
-    Divide 'Brandom Yair' → ('Brandom', 'Yair')
-    Un solo nombre → ('Brandom', None)
-    """
-    partes = nombre_completo.strip().split(None, 1)   # split en primer espacio
+def _separar_nombres(nombre_completo: str) -> tuple:
+    partes  = nombre_completo.strip().split(None, 1)
     primer  = partes[0] if partes else ""
     segundo = partes[1].strip() if len(partes) > 1 else None
     return primer, segundo
@@ -154,14 +150,19 @@ def _hacer_dropdown(parent, var, opciones, p, ico_flecha,
     return btn
 
 
+# ── BUG 1 FIX ────────────────────────────────────────────────────────────────
+# _campo_password ya NO crea un sub-Frame interno con pack().
+# Trabaja directo sobre `parent` (que es self._sub_password, un Frame con pack).
+# Antes retornaba (sub, ent, wrapper, ojo); ahora retorna (ent, wrapper, ojo).
+# Esto elimina el conflicto entre pack() interno y grid() externo que hacía
+# que el formulario quedara pequeño y el campo "confirmar" no se mostrara.
+# ─────────────────────────────────────────────────────────────────────────────
 def _campo_password(parent, p, label_txt, img_on, img_off):
-    sub = tk.Frame(parent, bg=p["bg"])
-    sub.pack(fill="x")
-    tk.Label(sub, text=label_txt, font=_F_LABEL,
-             fg=p["texto2"], bg=p["bg"]).pack(anchor="w")
-    wrapper = tk.Frame(sub, bg=p["campo_bg"],
+    tk.Label(parent, text=label_txt, font=_F_LABEL,
+             fg=p["texto2"], bg=p["bg"]).pack(anchor="w", fill="x")
+    wrapper = tk.Frame(parent, bg=p["campo_bg"],
                        highlightthickness=1, highlightbackground=p["borde"])
-    wrapper.pack(fill="x", pady=(1, 0))
+    wrapper.pack(fill="x", pady=(1, 4))
     ent = tk.Entry(wrapper, font=_F_ENTRY,
                    fg=p["texto"], bg=p["campo_bg"],
                    relief="flat", bd=0,
@@ -184,7 +185,8 @@ def _campo_password(parent, p, label_txt, img_on, img_off):
                        bg=p["campo_bg"], fg=p["texto2"], cursor="hand2")
     ojo.pack(side="right", padx=(2, 6))
     ojo.bind("<Button-1>", lambda e: _toggle())
-    return sub, ent, wrapper, ojo
+    # Retorna (ent, wrapper, ojo) — sin sub-Frame
+    return ent, wrapper, ojo
 
 
 class PantallaAgregarUsuario:
@@ -204,7 +206,7 @@ class PantallaAgregarUsuario:
         self._btn_grado   = None
         self._btn_grupo   = None
         self._sub_password    = None
-        self._sub_detalle_alu = None   # contenedor grado+grupo+carrera
+        self._sub_detalle_alu = None
         self._pwd_wrappers = []
         self._entradas    = {}
 
@@ -217,7 +219,6 @@ class PantallaAgregarUsuario:
             app.tema.registrar(self._on_tema_cambio)
         self.pantalla.bind("<Destroy>", self._limpiar_tema)
 
-    # ─────────────────────────────────────────────────────────────────────────
     def _cargar_iconos(self):
         if not _PIL_OK:
             return
@@ -586,12 +587,11 @@ class PantallaAgregarUsuario:
         self._grupo_var   = tk.StringVar(value=self.datos.get("grupo",   "A"))
 
         self._sub_detalle_alu = tk.Frame(self._form, bg=p["bg"])
-        # 3 columnas internas: carrera | grado | grupo
         self._sub_detalle_alu.columnconfigure(0, weight=2)
         self._sub_detalle_alu.columnconfigure(1, weight=1)
         self._sub_detalle_alu.columnconfigure(2, weight=1)
 
-        # Carrera
+        # Carrera — ahora incluye "Ninguno" como primera opción (BUG 2 FIX)
         sub_ca = tk.Frame(self._sub_detalle_alu, bg=p["bg"])
         sub_ca.grid(row=0, column=0, padx=(0, 4), sticky="ew")
         self._reg(sub_ca, "bg")
@@ -623,17 +623,23 @@ class PantallaAgregarUsuario:
         self._btn_grupo.pack(fill="x", ipady=2, pady=(1, 0))
 
         # ── Contraseña (Admin / Super Admin) ──────────────────────────────────
+        # BUG 1 FIX: _campo_password ya no crea sub-Frame interno.
+        # self._sub_password usa pack() y _campo_password trabaja sobre él directamente.
         self._sub_password = tk.Frame(self._form, bg=p["bg"])
-        _, self._ent_password, w1, o1 = _campo_password(
+
+        self._ent_password, w1, o1 = _campo_password(
             self._sub_password, p,
             "Contraseña  (mayúscula, minúscula y número)",
             self._img_ojo_on, self._img_ojo_off)
         self._pwd_wrappers.append((w1, o1))
+
         tk.Frame(self._sub_password, bg=p["bg"], height=3).pack()
-        _, self._ent_password2, w2, o2 = _campo_password(
+
+        self._ent_password2, w2, o2 = _campo_password(
             self._sub_password, p, "Confirmar contraseña",
             self._img_ojo_on, self._img_ojo_off)
         self._pwd_wrappers.append((w2, o2))
+
         self._entradas["password"]  = self._ent_password
         self._entradas["password2"] = self._ent_password2
 
@@ -641,13 +647,12 @@ class PantallaAgregarUsuario:
         self._on_rol_cambio(rol_inicial, init=True)
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  CAMBIO DE ROL — controla qué secciones son visibles
+    #  CAMBIO DE ROL
     # ══════════════════════════════════════════════════════════════════════════
     def _on_rol_cambio(self, rol, init=False):
         es_alumno    = rol in _ROLES_CON_DETALLE
         es_admin_pwd = rol in _ROLES_CON_PASSWORD
 
-        # ── Detalle alumno (carrera + grado + grupo) ──────────────────────────
         if es_alumno:
             self._sub_detalle_alu.grid(
                 row=3, column=0, columnspan=2,
@@ -655,7 +660,6 @@ class PantallaAgregarUsuario:
         else:
             self._sub_detalle_alu.grid_remove()
 
-        # ── Contraseña ────────────────────────────────────────────────────────
         if es_admin_pwd:
             self._sub_password.grid(
                 row=4, column=0, columnspan=2,
@@ -666,7 +670,6 @@ class PantallaAgregarUsuario:
                 self._ent_password.delete(0, tk.END)
                 self._ent_password2.delete(0, tk.END)
 
-    # ─────────────────────────────────────────────────────────────────────────
     def _campo(self, parent, row, col_i, etiqueta, key):
         p    = self._p
         padx = (0, 4) if col_i == 0 else (4, 0)
@@ -731,16 +734,17 @@ class PantallaAgregarUsuario:
             self._lbl_aviso.config(text="El apellido paterno es requerido.")
             return
 
-        # ── Separar primer y segundo nombre automáticamente ───────────────────
         primer_nombre, segundo_nombre = _separar_nombres(nombre_raw)
 
-        # ── Detalle alumno ─────────────────────────────────────────────────────
+        # BUG 2 FIX + BUG 5 FIX: solo se guarda carrera/grado/grupo si es Alumno
         es_alumno = rol in _ROLES_CON_DETALLE
         carrera   = self._carrera_var.get() if es_alumno else None
         grado     = self._grado_var.get()   if es_alumno else None
         grupo     = self._grupo_var.get()   if es_alumno else None
+        # "Ninguno" se guarda como None en la BD
+        if carrera == "Ninguno":
+            carrera = None
 
-        # ── Contraseña ─────────────────────────────────────────────────────────
         password_plain = None
         if rol in _ROLES_CON_PASSWORD:
             pwd1 = self._ent_password.get()
@@ -770,14 +774,14 @@ class PantallaAgregarUsuario:
                 "cod_institucional": cod,
                 "id_rol":            rol_map.get(rol, 4),
                 "primer_nombre":     primer_nombre,
-                "segundo_nombre":    segundo_nombre,    # None si solo tiene 1 nombre
+                "segundo_nombre":    segundo_nombre,
                 "apellido_paterno":  apellidop,
                 "apellido_materno":  self._entradas["apellido_materno"].get().strip() or None,
                 "carrera":           carrera,
                 "grado":             grado,
                 "grupo":             grupo,
                 "face_encoding":     encoding_snap,
-                "password_hash":     password_hash,     # guardado correctamente
+                "password_hash":     password_hash,
             }
 
             from core.database import registrar_usuario, inicializar_bd

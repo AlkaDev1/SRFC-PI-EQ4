@@ -2,10 +2,12 @@
 ui/screens/pantalla_editar_usuario.py
 Pantalla de Edición de Usuario — 800x480
 
-CAMBIOS v5:
-  - "Ninguno" agregado como primera opción en Programa/Carrera
-  - Menús desplegables usan menu.post() en lugar de tk_popup()
-    para que se mantengan abiertos sin necesidad de mantener presionado
+CAMBIOS v6:
+  - BUG 2 FIX: "Ninguno" incluido como primera opción en Programa/Carrera
+    (ya estaba en v5, se mantiene y confirma).
+  - BUG 3/4 FIX: el campo "Nombre" se carga combinando primer_nombre +
+    segundo_nombre para que se muestre y edite el nombre completo.
+  - password_hash se pasa correctamente a actualizar_usuario() en database.py.
 """
 
 import tkinter as tk
@@ -66,7 +68,7 @@ def _paleta(app) -> dict:
     return _C
 
 
-def _validar_password(pwd: str) -> str | None:
+def _validar_password(pwd: str):
     if len(pwd) < 6:
         return "Mínimo 6 caracteres."
     if not any(c.isupper() for c in pwd):
@@ -79,14 +81,10 @@ def _validar_password(pwd: str) -> str | None:
 
 
 def _hacer_dropdown(parent, var, opciones, p, ico_flecha, on_select=None, font=None):
-    """
-    Dropdown que usa menu.post() para que quede estático
-    sin necesidad de mantener presionado.
-    """
     font = font or ("Segoe UI", 10)
 
     def _abrir():
-        cp = p  # usar paleta actual (puede haber cambiado con el tema)
+        cp = p
         menu = tk.Menu(parent, tearoff=0, font=font,
                        bg=cp["card_bg"], fg=cp["texto_oscuro"],
                        activebackground=cp["verde_btn"],
@@ -98,7 +96,6 @@ def _hacer_dropdown(parent, var, opciones, p, ico_flecha, on_select=None, font=N
                 if on_select:
                     on_select(o)
             menu.add_command(label=op, command=_sel)
-        # post() en lugar de tk_popup() → el menú se mantiene abierto solo
         x = btn.winfo_rootx()
         y = btn.winfo_rooty() + btn.winfo_height()
         menu.post(x, y)
@@ -116,13 +113,12 @@ def _hacer_dropdown(parent, var, opciones, p, ico_flecha, on_select=None, font=N
 
 
 def _campo_password_editar(parent, p, label_txt, img_on, img_off):
-    """Campo contraseña con ojito para pantalla editar."""
     tk.Label(parent, text=label_txt, font=("Segoe UI", 8),
-             fg=p["texto_gris"], bg=p["card_bg"]).pack(anchor="w")
+             fg=p["texto_gris"], bg=p["card_bg"]).pack(anchor="w", fill="x")
 
     wrapper = tk.Frame(parent, bg=p["campo_bg"],
                        highlightthickness=1, highlightbackground=p["borde"])
-    wrapper.pack(fill="x", pady=(2, 0))
+    wrapper.pack(fill="x", pady=(2, 6))
 
     ent = tk.Entry(wrapper, font=("Segoe UI", 10),
                    fg=p["texto_oscuro"], bg=p["campo_bg"],
@@ -151,6 +147,27 @@ def _campo_password_editar(parent, p, label_txt, img_on, img_off):
     ojo.bind("<Button-1>", lambda e: _toggle())
 
     return ent, wrapper, ojo
+
+
+def _nombre_completo_para_editar(datos: dict) -> str:
+    """
+    BUG 3/4 FIX: reconstruye el nombre completo desde primer_nombre y
+    segundo_nombre para que el campo de edición muestre ambos nombres.
+    Si el dict ya tiene la clave 'nombre' con ambos nombres (venía de listar_usuarios),
+    la usa directamente. Si no, lo reconstruye desde primer_nombre + segundo_nombre.
+    """
+    # Si viene de listar_usuarios ya trae nombre completo en "nombre"
+    nombre_directo = datos.get("nombre", "").strip()
+    primer  = datos.get("primer_nombre", "").strip()
+    segundo = datos.get("segundo_nombre", "").strip()
+
+    if primer and segundo:
+        # Tenemos los campos separados → reconstruir
+        return f"{primer} {segundo}".strip()
+    if primer:
+        return primer
+    # Fallback: usar el campo "nombre" tal cual
+    return nombre_directo
 
 
 class PantallaEditarUsuario:
@@ -191,9 +208,6 @@ class PantallaEditarUsuario:
             self._img_ojo_on  = None
             self._img_ojo_off = None
 
-    # ══════════════════════════════════════════════════════════════════════════
-    #  TEMA
-    # ══════════════════════════════════════════════════════════════════════════
     def _on_tema_cambio(self, _):
         self._p = _O if self.app.tema.es_oscuro() else _C
         self._aplicar_tema()
@@ -206,6 +220,10 @@ class PantallaEditarUsuario:
             self._card.configure(bg=p["card_bg"])
             self._card_barra.configure(bg=p["verde_btn"])
             self._form.configure(bg=p["card_bg"])
+            try:
+                self._canvas_scroll.configure(bg=p["card_bg"])
+            except Exception:
+                pass
             self._pie.configure(bg=p["bg_app"])
 
             for widget, bg_k, fg_k in self._widgets_repintables:
@@ -324,11 +342,53 @@ class PantallaEditarUsuario:
         self._card_barra = tk.Frame(self._card, bg=p["verde_btn"], height=4)
         self._card_barra.pack(fill="x")
 
-        self._form = tk.Frame(self._card, bg=p["card_bg"])
-        self._form.pack(fill="both", expand=True, padx=20, pady=8)
+        # ── Scroll: Canvas + Scrollbar vertical ──────────────────────────────
+        scroll_container = tk.Frame(self._card, bg=p["card_bg"])
+        scroll_container.pack(fill="both", expand=True)
+        scroll_container.columnconfigure(0, weight=1)
+        scroll_container.rowconfigure(0, weight=1)
+
+        self._canvas_scroll = tk.Canvas(
+            scroll_container, bg=p["card_bg"],
+            highlightthickness=0, bd=0)
+        self._canvas_scroll.grid(row=0, column=0, sticky="nsew")
+
+        self._scrollbar = tk.Scrollbar(
+            scroll_container, orient="vertical",
+            command=self._canvas_scroll.yview)
+        self._scrollbar.grid(row=0, column=1, sticky="ns")
+        self._canvas_scroll.configure(yscrollcommand=self._scrollbar.set)
+
+        # _form es el frame interior que se desplaza
+        self._form = tk.Frame(self._canvas_scroll, bg=p["card_bg"])
+        self._form_window = self._canvas_scroll.create_window(
+            (0, 0), window=self._form, anchor="nw")
+
+        # Ajustar ancho del _form al canvas y región de scroll al contenido
+        def _on_canvas_resize(event):
+            self._canvas_scroll.itemconfig(
+                self._form_window, width=event.width)
+        self._canvas_scroll.bind("<Configure>", _on_canvas_resize)
+
+        def _on_form_resize(event):
+            self._canvas_scroll.configure(
+                scrollregion=self._canvas_scroll.bbox("all"))
+        self._form.bind("<Configure>", _on_form_resize)
+
+        # Scroll táctil (dedo) y rueda de mouse
+        def _scroll_touch(event):
+            self._canvas_scroll.yview_scroll(
+                int(-1 * (event.delta / 120)), "units")
+        self._canvas_scroll.bind("<MouseWheel>", _scroll_touch)
+        self._form.bind_all("<Button-4>",
+            lambda e: self._canvas_scroll.yview_scroll(-1, "units"))
+        self._form.bind_all("<Button-5>",
+            lambda e: self._canvas_scroll.yview_scroll(1, "units"))
 
         self._recargar_ico_flecha()
         self._construir_campos()
+        # Después de construir, hacer scroll al inicio
+        self._canvas_scroll.yview_moveto(0)
 
         self._pie = tk.Frame(cuerpo, bg=p["bg_app"])
         self._pie.grid(row=2, column=0, sticky="ew", pady=(8, 4))
@@ -359,15 +419,19 @@ class PantallaEditarUsuario:
         form.columnconfigure(0, weight=1)
         form.columnconfigure(1, weight=1)
 
+        # BUG 3/4 FIX: el valor del campo "nombre" usa _nombre_completo_para_editar
+        # para mostrar primer_nombre + segundo_nombre juntos.
+        nombre_valor = _nombre_completo_para_editar(self.datos)
+
         campos = [
-            (0, 0, "No. Institucional", "cod_institucional", False),
-            (0, 1, "Nombre",            "nombre",            True),
-            (1, 0, "Apellido Paterno",  "apellido_paterno",  True),
-            (1, 1, "Apellido Materno",  "apellido_materno",  True),
-            (2, 1, "Fecha y Hora",      "fecha_hora",         False),
+            (0, 0, "No. Institucional", "cod_institucional", False,  None),
+            (0, 1, "Nombre",            "nombre",            True,   nombre_valor),
+            (1, 0, "Apellido Paterno",  "apellido_paterno",  True,   None),
+            (1, 1, "Apellido Materno",  "apellido_materno",  True,   None),
+            (2, 1, "Fecha y Hora",      "fecha_hora",        False,  None),
         ]
 
-        for row, col, label, key, editable in campos:
+        for row, col, label, key, editable, valor_override in campos:
             padx = (0, 12) if col == 0 else (12, 0)
             sub = tk.Frame(form, bg=p["card_bg"])
             sub.grid(row=row, column=col, padx=padx, pady=3, sticky="ew")
@@ -378,7 +442,8 @@ class PantallaEditarUsuario:
             lbl.pack(anchor="w")
             self._reg(lbl, "card_bg", "texto_gris")
 
-            valor = self.datos.get(key, "")
+            # Usar valor_override si existe, si no usar datos
+            valor = valor_override if valor_override is not None else self.datos.get(key, "")
             bg_e  = p["campo_bg"] if editable else p["campo_dis"]
             fg_e  = p["texto_oscuro"] if editable else p["texto_gris"]
 
@@ -395,7 +460,7 @@ class PantallaEditarUsuario:
             e.pack(fill="x", ipady=6, pady=(2, 0))
             self._entradas[key] = e
 
-        # ── Programa/Carrera — ahora incluye "Ninguno" como primera opción ──
+        # ── Programa/Carrera ──────────────────────────────────────────────────
         carrera_actual = self.datos.get("carrera", "Ninguno") or "Ninguno"
         if carrera_actual not in _PROGRAMAS:
             carrera_actual = "Ninguno"
@@ -410,7 +475,7 @@ class PantallaEditarUsuario:
             sub_carrera, self._carrera_var, _PROGRAMAS, p, self._ico_flecha)
         self._btn_carrera.pack(fill="x", pady=(2, 0))
 
-        # ── Fila 3: Rol + Status ──
+        # ── Fila 3: Rol + Status ──────────────────────────────────────────────
         fila_extra = tk.Frame(form, bg=p["card_bg"])
         fila_extra.grid(row=3, column=0, columnspan=2, sticky="ew", pady=4)
         fila_extra.columnconfigure(0, weight=1)
@@ -468,7 +533,7 @@ class PantallaEditarUsuario:
             sub_status, self._status_var, ["Activo", "Inactivo"], p, self._ico_flecha)
         self._btn_status.pack(fill="x", pady=(2, 0))
 
-        # Fila 4: Contraseña con ojito (dinámica)
+        # Fila 4: Contraseña (dinámica según rol)
         self._sub_password = tk.Frame(form, bg=p["card_bg"])
 
         ent1, w1, o1 = _campo_password_editar(
@@ -478,7 +543,7 @@ class PantallaEditarUsuario:
         self._ent_password = ent1
         self._pwd_wrappers.append((w1, o1))
 
-        tk.Frame(self._sub_password, bg=p["card_bg"], height=4).pack()
+        # separador eliminado — pady del wrapper ya da el espacio
 
         ent2, w2, o2 = _campo_password_editar(
             self._sub_password, p,
@@ -527,12 +592,25 @@ class PantallaEditarUsuario:
     def _guardar(self):
         rol = self._rol_var.get()
 
+        # BUG 3/4 FIX: el campo "nombre" se edita como nombre completo.
+        # Para la BD lo seguimos guardando en primer_nombre (campo único editable).
+        # Si el usuario escribió dos nombres con espacio, se separan internamente.
+        nombre_raw = self._entradas["nombre"].get().strip()
+        partes     = nombre_raw.split(None, 1)
+        primer     = partes[0] if partes else ""
+        segundo    = partes[1].strip() if len(partes) > 1 else None
+
+        carrera = self._carrera_var.get()
+        if carrera == "Ninguno":
+            carrera = None
+
         datos_actualizados = {
             "cod_institucional": self.datos.get("cod_institucional", ""),
-            "nombre":            self._entradas["nombre"].get().strip(),
+            "nombre":            primer,          # primer_nombre va en "nombre" para actualizar_usuario
+            "segundo_nombre":    segundo,          # segundo nombre separado
             "apellido_paterno":  self._entradas["apellido_paterno"].get().strip(),
             "apellido_materno":  self._entradas["apellido_materno"].get().strip(),
-            "carrera":           self._carrera_var.get(),
+            "carrera":           carrera,
             "rol":               rol,
             "status":            self._status_var.get(),
         }

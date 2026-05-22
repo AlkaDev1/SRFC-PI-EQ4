@@ -2,13 +2,17 @@
 core/database.py
 Módulo de base de datos SQLite para el sistema SRFC.
 
-CAMBIOS v2:
-  - Tabla Roles corregida: id_rol=3 ahora es "Maestro" (antes "SuperUsuario")
-  - inicializar_bd() incluye migración automática: renombra "SuperUsuario"→"Maestro"
-    en registros existentes para no romper datos ya guardados
-  - actualizar_usuario() normaliza variantes de nombre de rol antes de buscar
-    (soporta "Maestro", "maestro", "SuperAdmin", "Super Admin", "SuperUsuario", etc.)
-  - _ROL_ALIAS centraliza el mapeo para reutilizarlo
+CAMBIOS v3:
+  - BUG 3/4 FIX: cargar_todos_encodings() ahora construye el nombre completo
+    con primer_nombre + segundo_nombre + apellido_paterno para que la pantalla
+    de acceso y captura muestren el nombre completo (ej: "Brandom Yair Jacobo").
+  - BUG 3/4 FIX: listar_usuarios() devuelve nombre completo (primer + segundo)
+    en el campo "nombre" para que la tabla de gestión lo muestre correctamente.
+  - BUG 5 FIX: registrar_usuario() solo inserta en Alumnos_Detalle si el rol
+    es Alumno (id_rol=4). Maestros, Admins y SuperAdmins ya no generan
+    registros huérfanos en esa tabla.
+  - BUG 5 FIX: actualizar_usuario() también limpia Alumnos_Detalle si el rol
+    cambia a algo distinto de Alumno.
 """
 
 import sqlite3
@@ -33,13 +37,10 @@ def obtener_conexion():
         return None
 
 
-# ── Mapeo canónico de variantes de rol → nombre en BD ────────────────────────
-# Usado en actualizar_usuario() y registrar_usuario() para tolerar
-# distintas formas en que la UI puede enviar el rol.
-_ROL_ALIAS: dict[str, str] = {
+_ROL_ALIAS: dict = {
     "superadmin":    "SuperAdmin",
     "super admin":   "SuperAdmin",
-    "superusuario":  "SuperAdmin",   # registros viejos con id_rol=3 que era SuperUsuario
+    "superusuario":  "SuperAdmin",
     "admin":         "Admin",
     "maestro":       "Maestro",
     "profesor":      "Maestro",
@@ -48,9 +49,7 @@ _ROL_ALIAS: dict[str, str] = {
     "student":       "Alumno",
 }
 
-# Mapa numérico que usa pantalla_agregar_usuario.py (rol_map)
-# Centralizado aquí para no duplicarlo en la UI
-ROL_NOMBRE_A_ID: dict[str, int] = {
+ROL_NOMBRE_A_ID: dict = {
     "SuperAdmin":  1,
     "Super Admin": 1,
     "Admin":       2,
@@ -58,9 +57,10 @@ ROL_NOMBRE_A_ID: dict[str, int] = {
     "Alumno":      4,
 }
 
+_ID_ROL_ALUMNO = 4   # constante para comparaciones internas
+
 
 def _normalizar_rol(rol: str) -> str:
-    """Devuelve el nombre canónico del rol para buscar en BD."""
     return _ROL_ALIAS.get((rol or "Alumno").lower().strip(), rol or "Alumno")
 
 
@@ -122,7 +122,6 @@ def inicializar_bd() -> bool:
     try:
         con.executescript(sql)
 
-        # Roles canónicos — INSERT OR IGNORE para no pisar datos existentes
         con.executemany(
             "INSERT OR IGNORE INTO Roles (id_rol, nombre, usuario_registro) VALUES (?,?,?)",
             [
@@ -133,10 +132,6 @@ def inicializar_bd() -> bool:
             ]
         )
 
-        # ── Migración silenciosa ──────────────────────────────────────────────
-        # Solo actualiza si el nombre sigue siendo "SuperUsuario" (registros viejos).
-        # NO toca fecha_actualizacion ni usuario_actualizacion si ya está migrado,
-        # por eso los campos de auditoría de Roles quedan limpios tras la 1ª ejecución.
         necesita_migrar = con.execute(
             "SELECT 1 FROM Roles WHERE id_rol = 3 AND nombre = 'SuperUsuario'"
         ).fetchone()
@@ -178,9 +173,10 @@ def obtener_roles() -> list:
 # ══════════════════════════════════════════════
 def registrar_usuario(datos: dict) -> tuple:
     """
-    Inserta usuario + detalle + encoding en una transacción.
-    Usa INSERT OR REPLACE en Alumnos_Detalle para evitar UNIQUE constraint
-    en caso de registros huérfanos previos.
+    Inserta usuario + encoding en una transacción.
+
+    BUG 5 FIX: Solo inserta en Alumnos_Detalle si id_rol == 4 (Alumno).
+    Maestros, Admins y SuperAdmins ya no generan registros huérfanos.
     """
     con = obtener_conexion()
     if not con:
@@ -206,18 +202,18 @@ def registrar_usuario(datos: dict) -> tuple:
             datos.get("password_hash") or None,
         ))
 
-        # INSERT OR REPLACE evita el UNIQUE constraint si existía un registro
-        # huérfano en Alumnos_Detalle del mismo cod_institucional
-        con.execute("""
-            INSERT OR REPLACE INTO Alumnos_Detalle
-                (cod_institucional, grado, grupo, carrera)
-            VALUES (?,?,?,?)
-        """, (
-            datos["cod_institucional"],
-            datos.get("grado")   or None,
-            datos.get("grupo")   or None,
-            datos.get("carrera") or None,
-        ))
+        # BUG 5 FIX: solo insertar en Alumnos_Detalle si es alumno (id_rol=4)
+        if datos.get("id_rol") == _ID_ROL_ALUMNO:
+            con.execute("""
+                INSERT OR REPLACE INTO Alumnos_Detalle
+                    (cod_institucional, grado, grupo, carrera)
+                VALUES (?,?,?,?)
+            """, (
+                datos["cod_institucional"],
+                datos.get("grado")   or None,
+                datos.get("grupo")   or None,
+                datos.get("carrera") or None,
+            ))
 
         if datos.get("face_encoding") is not None:
             con.execute("""
@@ -240,9 +236,10 @@ def registrar_usuario(datos: dict) -> tuple:
 
 def listar_usuarios() -> list:
     """
-    Devuelve lista de dicts con las claves que espera PantallaGestion:
-      cod_institucional, nombre, apellido_paterno, apellido_materno,
-      carrera, rol, fecha_registro, hora_registro, status
+    Devuelve lista de dicts con las claves que espera PantallaGestion.
+
+    BUG 3/4 FIX: el campo "nombre" ahora incluye primer_nombre + segundo_nombre
+    para que la tabla de gestión muestre el nombre completo del usuario.
     """
     con = obtener_conexion()
     if not con:
@@ -251,13 +248,18 @@ def listar_usuarios() -> list:
         rows = con.execute("""
             SELECT
                 u.cod_institucional,
-                u.primer_nombre          AS nombre,
-                u.apellido_paterno       AS apellido_paterno,
+                -- BUG 3/4 FIX: nombre completo con segundo nombre si existe
+                CASE
+                    WHEN u.segundo_nombre IS NOT NULL AND TRIM(u.segundo_nombre) != ''
+                    THEN u.primer_nombre || ' ' || u.segundo_nombre
+                    ELSE u.primer_nombre
+                END                          AS nombre,
+                u.apellido_paterno           AS apellido_paterno,
                 COALESCE(u.apellido_materno, '') AS apellido_materno,
-                COALESCE(a.carrera, '')  AS carrera,
+                COALESCE(a.carrera, '')      AS carrera,
                 COALESCE(r.nombre, 'Sin rol') AS rol,
-                DATE(u.fecha_registro)   AS fecha_registro,
-                TIME(u.fecha_registro)   AS hora_registro,
+                DATE(u.fecha_registro)       AS fecha_registro,
+                TIME(u.fecha_registro)       AS hora_registro,
                 CASE WHEN u.estado = 1 THEN 'Activo' ELSE 'Inactivo' END AS status,
                 CASE WHEN re.cod_institucional IS NOT NULL THEN 1 ELSE 0 END AS tiene_encoding
             FROM Usuarios u
@@ -276,18 +278,14 @@ def actualizar_usuario(datos: dict) -> tuple:
     """
     Actualiza nombre, apellidos, carrera, rol y status de un usuario.
 
-    datos esperados:
-      cod_institucional, nombre, apellido_paterno, apellido_materno,
-      carrera, rol (cualquier variante), status
-    Retorna (bool, str)
+    BUG 5 FIX: si el nuevo rol NO es Alumno, elimina el registro de
+    Alumnos_Detalle para no dejar datos huérfanos. Si sí es Alumno,
+    actualiza carrera normalmente.
     """
     con = obtener_conexion()
     if not con:
         return False, "No se pudo conectar a la base de datos."
     try:
-        # ── Normalizar el nombre del rol antes de buscar en BD ────────────────
-        # Tolera: "Maestro", "maestro", "Super Admin", "SuperAdmin",
-        #         "SuperUsuario" (registros viejos), etc.
         rol_raw  = (datos.get("rol") or "Alumno").strip()
         rol_norm = _normalizar_rol(rol_raw)
 
@@ -297,7 +295,6 @@ def actualizar_usuario(datos: dict) -> tuple:
         ).fetchone()
 
         if not row_rol:
-            # Último recurso: buscar por id si la UI mandó un número
             return False, (
                 f"Rol '{rol_raw}' no encontrado en la base de datos. "
                 f"Roles disponibles: SuperAdmin, Admin, Maestro, Alumno."
@@ -306,9 +303,13 @@ def actualizar_usuario(datos: dict) -> tuple:
         id_rol = row_rol["id_rol"]
         estado = 1 if datos.get("status", "Activo") == "Activo" else 0
 
+        # BUG 3/4 FIX: también actualiza segundo_nombre cuando viene del formulario
+        segundo_nombre = datos.get("segundo_nombre") or None
+
         con.execute("""
             UPDATE Usuarios
             SET primer_nombre         = ?,
+                segundo_nombre        = ?,
                 apellido_paterno      = ?,
                 apellido_materno      = ?,
                 id_rol                = ?,
@@ -318,6 +319,7 @@ def actualizar_usuario(datos: dict) -> tuple:
             WHERE cod_institucional = ?
         """, (
             datos.get("nombre", ""),
+            segundo_nombre,
             datos.get("apellido_paterno", ""),
             datos.get("apellido_materno", ""),
             id_rol,
@@ -325,12 +327,31 @@ def actualizar_usuario(datos: dict) -> tuple:
             datos["cod_institucional"],
         ))
 
-        con.execute("""
-            INSERT INTO Alumnos_Detalle (cod_institucional, carrera)
-            VALUES (?, ?)
-            ON CONFLICT(cod_institucional)
-            DO UPDATE SET carrera = excluded.carrera
-        """, (datos["cod_institucional"], datos.get("carrera", "")))
+        # BUG 5 FIX: solo actualizar Alumnos_Detalle si el rol es Alumno.
+        # Si cambió a Maestro/Admin/SuperAdmin, borrar el detalle.
+        if id_rol == _ID_ROL_ALUMNO:
+            carrera = datos.get("carrera", "") or None
+            if carrera == "Ninguno":
+                carrera = None
+            con.execute("""
+                INSERT INTO Alumnos_Detalle (cod_institucional, carrera)
+                VALUES (?, ?)
+                ON CONFLICT(cod_institucional)
+                DO UPDATE SET carrera = excluded.carrera
+            """, (datos["cod_institucional"], carrera))
+        else:
+            # No es alumno: eliminar detalle de alumno si existe
+            con.execute(
+                "DELETE FROM Alumnos_Detalle WHERE cod_institucional = ?",
+                (datos["cod_institucional"],)
+            )
+
+        # Actualizar contraseña si viene en los datos
+        if datos.get("password_hash"):
+            con.execute("""
+                UPDATE Usuarios SET password_hash = ?
+                WHERE cod_institucional = ?
+            """, (datos["password_hash"], datos["cod_institucional"]))
 
         con.commit()
         return True, "Usuario actualizado correctamente."
@@ -346,8 +367,11 @@ def actualizar_usuario(datos: dict) -> tuple:
 # ══════════════════════════════════════════════
 def cargar_todos_encodings() -> list:
     """
-    Retorna lista de dicts {cod, nombre, encoding, id_rol, rol}
-    listos para reconocimiento.
+    Retorna lista de dicts {cod, nombre, encoding, id_rol, rol}.
+
+    BUG 3/4 FIX: el campo "nombre" ahora incluye primer_nombre + segundo_nombre
+    + apellido_paterno para que la pantalla de acceso muestre el nombre completo
+    en el recuadro de reconocimiento (ej: "Brandom Yair Jacobo").
     """
     con = obtener_conexion()
     if not con:
@@ -355,7 +379,12 @@ def cargar_todos_encodings() -> list:
     try:
         rows = con.execute("""
             SELECT re.cod_institucional,
-                   u.primer_nombre || ' ' || u.apellido_paterno AS nombre,
+                   -- BUG 3/4 FIX: nombre completo con segundo nombre si existe
+                   CASE
+                       WHEN u.segundo_nombre IS NOT NULL AND TRIM(u.segundo_nombre) != ''
+                       THEN u.primer_nombre || ' ' || u.segundo_nombre || ' ' || u.apellido_paterno
+                       ELSE u.primer_nombre || ' ' || u.apellido_paterno
+                   END                          AS nombre,
                    re.face_encoding,
                    u.id_rol,
                    COALESCE(r.nombre, 'Sin rol') AS rol
@@ -401,13 +430,20 @@ def registrar_acceso(cod: str) -> bool:
 
 
 def listar_accesos(limite: int = 100) -> list:
+    """
+    BUG 3/4 FIX: nombre completo con segundo nombre en el historial de accesos.
+    """
     con = obtener_conexion()
     if not con:
         return []
     try:
         rows = con.execute("""
             SELECT a.id_acceso, a.cod_institucional,
-                   u.primer_nombre || ' ' || u.apellido_paterno AS nombre,
+                   CASE
+                       WHEN u.segundo_nombre IS NOT NULL AND TRIM(u.segundo_nombre) != ''
+                       THEN u.primer_nombre || ' ' || u.segundo_nombre || ' ' || u.apellido_paterno
+                       ELSE u.primer_nombre || ' ' || u.apellido_paterno
+                   END AS nombre,
                    a.fecha, a.hora
             FROM Acceso a
             LEFT JOIN Usuarios u ON a.cod_institucional = u.cod_institucional
