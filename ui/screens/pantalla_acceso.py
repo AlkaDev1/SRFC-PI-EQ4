@@ -1,22 +1,15 @@
 """
 ui/screens/pantalla_acceso.py
-Diseño según mockup:
-  - Escaneando: video full + texto con borde superpuesto + botón volver abajo izq
-  - Acceso OK:  pantalla verde completa con icono usuario, nombre, hora
-  - Acceso DENY: Se mantiene la cámara, texto en rojo "ACCESO DENEGADO"
 
-CAMBIOS v2:
-  - _cargar_perfiles() ya NO usa self._cache_encodings estático.
-    Cada vez que se construye la pantalla recarga desde BD (datos frescos).
-  - Se elimina self._cache_encodings: face_recognition.face_distance acepta
-    listas de ndarray directamente, igual de rápido para N < 1000 perfiles.
-  - Soporte de tema oscuro via GestorTema (sin cambios)
+CAMBIOS:
+  - Conectado a GestorIdioma: textos del HUD (OpenCV) y etiquetas
+    de acceso concedido/info leen del idioma activo.
+  - _limpiar() desregistra también el listener de idioma.
 """
 
 import tkinter as tk
 import threading
 import queue
-import os
 import cv2
 import numpy as np
 import math
@@ -37,8 +30,8 @@ except ImportError:
 _ES_RASPBERRY = platform.machine() in ("aarch64", "armv7l")
 _CAM_INDEX    = 1 if _ES_RASPBERRY else 0
 
-FRAMES_CONFIRMAR = 8
-FRAMES_PERDER    = 8
+FRAMES_CONFIRMAR  = 8
+FRAMES_PERDER     = 8
 RES_PROCESAMIENTO = (320, 240)
 SKIP_FRAMES       = 2
 MAX_FRAMES_COLA   = 2
@@ -64,11 +57,10 @@ class PantallaAcceso:
         self._after_anim     = None
         self._after_reset    = None
 
-        self._nombres    = []
-        self._encodings  = []
-        self._cods       = []
+        self._nombres   = []
+        self._encodings = []
+        self._cods      = []
 
-        # ── Cargar perfiles frescos desde BD (sin caché stale) ───────────────
         self._cargar_perfiles()
 
         self._cap             = None
@@ -82,30 +74,58 @@ class PantallaAcceso:
 
         if hasattr(app, "tema"):
             app.tema.registrar(self._aplicar_tema)
+        if hasattr(app, "idioma"):
+            app.idioma.registrar(self._aplicar_idioma)
+
+    # ── Helpers de idioma ─────────────────────────────────────────────────────
+    def _t(self, clave, fallback=""):
+        if hasattr(self.app, "idioma"):
+            return self.app.idioma.t(clave, fallback)
+        return fallback or clave
+
+    def _msgs_hud(self):
+        """Devuelve el dict de mensajes HUD según el idioma activo."""
+        return {
+            "escaneando":  (self._t("acceso.estado_escaneando_titulo", "POR FAVOR NO SE MUEVA"),
+                            self._t("acceso.estado_escaneando_sub",    "ESCANEANDO ROSTRO...")),
+            "detectado":   (self._t("acceso.estado_detectado_titulo",  "ROSTRO DETECTADO"),
+                            self._t("acceso.estado_detectado_sub",     "Verificando identidad...")),
+            "sin_rostro":  (self._t("acceso.estado_sin_rostro_titulo", "ACERCATE A LA CAMARA"),
+                            self._t("acceso.estado_sin_rostro_sub",    "No se detecta ningun rostro")),
+            "sin_camara":  (self._t("acceso.estado_sin_camara_titulo", "CAMARA NO DISPONIBLE"),
+                            self._t("acceso.estado_sin_camara_sub",    "Verifique la conexion")),
+            "acceso_deny": (self._t("acceso.estado_deny_titulo",       "ACCESO DENEGADO"),
+                            self._t("acceso.estado_deny_sub",          "No autorizado")),
+        }
+
+    def _aplicar_idioma(self):
+        """Actualiza los labels de la capa OK (el HUD OpenCV se actualiza solo en el loop)."""
+        try:
+            self._lbl_acceso_concedido.config(
+                text=self._t("acceso.acceso_concedido", "ACCESO CONCEDIDO"))
+            # lbl_info_ok incluye hora, solo refrescar si ya hay texto
+            info_actual = self.lbl_info_ok.cget("text")
+            if info_actual:
+                hora = datetime.now().strftime("%I:%M %p").lower()
+                self.lbl_info_ok.config(
+                    text=self._t("acceso.acceso_registrado", "Acceso registrado · ") + hora)
+        except tk.TclError:
+            pass
 
     # ══════════════════════════════════════════
-    #  Perfiles — siempre frescos desde BD
+    #  Perfiles
     # ══════════════════════════════════════════
     def _cargar_perfiles(self):
-        """
-        Carga perfiles desde BD sin cachear en un array numpy estático.
-        Se llama cada vez que se construye la pantalla, garantizando que
-        cambios de rol o nuevos registros se reflejen inmediatamente.
-        """
         from core.database import inicializar_bd, cargar_todos_encodings
         inicializar_bd()
         perfiles = cargar_todos_encodings()
-
-        # Limpiar listas antes de llenar (por si se llama más de una vez)
         self._encodings.clear()
         self._nombres.clear()
         self._cods.clear()
-
         for p in perfiles:
             self._encodings.append(p["encoding"])
             self._nombres.append(p["nombre"])
             self._cods.append(p["cod"])
-
         print(f"[ACCESO] {len(self._encodings)} perfiles cargados desde BD")
 
     # ══════════════════════════════════════════
@@ -167,7 +187,7 @@ class PantallaAcceso:
 
         self.label_video = tk.Label(
             self.capa_escaneo, bg=p["acceso_fondo"],
-            text="Iniciando cámara...",
+            text=self._t("acceso.iniciando_camara", "Iniciando cámara..."),
             font=("Segoe UI", 13), fg=p["acceso_hud_fg"])
         self.label_video.place(x=0, y=0, relwidth=1, relheight=1)
 
@@ -197,7 +217,8 @@ class PantallaAcceso:
         self._badge_ok.place(relx=0.5, rely=0.22, anchor="sw", x=44, y=-4)
 
         self._lbl_acceso_concedido = tk.Label(
-            self.capa_ok, text="ACCESO CONCEDIDO",
+            self.capa_ok,
+            text=self._t("acceso.acceso_concedido", "ACCESO CONCEDIDO"),
             font=("Segoe UI", 17, "bold"),
             fg=p["acceso_ok_texto"], bg=verde)
         self._lbl_acceso_concedido.place(relx=0.5, rely=0.52, anchor="center")
@@ -214,10 +235,8 @@ class PantallaAcceso:
             fg=p["acceso_ok_texto"], bg=verde)
         self.lbl_info_ok.place(relx=0.5, rely=0.73, anchor="center")
 
-        # Botón volver — se guarda para mostrarlo solo al terminar la secuencia GPIO
         self._btn_volver_ok = self._crear_boton_volver(
             self.capa_ok, bg_normal="#2d7d32", bg_hover="#1b5e20")
-        # No se coloca aún — aparece cuando la secuencia GPIO termina
 
     def _mostrar_capa(self, capa):
         if getattr(self, "_capa_actual", None) == capa:
@@ -257,12 +276,10 @@ class PantallaAcceso:
         if not self._cap.isOpened():
             self._cambiar_estado("sin_camara")
             return
-
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         self._cap.set(cv2.CAP_PROP_FPS, 30)
         self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
         self._corriendo = True
         threading.Thread(target=self._hilo_camara,    daemon=True).start()
         threading.Thread(target=self._hilo_biometria, daemon=True).start()
@@ -305,13 +322,8 @@ class PantallaAcceso:
                                      else (80,175,76)
                         cv2.rectangle(resized, (x1,y1), (x2,y2), color_bbox, 2)
 
-                    msgs = {
-                        "escaneando":  ("POR FAVOR NO SE MUEVA",  "ESCANEANDO ROSTRO..."),
-                        "detectado":   ("ROSTRO DETECTADO",       "Verificando identidad..."),
-                        "sin_rostro":  ("ACERCATE A LA CAMARA",   "No se detecta ningun rostro"),
-                        "sin_camara":  ("CAMARA NO DISPONIBLE",   "Verifique la conexion"),
-                        "acceso_deny": ("ACCESO DENEGADO",        "No autorizado"),
-                    }
+                    # Textos HUD desde idioma activo
+                    msgs   = self._msgs_hud()
                     titulo, sub = msgs.get(self._estado, ("ESCANEANDO...", ""))
                     fuente = cv2.FONT_HERSHEY_SIMPLEX
                     (wt, _), _ = cv2.getTextSize(titulo, fuente, 0.8, 2)
@@ -356,24 +368,19 @@ class PantallaAcceso:
             area_frame  = pequeño.shape[0] * pequeño.shape[1]
             if (area_rostro / area_frame) < 0.10:
                 return {"hay_rostro": False}
-
             sy = frame.shape[0] / pequeño.shape[0]
             sx = frame.shape[1] / pequeño.shape[1]
             ub_orig = (int(ub[0]*sy), int(ub[1]*sx),
                        int(ub[2]*sy), int(ub[3]*sx))
-
             if not self._encodings:
                 return {"hay_rostro": True, "reconocido": False,
                         "confianza": 0.0, "ubicacion": ub_orig,
                         "nombre": "", "cod": ""}
-
             encs = face_recognition.face_encodings(rgb, [ub], num_jitters=1)
             if not encs:
                 return {"hay_rostro": True, "reconocido": False,
                         "confianza": 0.0, "ubicacion": ub_orig,
                         "nombre": "", "cod": ""}
-
-            # Sin caché stale — lista directa, siempre actualizada
             dists = face_recognition.face_distance(self._encodings, encs[0])
             idx   = int(np.argmin(dists))
             dist  = float(dists[idx])
@@ -453,7 +460,6 @@ class PantallaAcceso:
                 self._after_reset = self.canvas_icono.after(2000, self._resetear)
 
     def _fin_secuencia_ok(self):
-        """Llamado cuando termina la secuencia GPIO completa en acceso_ok."""
         self._volver()
 
     def _resetear(self):
@@ -478,15 +484,14 @@ class PantallaAcceso:
             self._mostrar_capa("ok")
             hora = datetime.now().strftime("%I:%M %p").lower()
             self.lbl_nombre_ok.config(text=nombre or "Usuario")
-            self.lbl_info_ok.config(text=f"Acceso registrado · {hora}")
+            self.lbl_info_ok.config(
+                text=self._t("acceso.acceso_registrado", "Acceso registrado · ") + hora)
             c = self.canvas_foto
             c.delete("all")
             c.create_oval(5, 5, 115, 115, fill="#ffffff", outline="#c8f0c8", width=3)
             c.create_text(60, 60, text="👤", font=("Segoe UI", 40),
                           fill=p["acceso_ok_bg"])
-            # Ocultar botón volver — aparece solo al terminar la secuencia GPIO
             self._btn_volver_ok.place_forget()
-            # Tiempo total GPIO: 2s solenoide + 7s sale + 3s espera + 7s entra + 1s margen = 20s
             self._after_reset = self.canvas_icono.after(20000, self._fin_secuencia_ok)
         elif estado == "acceso_deny":
             threading.Thread(target=self._gpio_acceso_deny, daemon=True).start()
@@ -570,6 +575,8 @@ class PantallaAcceso:
     def _volver(self):
         if hasattr(self.app, "tema"):
             self.app.tema.desregistrar(self._aplicar_tema)
+        if hasattr(self.app, "idioma"):
+            self.app.idioma.desregistrar(self._aplicar_idioma)
         self._corriendo = False
         if self._cap:
             self._cap.release()
