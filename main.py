@@ -8,16 +8,22 @@ pyglet.font.add_file(ruta_fuente)
 
 from ui.styles import PALETA, MEDIDAS, configurar_estilos
 from ui.tema import GestorTema
-from ui.idioma import GestorIdioma                          # ← NUEVO
+from ui.idioma import GestorIdioma
 
 _ES_RASPBERRY = platform.machine() in ("aarch64", "armv7l")
+
+# ── Pantallas donde el comodín NO debe activarse ──────────────────────────────
+_PANTALLAS_BLOQUEADAS = {"captura_rostro"}
 
 
 class App:
     def __init__(self, root):
         self.root   = root
         self.tema   = GestorTema()
-        self.idioma = GestorIdioma()                        # ← NUEVO
+        self.idioma = GestorIdioma()
+
+        self._pantalla_actual = None
+        self._overlay = None
 
         self.contenedor = tk.Frame(root)
         self.contenedor.pack(fill="both", expand=True)
@@ -29,11 +35,24 @@ class App:
         else:
             self.teclado = None
 
+        # ── Botón comodín: F1 en teclado (pruebas) ───────────────────────────
+        self.root.bind("<F1>", lambda e: self._activar_comodin())
+
+        # ── Botón comodín: GPIO físico (producción) ──────────────────────────
+        # Descomentar cuando el botón esté conectado:
+        # from core.gpio import registrar_btn_comodin_hw
+        # registrar_btn_comodin_hw(lambda: self.root.after(0, self._activar_comodin))
+
         self.mostrar_pantalla("principal")
 
+    # ── Navegación ─────────────────────────────────────────────────────────────
     def mostrar_pantalla(self, nombre, datos=None):
+        self._ocultar_overlay()
+
         for widget in self.contenedor.winfo_children():
             widget.destroy()
+
+        self._pantalla_actual = nombre
 
         if self.teclado:
             self.teclado._ocultar()
@@ -77,6 +96,105 @@ class App:
         elif nombre == "aviso_privacidad":
             from ui.screens.pantalla_aviso_privacidad import crear_pantalla_aviso_privacidad
             crear_pantalla_aviso_privacidad(self.contenedor, self)
+
+    # ── Botón comodín ──────────────────────────────────────────────────────────
+    def _activar_comodin(self):
+        if self._overlay is not None:
+            return
+        if self._pantalla_actual in _PANTALLAS_BLOQUEADAS:
+            print("[COMODÍN] Bloqueado en esta pantalla")
+            return
+
+        print("[COMODÍN] Activado")
+        self._mostrar_overlay()
+
+        try:
+            from core.gpio import activar_comodin
+            activar_comodin(on_fin=lambda: self.root.after(0, self._fin_comodin))
+        except Exception as e:
+            print(f"[COMODÍN] Error GPIO: {e}")
+            self.root.after(5000, self._fin_comodin)
+
+    def _fin_comodin(self):
+        self._ocultar_overlay()
+        # Pantallas de admin/gestión regresan a principal
+        if self._pantalla_actual in ("gestion_real", "gestion", "login",
+                                      "historial", "editar_usuario",
+                                      "agregar_usuario"):
+            self.mostrar_pantalla("principal")
+        else:
+            self.mostrar_pantalla(self._pantalla_actual)
+
+    # ── Overlay amarillo ───────────────────────────────────────────────────────
+    def _mostrar_overlay(self):
+        if self._overlay is not None:
+            return
+
+        overlay = tk.Frame(self.root, bg="#FFC107")
+        overlay.place(x=0, y=0, relwidth=1, relheight=1)
+        overlay.lift()
+        self._overlay = overlay
+
+        tk.Frame(overlay, bg="#FF8F00", height=6).pack(fill="x")
+
+        centro = tk.Frame(overlay, bg="#FFC107")
+        centro.place(relx=0.5, rely=0.5, anchor="center")
+
+        c = tk.Canvas(centro, width=80, height=80,
+                      bg="#FFC107", highlightthickness=0)
+        c.pack(pady=(0, 16))
+        c.create_oval(4, 4, 76, 76, fill="#FF8F00", outline="#E65100", width=3)
+        c.create_text(40, 40, text="🚪", font=("Segoe UI", 32))
+
+        tk.Label(centro,
+                 text="SALIDA",
+                 font=("Segoe UI", 36, "bold"),
+                 fg="#1a1a1a", bg="#FFC107").pack()
+
+        tk.Label(centro,
+                 text="Puerta abierta — pase con cuidado",
+                 font=("Segoe UI", 14),
+                 fg="#3E2723", bg="#FFC107").pack(pady=(8, 0))
+
+        barra_outer = tk.Frame(centro, bg="#FFB300", width=300, height=10)
+        barra_outer.pack(pady=(20, 0))
+        barra_outer.pack_propagate(False)
+
+        barra_inner = tk.Frame(barra_outer, bg="#E65100", height=10, width=0)
+        barra_inner.place(x=0, y=0, height=10)
+
+        try:
+            from core.gpio import PUERTA_ABIERTA_SEGUNDOS
+            duracion_ms = int(PUERTA_ABIERTA_SEGUNDOS * 1000)
+        except Exception:
+            duracion_ms = 5000
+
+        self._animar_barra(barra_outer, barra_inner, duracion_ms, 0)
+
+    def _animar_barra(self, outer, inner, total_ms, transcurrido_ms):
+        if self._overlay is None:
+            return
+        try:
+            if not outer.winfo_exists() or not inner.winfo_exists():
+                return
+            ancho = outer.winfo_width()
+            if ancho < 2:
+                ancho = 300
+            pct = min(transcurrido_ms / total_ms, 1.0)
+            inner.place(x=0, y=0, height=10, width=int(ancho * pct))
+            if transcurrido_ms < total_ms:
+                self.root.after(50, lambda: self._animar_barra(
+                    outer, inner, total_ms, transcurrido_ms + 50))
+        except tk.TclError:
+            pass
+
+    def _ocultar_overlay(self):
+        if self._overlay is not None:
+            try:
+                self._overlay.destroy()
+            except tk.TclError:
+                pass
+            self._overlay = None
 
 
 def app():
