@@ -1,13 +1,6 @@
 """
 ui/idioma.py
 GestorIdioma — traducciones embebidas, sin dependencia de data/lang.json.
-
-API idéntica a la versión anterior:
-    idioma.t("topbar.sistema_linea1")   → "SISTEMA DE CONTROL"
-    idioma.t("gestion.roles")           → ["Rol", "Alumno", ...]
-    idioma.toggle()
-    idioma.set("en")
-    idioma.registrar(cb) / desregistrar(cb)
 """
 
 from pathlib import Path
