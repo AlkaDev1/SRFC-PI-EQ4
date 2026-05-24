@@ -1,10 +1,10 @@
 """
 ui/screens/pantalla_captura_rostro.py
 
-CAMBIOS:
-  - Conectado a GestorIdioma: etiquetas, botones y mensajes de estado
-    leen del idioma activo.
-  - _limpiar() desregistra también el listener de idioma.
+LIVENESS DETECTION (sin sensor IR):
+  - Etapas: FRENTE → PESTAÑEO
+  - Anti-foto: movimiento entre frames + variación de textura + cambio de fondo
+  - Pestañeo: EAR (Eye Aspect Ratio) usando landmarks de face_recognition
 """
 
 import tkinter as tk
@@ -39,19 +39,35 @@ _MAX_DESCARTES_SEGUIDOS = 15
 SKIP_FRAMES     = 2
 MAX_FRAMES_COLA = 4
 
+# Liveness
+_UMBRAL_MOVIMIENTO    = 2.5
+_UMBRAL_TEXTURA       = 8.0
+_UMBRAL_FONDO_CAMBIO  = 1.5
+_FRAMES_LIVENESS      = 6
+_EAR_UMBRAL           = 0.21
+_PESTANEOS_REQUERIDOS = 2
+
 _C = {
     "bg":"#f3f4f5","feed_bg":"#1c1c1c","panel_bg":"#ffffff",
     "panel_borde":"#e0e0e0","texto":"#1a1a1a","texto2":"#757575",
     "verde":"#43a047","verde_m":"#4caf50","verde_ok":"#2e7d32",
     "verde_hover":"#388e3c","rojo":"#e53935","rojo_hover":"#b71c1c",
-    "prog_bg":"#e0e0e0","prog_fg":"#43a047",
+    "prog_bg":"#e0e0e0","prog_fg":"#43a047","naranja":"#f57c00",
 }
 _O = {
     "bg":"#071E07","feed_bg":"#0a0a0a","panel_bg":"#0d2a0d",
     "panel_borde":"#1a3a1a","texto":"#d0f0d0","texto2":"#7aaa7a",
     "verde":"#2D531A","verde_m":"#477023","verde_ok":"#1a3a1a",
     "verde_hover":"#477023","rojo":"#7f1d1d","rojo_hover":"#991b1b",
-    "prog_bg":"#1a3a1a","prog_fg":"#477023",
+    "prog_bg":"#1a3a1a","prog_fg":"#477023","naranja":"#b85c00",
+}
+
+_ETAPA_FRENTE   = 0
+_ETAPA_PESTANEO = 1
+
+_FALLBACK_ETAPA = {
+    _ETAPA_FRENTE:   "Mira al frente",
+    _ETAPA_PESTANEO: "Pestañea 2 veces",
 }
 
 
@@ -59,28 +75,91 @@ def _paleta(app) -> dict:
     return _O if (hasattr(app, "tema") and app.tema.es_oscuro()) else _C
 
 
+def _calcular_ear_frame(frame_rgb, face_loc):
+    if not FR_DISPONIBLE:
+        return None
+    try:
+        lm_list = face_recognition.face_landmarks(frame_rgb, [face_loc], model="large")
+        if not lm_list:
+            return None
+        lm = lm_list[0]
+        ojo_izq = lm.get("left_eye", [])
+        ojo_der = lm.get("right_eye", [])
+        if len(ojo_izq) < 6 or len(ojo_der) < 6:
+            return None
+
+        def _ear_pts(pts):
+            A = np.linalg.norm(np.array(pts[1]) - np.array(pts[5]))
+            B = np.linalg.norm(np.array(pts[2]) - np.array(pts[4]))
+            C = np.linalg.norm(np.array(pts[0]) - np.array(pts[3]))
+            return (A + B) / (2.0 * C + 1e-6)
+
+        return (_ear_pts(ojo_izq) + _ear_pts(ojo_der)) / 2.0
+    except Exception:
+        return None
+
+
+def _chequeo_liveness_frame(frame_bgr, frame_anterior_bgr, bbox):
+    if frame_anterior_bgr is None:
+        return True, ""
+    h, w = frame_bgr.shape[:2]
+    x, y, bw, bh = bbox
+
+    diff = cv2.absdiff(
+        cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY),
+        cv2.cvtColor(frame_anterior_bgr, cv2.COLOR_BGR2GRAY))
+    if float(np.mean(diff)) < _UMBRAL_MOVIMIENTO:
+        return False, "foto_estatica"
+
+    x1, y1 = max(0, x), max(0, y)
+    x2, y2 = min(w, x+bw), min(h, y+bh)
+    roi = cv2.cvtColor(frame_bgr[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
+    if roi.size > 0 and float(cv2.Laplacian(roi, cv2.CV_64F).var()) < _UMBRAL_TEXTURA:
+        return False, "baja_textura"
+
+    mascara = np.ones((h, w), dtype=np.uint8)
+    mascara[max(0,y-20):min(h,y+bh+20), max(0,x-20):min(w,x+bw+20)] = 0
+    diff_fondo = cv2.absdiff(
+        cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY),
+        cv2.cvtColor(frame_anterior_bgr, cv2.COLOR_BGR2GRAY))
+    zona = diff_fondo[mascara == 1]
+    if zona.size > 0 and float(np.mean(zona)) < _UMBRAL_FONDO_CAMBIO:
+        return False, "fondo_estatico"
+
+    return True, ""
+
+
 class PantallaCaptura:
 
     def __init__(self, parent, app, datos=None):
-        self.parent  = parent
-        self.app     = app
-        self.datos   = datos or {}
-        self._p      = _paleta(app)
+        self.parent = parent
+        self.app    = app
+        self.datos  = datos or {}
+        self._p     = _paleta(app)
 
-        self._capturando        = False
-        self._capturas_ok       = 0
-        self._encodings         = []
-        self._photo             = None
-        self._chequeo_rapido    = False
-        self._duplicado_nombre  = None
-        self._ultimo_bbox       = None
+        self._capturando         = False
+        self._capturas_ok        = 0
+        self._encodings          = []
+        self._photo              = None
+        self._chequeo_rapido     = False
+        self._duplicado_nombre   = None
+        self._ultimo_bbox        = None
         self._enc_referencia     = None
         self._descartes_seguidos = 0
+
+        self._etapa_actual       = _ETAPA_FRENTE
+        self._pestaneos_ok       = 0
+        self._ojo_cerrado        = False
+        self._liveness_ok_streak = 0
+        self._frame_anterior     = None
 
         self._cap             = None
         self._corriendo       = False
         self._cola_frames     = queue.Queue(maxsize=MAX_FRAMES_COLA)
         self._contador_frames = 0
+
+        self._det_frontal = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
         self._construir_ui()
 
@@ -90,7 +169,6 @@ class PantallaCaptura:
             app.idioma.registrar(self._aplicar_idioma)
         self.pantalla.bind("<Destroy>", self._limpiar)
 
-    # ── Idioma ────────────────────────────────────────────────────────────────
     def _t(self, clave, fallback=""):
         if hasattr(self.app, "idioma"):
             return self.app.idioma.t(clave, fallback)
@@ -99,26 +177,16 @@ class PantallaCaptura:
     def _aplicar_idioma(self):
         try:
             nombre = f"{self.datos.get('nombre','')} {self.datos.get('apellido_paterno','')}".strip()
-            self._lbl_reg.config(
-                text=self._t("captura_rostro.registrando", "REGISTRANDO"))
-            self._lbl_nombre.config(
-                text=nombre or self._t("captura_rostro.usuario_default", "Usuario"))
-            self._lbl_cap_titulo.config(
-                text=self._t("captura_rostro.label_capturas", "CAPTURAS"))
-            # Estado: solo actualizar si no está en medio de una captura activa
+            self._lbl_reg.config(text=self._t("captura_rostro.registrando", "REGISTRANDO"))
+            self._lbl_nombre.config(text=nombre or self._t("captura_rostro.usuario_default", "Usuario"))
+            self._lbl_cap_titulo.config(text=self._t("captura_rostro.label_capturas", "CAPTURAS"))
             if not self._capturando:
-                self._lbl_estado.config(
-                    text=self._t("captura_rostro.listo", "Listo para\nescanear"))
-            # Botones
-            if not self._capturando:
-                self._btn_iniciar.config(
-                    text=self._t("captura_rostro.btn_iniciar", "▶  INICIAR"))
-            self._btn_cancelar.config(
-                text=self._t("captura_rostro.btn_cancelar", "✕  CANCELAR"))
+                self._lbl_estado.config(text=self._t("captura_rostro.listo", "Listo para\nescanear"))
+                self._btn_iniciar.config(text=self._t("captura_rostro.btn_iniciar", "▶  INICIAR"))
+            self._btn_cancelar.config(text=self._t("captura_rostro.btn_cancelar", "✕  CANCELAR"))
         except tk.TclError:
             pass
 
-    # ── Tema ──────────────────────────────────────────────────────────────────
     def _on_tema_cambio(self, _):
         self._p = _O if self.app.tema.es_oscuro() else _C
         self._aplicar_tema()
@@ -136,8 +204,7 @@ class PantallaCaptura:
             self._cuerpo.configure(bg=p["bg"])
             self._col_feed.configure(bg=p["feed_bg"])
             self.label_video.configure(bg=p["feed_bg"])
-            self._panel.configure(bg=p["panel_bg"],
-                                   highlightbackground=p["panel_borde"])
+            self._panel.configure(bg=p["panel_bg"], highlightbackground=p["panel_borde"])
             self._lbl_reg.configure(bg=p["panel_bg"], fg=p["texto2"])
             self._lbl_nombre.configure(bg=p["panel_bg"], fg=p["texto"])
             self._sep1.configure(bg=p["panel_borde"])
@@ -146,18 +213,17 @@ class PantallaCaptura:
             self._prog_outer.configure(bg=p["prog_bg"])
             self._prog_inner.configure(bg=p["prog_fg"])
             self._lbl_estado.configure(bg=p["panel_bg"], fg=p["texto2"])
+            self._lbl_etapa.configure(bg=p["panel_bg"], fg=p["naranja"])
             self._sep2.configure(bg=p["panel_borde"])
             self._btn_frame.configure(bg=p["panel_bg"])
-            self._btn_iniciar.configure(bg=p["verde"],
-                                         activebackground=p["verde_hover"])
-            self._btn_cancelar.configure(bg=p["rojo"],
-                                          activebackground=p["rojo_hover"])
+            self._btn_iniciar.configure(bg=p["verde"], activebackground=p["verde_hover"])
+            self._btn_cancelar.configure(bg=p["rojo"], activebackground=p["rojo_hover"])
         except tk.TclError:
             pass
 
-    # ══════════════════════════════════════════════════════════════════════════
+    # ═════════════════════════════════════════════════════════════════════
     #  UI
-    # ══════════════════════════════════════════════════════════════════════════
+    # ═════════════════════════════════════════════════════════════════════
     def _construir_ui(self):
         p = self._p
         self.pantalla = tk.Frame(self.parent, bg=p["bg"])
@@ -182,8 +248,7 @@ class PantallaCaptura:
         self.label_video.place(x=0, y=0, relwidth=1, relheight=1)
 
         self._panel = tk.Frame(self._cuerpo, bg=p["panel_bg"], width=210,
-                               highlightthickness=1,
-                               highlightbackground=p["panel_borde"])
+                               highlightthickness=1, highlightbackground=p["panel_borde"])
         self._panel.grid(row=0, column=1, sticky="nsew")
         self._panel.pack_propagate(False)
 
@@ -191,14 +256,12 @@ class PantallaCaptura:
 
         nombre = f"{self.datos.get('nombre','')} {self.datos.get('apellido_paterno','')}".strip()
 
-        self._lbl_reg = tk.Label(
-            self._panel,
+        self._lbl_reg = tk.Label(self._panel,
             text=self._t("captura_rostro.registrando", "REGISTRANDO"),
             font=("Segoe UI", 8), fg=p["texto2"], bg=p["panel_bg"])
         self._lbl_reg.pack(pady=(14, 2))
 
-        self._lbl_nombre = tk.Label(
-            self._panel,
+        self._lbl_nombre = tk.Label(self._panel,
             text=nombre or self._t("captura_rostro.usuario_default", "Usuario"),
             font=("Segoe UI", 11, "bold"), fg=p["texto"],
             bg=p["panel_bg"], wraplength=185, justify="center")
@@ -207,26 +270,27 @@ class PantallaCaptura:
         self._sep1 = tk.Frame(self._panel, bg=p["panel_borde"], height=1)
         self._sep1.pack(fill="x", pady=10, padx=10)
 
-        self._lbl_cap_titulo = tk.Label(
-            self._panel,
+        self._lbl_cap_titulo = tk.Label(self._panel,
             text=self._t("captura_rostro.label_capturas", "CAPTURAS"),
             font=("Segoe UI", 8), fg=p["texto2"], bg=p["panel_bg"])
         self._lbl_cap_titulo.pack()
 
-        self._lbl_contador = tk.Label(
-            self._panel, text=f"0 / {CAPTURAS_REQUERIDAS}",
-            font=("Segoe UI", 22, "bold"),
-            fg=p["verde"], bg=p["panel_bg"])
+        self._lbl_contador = tk.Label(self._panel,
+            text=f"0 / {CAPTURAS_REQUERIDAS}",
+            font=("Segoe UI", 22, "bold"), fg=p["verde"], bg=p["panel_bg"])
         self._lbl_contador.pack(pady=(4, 8))
 
         self._prog_outer = tk.Frame(self._panel, bg=p["prog_bg"], height=8)
         self._prog_outer.pack(fill="x", padx=16, pady=(0, 10))
-        self._prog_inner = tk.Frame(self._prog_outer, bg=p["prog_fg"],
-                                     height=8, width=0)
+        self._prog_inner = tk.Frame(self._prog_outer, bg=p["prog_fg"], height=8, width=0)
         self._prog_inner.place(x=0, y=0, height=8)
 
-        self._lbl_estado = tk.Label(
-            self._panel,
+        self._lbl_etapa = tk.Label(self._panel, text="",
+            font=("Segoe UI", 9, "bold"), fg=p["naranja"],
+            bg=p["panel_bg"], justify="center", wraplength=185)
+        self._lbl_etapa.pack(pady=(0, 2))
+
+        self._lbl_estado = tk.Label(self._panel,
             text=self._t("captura_rostro.listo", "Listo para\nescanear"),
             font=("Segoe UI", 10), fg=p["texto2"],
             bg=p["panel_bg"], justify="center", wraplength=185)
@@ -238,29 +302,23 @@ class PantallaCaptura:
         self._btn_frame = tk.Frame(self._panel, bg=p["panel_bg"])
         self._btn_frame.pack(fill="x", padx=12, pady=10)
 
-        self._btn_iniciar = tk.Button(
-            self._btn_frame,
+        self._btn_iniciar = tk.Button(self._btn_frame,
             text=self._t("captura_rostro.btn_iniciar", "▶  INICIAR"),
-            font=("Segoe UI", 10, "bold"),
-            fg="#ffffff", bg=p["verde"],
+            font=("Segoe UI", 10, "bold"), fg="#ffffff", bg=p["verde"],
             activebackground=p["verde_hover"], activeforeground="#ffffff",
-            bd=0, pady=10, relief="flat", cursor="hand2",
-            command=self._toggle)
+            bd=0, pady=10, relief="flat", cursor="hand2", command=self._toggle)
         self._btn_iniciar.pack(fill="x", pady=(0, 6))
 
-        self._btn_cancelar = tk.Button(
-            self._btn_frame,
+        self._btn_cancelar = tk.Button(self._btn_frame,
             text=self._t("captura_rostro.btn_cancelar", "✕  CANCELAR"),
-            font=("Segoe UI", 10, "bold"),
-            fg="#ffffff", bg=p["rojo"],
+            font=("Segoe UI", 10, "bold"), fg="#ffffff", bg=p["rojo"],
             activebackground=p["rojo_hover"], activeforeground="#ffffff",
-            bd=0, pady=10, relief="flat", cursor="hand2",
-            command=self._cancelar)
+            bd=0, pady=10, relief="flat", cursor="hand2", command=self._cancelar)
         self._btn_cancelar.pack(fill="x")
 
-    # ══════════════════════════════════════════════════════════════════════════
+    # ═════════════════════════════════════════════════════════════════════
     #  CAPTURA
-    # ══════════════════════════════════════════════════════════════════════════
+    # ═════════════════════════════════════════════════════════════════════
     def _toggle(self):
         if self._capturando:
             self._detener()
@@ -276,25 +334,28 @@ class PantallaCaptura:
         self._ultimo_bbox        = None
         self._enc_referencia     = None
         self._descartes_seguidos = 0
+        self._etapa_actual       = _ETAPA_FRENTE
+        self._pestaneos_ok       = 0
+        self._ojo_cerrado        = False
+        self._liveness_ok_streak = 0
+        self._frame_anterior     = None
 
         p = self._p
         self._btn_iniciar.config(
             text=self._t("captura_rostro.btn_detener", "⏹  DETENER"),
             bg=p["rojo"], activebackground=p["rojo_hover"])
+        self._lbl_etapa.config(text="👁  Mira al frente")
         self._lbl_estado.config(
             text=self._t("captura_rostro.escaneando", "No te muevas\nescaneando..."),
             fg="#43a047")
 
         self._cap = cv2.VideoCapture(_CAM_INDEX)
         if not self._cap.isOpened():
-            otro = 1 - _CAM_INDEX
-            self._cap = cv2.VideoCapture(otro)
+            self._cap = cv2.VideoCapture(1 - _CAM_INDEX)
         if not self._cap.isOpened():
             modal_error(self.pantalla,
-                        self._t("captura_rostro.error_camara_msg",
-                                "No se pudo abrir la cámara."),
-                        titulo=self._t("captura_rostro.error_camara_titulo",
-                                       "Error de cámara"))
+                self._t("captura_rostro.error_camara_msg", "No se pudo abrir la cámara."),
+                titulo=self._t("captura_rostro.error_camara_titulo", "Error de cámara"))
             self._capturando = False
             return
 
@@ -314,17 +375,14 @@ class PantallaCaptura:
             text=self._t("captura_rostro.btn_iniciar", "▶  INICIAR"),
             bg=p["verde"], activebackground=p["verde_hover"])
         self._lbl_estado.config(
-            text=self._t("captura_rostro.detenido", "Detenido"),
-            fg=p["texto2"])
+            text=self._t("captura_rostro.detenido", "Detenido"), fg=p["texto2"])
+        self._lbl_etapa.config(text="")
 
-    # ══════════════════════════════════════════════════════════════════════════
-    #  HILOS
-    # ══════════════════════════════════════════════════════════════════════════
+    # ═════════════════════════════════════════════════════════════════════
+    #  HILO CÁMARA (render)
+    # ═════════════════════════════════════════════════════════════════════
     def _hilo_camara(self):
         self._contador_frames = 0
-        detector = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-
         while self._corriendo:
             ok, frame = self._cap.read()
             if not ok:
@@ -343,56 +401,23 @@ class PantallaCaptura:
                 ch = self.label_video.winfo_height()
                 if cw < 10 or ch < 10:
                     continue
-                resized = cv2.resize(frame, (cw, ch),
-                                     interpolation=cv2.INTER_LINEAR)
+                resized = cv2.resize(frame, (cw, ch), interpolation=cv2.INTER_LINEAR)
 
                 gris    = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
-                rostros = detector.detectMultiScale(
+                rostros = self._det_frontal.detectMultiScale(
                     gris, scaleFactor=1.3, minNeighbors=5, minSize=(60, 60))
                 if len(rostros) > 0:
                     x, y, w, h = max(rostros, key=lambda r: r[2]*r[3])
                     self._ultimo_bbox = (x, y, w, h)
 
                 dup_nombre = self._duplicado_nombre
+                etapa      = self._etapa_actual
 
                 if dup_nombre and self._ultimo_bbox is not None:
-                    x, y, w, h = self._ultimo_bbox
-                    cv2.rectangle(resized, (x-2, y-2), (x+w+2, y+h+2),
-                                  (0, 0, 180), 1)
-                    cv2.rectangle(resized, (x, y), (x+w, y+h),
-                                  (0, 0, 255), 3)
-
-                    pil_img = Image.fromarray(cv2.cvtColor(resized, cv2.COLOR_BGR2RGB))
-                    draw    = ImageDraw.Draw(pil_img)
-                    try:
-                        _fp = Path(__file__).resolve().parents[2] / "assets" / "fonts" / "segoeui.ttf"
-                        font_nom = ImageFont.truetype(str(_fp), 18)
-                        font_avi = ImageFont.truetype(str(_fp), 16)
-                    except Exception:
-                        font_nom = ImageFont.load_default()
-                        font_avi = font_nom
-
-                    pad = 6
-                    bb  = draw.textbbox((0, 0), dup_nombre, font=font_nom)
-                    tw, th = bb[2]-bb[0], bb[3]-bb[1]
-                    ty = max(th + pad*2 + 2, y)
-                    draw.rectangle([x, ty-th-pad*2, x+tw+pad*2, ty],
-                                   fill=(200, 0, 0))
-                    draw.text((x+pad, ty-th-pad+1),
-                              dup_nombre, font=font_nom, fill=(255, 255, 255))
-
-                    # Texto "YA REGISTRADO" desde idioma (hardcoded en CV2 overlay)
-                    aviso = self._t("captura_rostro.dup_encontrado",
-                                    "Rostro ya\nregistrado:\n").replace("\n", " ").strip()
-                    ab  = draw.textbbox((0, 0), aviso, font=font_avi)
-                    aw  = ab[2]-ab[0]
-                    ax  = x + (w-aw)//2
-                    ay  = y + h + 8
-                    draw.text((ax+1, ay+1), aviso, font=font_avi, fill=(0, 0, 0))
-                    draw.text((ax,   ay),   aviso, font=font_avi, fill=(255, 80, 80))
-
-                    resized = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+                    self._dibujar_duplicado(resized, dup_nombre)
                 else:
+                    color_overlay = (80, 175, 76) if etapa == _ETAPA_FRENTE else (200, 80, 200)
+
                     n   = self._capturas_ok
                     pct = int(n / CAPTURAS_REQUERIDAS * 100)
                     txt = f"ESCANEANDO... {n}/{CAPTURAS_REQUERIDAS}  ({pct}%)"
@@ -405,8 +430,14 @@ class PantallaCaptura:
 
                     if self._ultimo_bbox is not None:
                         bx, by, bw, bh = self._ultimo_bbox
-                        cv2.rectangle(resized, (bx, by), (bx+bw, by+bh),
-                                      (80, 175, 76), 2)
+                        cv2.rectangle(resized, (bx, by), (bx+bw, by+bh), color_overlay, 2)
+
+                    if etapa == _ETAPA_PESTANEO:
+                        txt_p = f"Pestañeos: {self._pestaneos_ok}/{_PESTANEOS_REQUERIDOS}"
+                        cv2.putText(resized, txt_p, (10, ch - 16),
+                                    fn, 0.65, (0,0,0), 3, cv2.LINE_AA)
+                        cv2.putText(resized, txt_p, (10, ch - 16),
+                                    fn, 0.65, (200, 80, 200), 2, cv2.LINE_AA)
 
                 rgb   = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
                 photo = ImageTk.PhotoImage(image=Image.fromarray(rgb))
@@ -415,89 +446,59 @@ class PantallaCaptura:
             except Exception:
                 pass
 
+    def _dibujar_duplicado(self, resized, dup_nombre):
+        if self._ultimo_bbox is None:
+            return
+        x, y, w, h = self._ultimo_bbox
+        cv2.rectangle(resized, (x-2, y-2), (x+w+2, y+h+2), (0, 0, 180), 1)
+        cv2.rectangle(resized, (x, y), (x+w, y+h), (0, 0, 255), 3)
+
+        pil_img = Image.fromarray(cv2.cvtColor(resized, cv2.COLOR_BGR2RGB))
+        draw    = ImageDraw.Draw(pil_img)
+        try:
+            _fp = Path(__file__).resolve().parents[2] / "assets" / "fonts" / "segoeui.ttf"
+            font_nom = ImageFont.truetype(str(_fp), 18)
+            font_avi = ImageFont.truetype(str(_fp), 16)
+        except Exception:
+            font_nom = ImageFont.load_default()
+            font_avi = font_nom
+
+        pad = 6
+        bb  = draw.textbbox((0, 0), dup_nombre, font=font_nom)
+        tw, th = bb[2]-bb[0], bb[3]-bb[1]
+        ty = max(th + pad*2 + 2, y)
+        draw.rectangle([x, ty-th-pad*2, x+tw+pad*2, ty], fill=(200, 0, 0))
+        draw.text((x+pad, ty-th-pad+1), dup_nombre, font=font_nom, fill=(255, 255, 255))
+
+        aviso = self._t("captura_rostro.dup_encontrado", "Rostro ya registrado:").strip()
+        ab  = draw.textbbox((0, 0), aviso, font=font_avi)
+        ax  = x + (w-(ab[2]-ab[0]))//2
+        ay  = y + h + 8
+        draw.text((ax+1, ay+1), aviso, font=font_avi, fill=(0, 0, 0))
+        draw.text((ax,   ay),   aviso, font=font_avi, fill=(255, 80, 80))
+
+        resized[:] = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+
     def _pintar_frame(self):
         if self._photo is None:
             return
         self.label_video.imgtk = self._photo
         self.label_video.config(image=self._photo, text="")
 
+    # ═════════════════════════════════════════════════════════════════════
+    #  HILO CAPTURA
+    # ═════════════════════════════════════════════════════════════════════
     def _hilo_captura(self):
-        detector = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-
         while self._corriendo and self._capturas_ok < CAPTURAS_REQUERIDAS:
             try:
                 frame = self._cola_frames.get(timeout=1.0)
             except queue.Empty:
                 continue
 
-            gris    = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            rostros = detector.detectMultiScale(
-                gris, scaleFactor=1.3, minNeighbors=5, minSize=(80, 80))
-
-            if len(rostros) == 0:
-                continue
-
-            x, y, w, h = max(rostros, key=lambda r: r[2]*r[3])
-            margen = 10
-            x1 = max(0, x-margen);  y1 = max(0, y-margen)
-            x2 = min(frame.shape[1], x+w+margen)
-            y2 = min(frame.shape[0], y+h+margen)
-            roi = frame[y1:y2, x1:x2]
-
-            h_r, w_r = roi.shape[:2]
-            if w_r > 160:
-                s   = 160/w_r
-                roi = cv2.resize(roi, (160, int(h_r*s)),
-                                 interpolation=cv2.INTER_LINEAR)
-
-            roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
-
-            if not FR_DISPONIBLE:
-                self._capturas_ok += 1
-                self.label_video.after(0, self._actualizar_contador, self._capturas_ok)
-                continue
-
-            encs = face_recognition.face_encodings(
-                roi_rgb, num_jitters=1, model="small")
-            if not encs:
-                continue
-
-            enc_nuevo = encs[0]
-
-            if len(self._encodings) < CAPTURAS_REFERENCIA:
-                self._encodings.append(enc_nuevo)
-                self._capturas_ok += 1
-                self._descartes_seguidos = 0
-
-                if len(self._encodings) == CAPTURAS_REFERENCIA:
-                    self._enc_referencia = np.mean(self._encodings, axis=0)
-
-                self.label_video.after(0, self._actualizar_contador, self._capturas_ok)
-                continue
-
-            distancia = face_recognition.face_distance(
-                [self._enc_referencia], enc_nuevo)[0]
-
-            if distancia > _UMBRAL_CONSISTENCIA:
-                self._descartes_seguidos += 1
-                if self._descartes_seguidos >= _MAX_DESCARTES_SEGUIDOS:
-                    self.label_video.after(0, self._avisar_rostro_extrano)
-                    self._descartes_seguidos = 0
-                continue
-
-            self._descartes_seguidos = 0
-            self._encodings.append(enc_nuevo)
-            self._capturas_ok += 1
-            self.label_video.after(0, self._actualizar_contador, self._capturas_ok)
-
-            if (not self._chequeo_rapido
-                    and self._capturas_ok >= CAPTURAS_PARA_CHEQUEO):
-                self._chequeo_rapido = True
-                enc_parcial = np.mean(self._encodings[:CAPTURAS_PARA_CHEQUEO], axis=0)
-                threading.Thread(
-                    target=self._verificar_duplicado_rapido,
-                    args=(enc_parcial,), daemon=True).start()
+            if self._etapa_actual == _ETAPA_PESTANEO:
+                self._procesar_etapa_pestaneo(frame)
+            else:
+                self._procesar_etapa_frente(frame)
 
         self._corriendo = False
         if self._cap:
@@ -505,18 +506,183 @@ class PantallaCaptura:
         cv2.destroyAllWindows()
         self.label_video.after(0, self._finalizar, self._capturas_ok)
 
-    def _avisar_rostro_extrano(self):
+    # ── FRENTE ────────────────────────────────────────────────────────────────
+    def _procesar_etapa_frente(self, frame):
+        gris    = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        rostros = self._det_frontal.detectMultiScale(
+            gris, scaleFactor=1.3, minNeighbors=5, minSize=(80, 80))
+
+        if len(rostros) == 0:
+            self._frame_anterior = frame.copy()
+            return
+
+        x, y, w, h = max(rostros, key=lambda r: r[2]*r[3])
+
+        lv_ok, razon = _chequeo_liveness_frame(frame, self._frame_anterior, (x, y, w, h))
+        self._frame_anterior = frame.copy()
+
+        if not lv_ok:
+            self._liveness_ok_streak = 0
+            self.label_video.after(0, self._avisar_liveness, razon)
+            return
+
+        self._liveness_ok_streak += 1
+        if self._liveness_ok_streak < _FRAMES_LIVENESS:
+            return
+
+        margen = 10
+        x1 = max(0, x-margen);  y1 = max(0, y-margen)
+        x2 = min(frame.shape[1], x+w+margen)
+        y2 = min(frame.shape[0], y+h+margen)
+        roi = frame[y1:y2, x1:x2]
+        h_r, w_r = roi.shape[:2]
+        if w_r > 160:
+            s   = 160/w_r
+            roi = cv2.resize(roi, (160, int(h_r*s)), interpolation=cv2.INTER_LINEAR)
+        roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+
+        if not FR_DISPONIBLE:
+            self._capturas_ok += 1
+            self.label_video.after(0, self._actualizar_contador, self._capturas_ok)
+            self._checar_avance_frente()
+            return
+
+        encs = face_recognition.face_encodings(roi_rgb, num_jitters=1, model="small")
+        if not encs:
+            return
+
+        enc_nuevo = encs[0]
+
+        if len(self._encodings) < CAPTURAS_REFERENCIA:
+            self._encodings.append(enc_nuevo)
+            self._capturas_ok += 1
+            self._descartes_seguidos = 0
+            if len(self._encodings) == CAPTURAS_REFERENCIA:
+                self._enc_referencia = np.mean(self._encodings, axis=0)
+            self.label_video.after(0, self._actualizar_contador, self._capturas_ok)
+            self._checar_avance_frente()
+            return
+
+        distancia = face_recognition.face_distance([self._enc_referencia], enc_nuevo)[0]
+
+        if distancia > _UMBRAL_CONSISTENCIA:
+            self._descartes_seguidos += 1
+            if self._descartes_seguidos >= _MAX_DESCARTES_SEGUIDOS:
+                self.label_video.after(0, self._avisar_rostro_extrano)
+                self._descartes_seguidos = 0
+            return
+
+        self._descartes_seguidos = 0
+        self._encodings.append(enc_nuevo)
+        self._capturas_ok += 1
+        self.label_video.after(0, self._actualizar_contador, self._capturas_ok)
+
+        if not self._chequeo_rapido and self._capturas_ok >= CAPTURAS_PARA_CHEQUEO:
+            self._chequeo_rapido = True
+            enc_parcial = np.mean(self._encodings[:CAPTURAS_PARA_CHEQUEO], axis=0)
+            threading.Thread(target=self._verificar_duplicado_rapido,
+                             args=(enc_parcial,), daemon=True).start()
+
+        self._checar_avance_frente()
+
+    def _checar_avance_frente(self):
+        # Con 20 capturas de frente pasamos a pestañeo; las 10 restantes
+        # se capturan de vuelta en frente tras completar el pestañeo.
+        if self._capturas_ok >= 20 and self._etapa_actual == _ETAPA_FRENTE:
+            self._etapa_actual = _ETAPA_PESTANEO
+            self._pestaneos_ok = 0
+            self._ojo_cerrado  = False
+            self.label_video.after(0, self._cambiar_etapa_ui, _ETAPA_PESTANEO)
+
+    # ── PESTAÑEO ──────────────────────────────────────────────────────────────
+    def _procesar_etapa_pestaneo(self, frame):
+        gris    = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        rostros = self._det_frontal.detectMultiScale(
+            gris, scaleFactor=1.3, minNeighbors=5, minSize=(80, 80))
+        if len(rostros) == 0:
+            return
+
+        x, y, w, h = max(rostros, key=lambda r: r[2]*r[3])
+
+        if FR_DISPONIBLE:
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            ear       = _calcular_ear_frame(frame_rgb, (y, x+w, y+h, x))
+            if ear is None:
+                return
+            ojo_cerrado_ahora = ear < _EAR_UMBRAL
+        else:
+            ojo_y1  = max(0, y + int(h * 0.15))
+            ojo_y2  = max(0, y + int(h * 0.45))
+            ojo_roi = gris[ojo_y1:ojo_y2, x:x+w]
+            if ojo_roi.size == 0:
+                return
+            brillo = float(np.mean(ojo_roi))
+            if not hasattr(self, "_brillo_anterior"):
+                self._brillo_anterior = brillo
+                return
+            ojo_cerrado_ahora = (self._brillo_anterior - brillo) > 8
+            self._brillo_anterior = brillo
+
+        if self._ojo_cerrado and not ojo_cerrado_ahora:
+            self._pestaneos_ok += 1
+            self.label_video.after(0, self._on_pestaneo_detectado)
+
+        self._ojo_cerrado = ojo_cerrado_ahora
+
+        if self._pestaneos_ok >= _PESTANEOS_REQUERIDOS:
+            # Liveness confirmado; volver a frente para completar capturas
+            self._etapa_actual = _ETAPA_FRENTE
+            self.label_video.after(0, self._cambiar_etapa_ui, _ETAPA_FRENTE)
+
+    # ── Callbacks UI ──────────────────────────────────────────────────────────
+    def _cambiar_etapa_ui(self, etapa):
+        try:
+            if etapa == _ETAPA_PESTANEO:
+                self._lbl_etapa.config(text="👁  Pestañea 2 veces")
+                self._lbl_estado.config(
+                    text=self._t("captura_rostro.etapa_pestañeo", "Pestañea 2 veces"),
+                    fg="#9c27b0")
+            else:
+                self._lbl_etapa.config(text="👁  Mira al frente")
+                self._lbl_estado.config(
+                    text=self._t("captura_rostro.escaneando", "No te muevas\nescaneando..."),
+                    fg="#43a047")
+        except tk.TclError:
+            pass
+
+    def _on_pestaneo_detectado(self):
         try:
             self._lbl_estado.config(
-                text=self._t("captura_rostro.incompleto",
-                             "Incompleto\n").replace("\n", "") +
-                     "\nAleja a otras personas",
+                text=f"✓ Pestañeo {self._pestaneos_ok}/{_PESTANEOS_REQUERIDOS}",
+                fg="#9c27b0")
+        except tk.TclError:
+            pass
+
+    def _avisar_liveness(self, razon):
+        mensajes = {
+            "foto_estatica":  "⚠ Imagen estática\ndetectada",
+            "baja_textura":   "⚠ Posible foto\nimpresa",
+            "fondo_estatico": "⚠ Muévete un poco",
+        }
+        try:
+            self._lbl_estado.config(
+                text=mensajes.get(razon, "⚠ Liveness falló"),
                 fg=self._p["rojo"])
+            self.label_video.after(
+                1500,
+                lambda: self._lbl_estado.config(
+                    text=_FALLBACK_ETAPA.get(self._etapa_actual, ""),
+                    fg="#43a047") if self._capturando else None)
+        except tk.TclError:
+            pass
+
+    def _avisar_rostro_extrano(self):
+        try:
+            self._lbl_estado.config(text="Aleja a otras\npersonas", fg=self._p["rojo"])
             self.label_video.after(
                 2000,
                 lambda: self._lbl_estado.config(
-                    text=self._t("captura_rostro.escaneando",
-                                 "No te muevas\nescaneando..."),
+                    text=self._t("captura_rostro.escaneando", "No te muevas\nescaneando..."),
                     fg="#43a047") if self._capturando else None)
         except tk.TclError:
             pass
@@ -530,8 +696,7 @@ class PantallaCaptura:
             enc_existentes = [r["encoding"] for r in registrados]
             distancias     = face_recognition.face_distance(enc_existentes, encoding_parcial)
             idx_min        = int(np.argmin(distancias))
-            dist_min       = float(distancias[idx_min])
-            if dist_min <= _UMBRAL_DUPLICADO:
+            if float(distancias[idx_min]) <= _UMBRAL_DUPLICADO:
                 nombre_dup = registrados[idx_min].get("nombre", "—")
                 self._corriendo  = False
                 self._capturando = False
@@ -542,16 +707,16 @@ class PantallaCaptura:
     def _on_duplicado_detectado(self, nombre_dup: str):
         p = self._p
         try:
-            self._duplicado_nombre   = nombre_dup
+            self._duplicado_nombre = nombre_dup
             self._lbl_estado.config(
                 text=self._t("captura_rostro.dup_encontrado",
-                             "Rostro ya\nregistrado:\n") + nombre_dup,
+                             "Rostro ya registrado:\n") + nombre_dup,
                 fg=p["rojo"])
+            self._lbl_etapa.config(text="")
             self._btn_iniciar.config(
                 text=self._t("captura_rostro.btn_reintentar", "▶  REINTENTAR"),
                 bg=p["verde"], activebackground=p["verde_hover"], state="normal")
-            self._lbl_contador.config(
-                text=f"0 / {CAPTURAS_REQUERIDAS}", fg=p["rojo"])
+            self._lbl_contador.config(text=f"0 / {CAPTURAS_REQUERIDAS}", fg=p["rojo"])
             self._prog_inner.place(x=0, y=0, height=8, width=0)
             self._encodings          = []
             self._capturas_ok        = 0
@@ -580,24 +745,24 @@ class PantallaCaptura:
             self._lbl_estado.config(
                 text=self._t("captura_rostro.completo", "¡Escaneo\ncompleto!"),
                 fg=p["verde"])
+            self._lbl_etapa.config(text="✓ Liveness OK", fg=p["verde"])
             self._btn_iniciar.config(
                 text=self._t("captura_rostro.btn_completado", "✓  COMPLETADO"),
                 bg=p["verde_ok"], state="disabled")
             self._lbl_contador.config(fg=p["verde"])
             self._lbl_estado.config(
-                text=self._t("captura_rostro.verificando_dup",
-                             "Verificando\nduplicados..."),
+                text=self._t("captura_rostro.verificando_dup", "Verificando\nduplicados..."),
                 fg=p["texto2"])
             encoding_final = np.mean(self._encodings, axis=0)
-            threading.Thread(
-                target=self._verificar_y_regresar,
-                args=(encoding_final,), daemon=True).start()
+            threading.Thread(target=self._verificar_y_regresar,
+                             args=(encoding_final,), daemon=True).start()
         else:
             if not self._chequeo_rapido or n > 0:
                 self._lbl_estado.config(
-                    text=self._t("captura_rostro.incompleto",
-                                 "Incompleto\n") + f"{n}/{CAPTURAS_REQUERIDAS}",
+                    text=self._t("captura_rostro.incompleto", "Incompleto\n") +
+                         f"{n}/{CAPTURAS_REQUERIDAS}",
                     fg=p["rojo"])
+                self._lbl_etapa.config(text="")
                 self._btn_iniciar.config(
                     text=self._t("captura_rostro.btn_reintentar", "▶  REINTENTAR"),
                     bg=p["verde"], state="normal")
@@ -622,8 +787,7 @@ class PantallaCaptura:
             datos_con_enc = dict(self.datos)
             datos_con_enc["face_encoding"] = encoding
             self.label_video.after(
-                0, lambda: self.app.mostrar_pantalla(
-                    "agregar_usuario", datos_con_enc))
+                0, lambda: self.app.mostrar_pantalla("agregar_usuario", datos_con_enc))
 
         except Exception as e:
             print(f"[CAPTURA] Error: {e}")

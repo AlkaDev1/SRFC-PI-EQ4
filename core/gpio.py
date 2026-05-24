@@ -4,17 +4,13 @@ Control de GPIO para el sistema de acceso biométrico.
 Usa gpiozero con relé activo en LOW (active_high=False).
 
 Componentes:
-  Solenoide  (IN1 relé)      → GPIO 17  (PIN 11)  ← en producción
+  Solenoide  (IN1 relé)      → GPIO 17  (PIN 11)
   Actuador sale (IN2 relé)   → GPIO 27  (PIN 13)
   Actuador entra (IN3 relé)  → GPIO 22  (PIN 15)
   LED RGB Rojo               → GPIO 18  (PIN 12)
   LED RGB Verde              → GPIO 23  (PIN 16)
-  Buzzer                     → GPIO 25  (PIN 22)  ← producción
-                               GPIO 17  (PIN 11)  ← pruebas temporales
-
-  BOTÓN COMODÍN:
-    - Producción : GPIO físico (definir pin al conectar)
-    - Pruebas    : tecla F1 del teclado (manejado desde la UI)
+  Buzzer                     → GPIO 25  (PIN 22)
+  BOTÓN COMODÍN              → GPIO 24  (PIN 18)  ← conectar a GND PIN 20
 
 Secuencia acceso concedido:
   1. Buzzer beep doble (concedido)
@@ -32,10 +28,8 @@ Secuencia acceso denegado:
 
 Secuencia botón comodín (salida):
   1. Buzzer sonido salida (2 cortos + 1 largo)
-  2. LED amarillo → simulado (no hay pin físico asignado aún)
-  3. Solenoide ON → 2s → OFF  (abre puerta)
-  4. Espera PUERTA_ABIERTA_SEGUNDOS
-  5. Callback on_fin() → la UI navega a pantalla principal
+  2. Solenoide ON → PUERTA_ABIERTA_SEGUNDOS → OFF
+  3. Callback on_fin() → la UI navega a pantalla principal
 """
 
 import platform
@@ -45,19 +39,19 @@ import time
 _ES_RASPBERRY = platform.machine() in ("aarch64", "armv7l")
 
 # ── Pines ─────────────────────────────────────────────────────────────────────
-_PIN_SOLENOIDE      = 17   # producción (cambiar cuando llegue el solenoide)
-_PIN_ACTUADOR_SALE  = 27
-_PIN_ACTUADOR_ENTRA = 22
-_PIN_LED_ROJO       = 18
-_PIN_LED_VERDE      = 23
-_PIN_BUZZER         = 17   # ← pruebas (mover a 25 en producción)
-_PIN_BTN_COMODIN    = None # ← asignar cuando se conecte el botón físico
+_PIN_SOLENOIDE      = 17   # GPIO 17 — PIN 11
+_PIN_ACTUADOR_SALE  = 27   # GPIO 27 — PIN 13
+_PIN_ACTUADOR_ENTRA = 22   # GPIO 22 — PIN 15
+_PIN_LED_ROJO       = 18   # GPIO 18 — PIN 12
+_PIN_LED_VERDE      = 23   # GPIO 23 — PIN 16
+_PIN_BUZZER         = 25   # GPIO 25 — PIN 22
+_PIN_BTN_COMODIN    = 24   # GPIO 24 — PIN 18  (GND → PIN 20)
 
 # ── Tiempos ───────────────────────────────────────────────────────────────────
-_T_SOLENOIDE           = 2.0
-_T_ACTUADOR            = 7.0
-_T_ESPERA              = 3.0
-_T_LED_DENEGADO        = 2.0
+_T_SOLENOIDE            = 2.0
+_T_ACTUADOR             = 7.0
+_T_ESPERA               = 3.0
+_T_LED_DENEGADO         = 2.0
 PUERTA_ABIERTA_SEGUNDOS = 5.0
 
 # ── Setup gpiozero ────────────────────────────────────────────────────────────
@@ -66,31 +60,19 @@ try:
     os.environ["GPIOZERO_PIN_FACTORY"] = "lgpio"
     from gpiozero import OutputDevice, Button
 
-    # En pruebas el buzzer ocupa GPIO 17 (mismo que solenoide en producción)
-    # Por eso inicializamos solo el buzzer si estamos en modo pruebas sin solenoide
-    buzzer         = OutputDevice(_PIN_BUZZER, active_high=True,  initial_value=False)
+    solenoide      = OutputDevice(_PIN_SOLENOIDE,      active_high=False, initial_value=False)
     actuador_sale  = OutputDevice(_PIN_ACTUADOR_SALE,  active_high=False, initial_value=False)
     actuador_entra = OutputDevice(_PIN_ACTUADOR_ENTRA, active_high=False, initial_value=False)
-    led_rojo       = OutputDevice(_PIN_LED_ROJO,  active_high=True, initial_value=False)
-    led_verde      = OutputDevice(_PIN_LED_VERDE, active_high=True, initial_value=False)
+    led_rojo       = OutputDevice(_PIN_LED_ROJO,       active_high=True,  initial_value=False)
+    led_verde      = OutputDevice(_PIN_LED_VERDE,      active_high=True,  initial_value=False)
+    buzzer         = OutputDevice(_PIN_BUZZER,         active_high=True,  initial_value=False)
 
-    # Solenoide: solo inicializar si no comparte pin con el buzzer
-    if _PIN_SOLENOIDE != _PIN_BUZZER:
-        solenoide = OutputDevice(_PIN_SOLENOIDE, active_high=False, initial_value=False)
-    else:
-        # Comparte pin con buzzer → solenoide simulado en pruebas
-        class _Dummy:
-            def on(self):  print("[GPIO SIM] Solenoide ON")
-            def off(self): print("[GPIO SIM] Solenoide OFF")
-        solenoide = _Dummy()
-
-    # Botón comodín físico (si ya está conectado)
-    _btn_comodin_hw = None
-    if _PIN_BTN_COMODIN is not None:
-        _btn_comodin_hw = Button(_PIN_BTN_COMODIN, pull_up=True)
+    # Botón comodín físico — pull_up=True: reposo=HIGH, pulsado=LOW (conectar a GND)
+    _btn_comodin_hw = Button(_PIN_BTN_COMODIN, pull_up=True)
 
     _GPIO_OK = True
     print("[GPIO] Inicializado correctamente")
+    print(f"[GPIO] Botón comodín HW listo en GPIO {_PIN_BTN_COMODIN} (PIN 18)")
 
 except Exception as e:
     print(f"[GPIO] Error al inicializar: {e}")
@@ -100,13 +82,16 @@ except Exception as e:
         def on(self):  print("[GPIO SIM] ON")
         def off(self): print("[GPIO SIM] OFF")
 
-    solenoide      = _Dummy()
-    actuador_sale  = _Dummy()
-    actuador_entra = _Dummy()
-    led_rojo       = _Dummy()
-    led_verde      = _Dummy()
-    buzzer         = _Dummy()
-    _btn_comodin_hw = None
+    class _DummyButton:
+        when_pressed = None
+
+    solenoide       = _Dummy()
+    actuador_sale   = _Dummy()
+    actuador_entra  = _Dummy()
+    led_rojo        = _Dummy()
+    led_verde       = _Dummy()
+    buzzer          = _Dummy()
+    _btn_comodin_hw = _DummyButton()
 
 
 # ── Helpers de buzzer ─────────────────────────────────────────────────────────
@@ -143,7 +128,6 @@ def acceso_concedido():
         solenoide.on()
         actuador_sale.on()
 
-        # Solenoide se apaga a los 2s en paralelo
         def _apagar_sol():
             time.sleep(_T_SOLENOIDE)
             solenoide.off()
@@ -212,17 +196,17 @@ def activar_comodin(on_fin=None):
 def registrar_btn_comodin_hw(callback):
     """
     Registra el callback para el botón comodín físico.
-    Llamar desde la UI una vez que el botón esté conectado.
+    Llamar desde la UI al iniciar la aplicación.
 
     Ejemplo:
-        from core.gpio import registrar_btn_comodin_hw
+        from core.gpio import registrar_btn_comodin_hw, activar_comodin
         registrar_btn_comodin_hw(lambda: activar_comodin(on_fin=mi_funcion))
     """
     if _btn_comodin_hw is not None:
         _btn_comodin_hw.when_pressed = callback
-        print("[GPIO] Botón comodín HW registrado")
+        print(f"[GPIO] Botón comodín HW registrado en GPIO {_PIN_BTN_COMODIN}")
     else:
-        print("[GPIO] Botón comodín HW no disponible (pin no asignado)")
+        print("[GPIO] Botón comodín HW no disponible")
 
 
 def apagar_todo():
