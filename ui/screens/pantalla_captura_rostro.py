@@ -5,11 +5,35 @@ LIVENESS DETECTION (sin sensor IR):
   - Etapas: FRENTE → PESTAÑEO
   - Anti-foto: movimiento entre frames + variación de textura + cambio de fondo
   - Pestañeo: EAR (Eye Aspect Ratio) usando landmarks de face_recognition
+
+FIXES v2:
+  - Pestañeo ya no se dispara cuando la cara desaparece y reaparece (foto retirada/acercada)
+  - Pestañeo requiere: EAR bajo DURANTE al menos 1 frame Y reaparición dentro de 600ms
+  - Se valida liveness (movimiento) también en etapa pestañeo
+  - _cara_ausente_antes invalida el siguiente ciclo de detección de cierre de ojo
+
+FIXES v3:
+  - Duplicado detectado → muestra overlay rojo pero NO detiene el escaneo;
+    resetea contadores y limpia el aviso a los 3s para que la persona correcta
+    pueda registrarse sin reiniciar manualmente.
+  - Persona diferente en pestañeo → overlay rojo pero NO detiene el hilo;
+    en cuanto la verificación de identidad confirma que es la misma persona
+    el flag se limpia y el pestañeo continúa donde iba.
+
+FIXES v4:
+  - _identidad_confirmada: el EAR/pestañeo solo se procesa cuando la identidad
+    ha sido verificada al menos una vez en la etapa de pestañeo. Evita que una
+    persona diferente acumule pestañeos antes de que llegue la verificación async.
+  - La verificación se lanza cada 4 frames (antes 8) para confirmar identidad
+    más rápido al entrar a la etapa de pestañeo.
+  - Al activarse _persona_diferente_activa se resetean los pestañeos acumulados
+    por la persona incorrecta.
 """
 
 import tkinter as tk
 import threading
 import queue
+import time
 import cv2
 import numpy as np
 import platform
@@ -46,6 +70,18 @@ _UMBRAL_FONDO_CAMBIO  = 1.5
 _FRAMES_LIVENESS      = 6
 _EAR_UMBRAL           = 0.21
 _PESTANEOS_REQUERIDOS = 2
+
+# Pestañeo robusto
+_EAR_FRAMES_MINIMOS  = 1      # cuántos frames seguidos debe estar el ojo cerrado
+_PESTANEO_TIMEOUT_MS = 600    # ms máximos entre cierre y apertura para contar como pestañeo
+
+# Umbral de identidad en etapa pestaneo (mas permisivo que UMBRAL_CONSISTENCIA
+# porque el ROI puede tener diferente escala/iluminacion al de referencia)
+_UMBRAL_IDENTIDAD_PESTANEO = 0.70
+
+# Cada cuántos frames se recalcula el encoding para verificar identidad en pestañeo.
+# Valor bajo = más seguro pero más lento; 3 es un balance razonable con SKIP_FRAMES=2.
+_ID_VERIFY_INTERVAL = 3
 
 _C = {
     "bg":"#f3f4f5","feed_bg":"#1c1c1c","panel_bg":"#ffffff",
@@ -147,9 +183,19 @@ class PantallaCaptura:
         self._enc_referencia     = None
         self._descartes_seguidos = 0
 
-        self._etapa_actual       = _ETAPA_FRENTE
-        self._pestaneos_ok       = 0
-        self._ojo_cerrado        = False
+        self._etapa_actual             = _ETAPA_FRENTE
+        self._pestaneos_ok             = 0
+        self._persona_diferente_activa = False   # flag overlay rojo en video
+        self._identidad_confirmada     = False   # True cuando verificación async confirmó identidad
+
+        # ── Estado pestañeo robusto ──────────────────────────────────────────
+        self._ojo_cerrado        = False   # ojo estaba cerrado en frame anterior
+        self._ear_cerrado_frames = 0       # frames consecutivos con ojo cerrado
+        self._t_ojo_cerrado      = None    # timestamp cuando se detectó cierre
+        self._cara_ausente_antes        = False   # cara desapareció en frame anterior
+        self._frames_diferente        = 0       # frames seguidos con cara diferente
+        # ────────────────────────────────────────────────────────────────────
+
         self._liveness_ok_streak = 0
         self._frame_anterior     = None
 
@@ -334,9 +380,20 @@ class PantallaCaptura:
         self._ultimo_bbox        = None
         self._enc_referencia     = None
         self._descartes_seguidos = 0
-        self._etapa_actual       = _ETAPA_FRENTE
-        self._pestaneos_ok       = 0
-        self._ojo_cerrado        = False
+        self._etapa_actual             = _ETAPA_FRENTE
+        self._pestaneos_ok             = 0
+        self._persona_diferente_activa = False
+        self._identidad_confirmada     = False
+
+        # Reset estado pestañeo robusto
+        self._ojo_cerrado              = False
+        self._ear_cerrado_frames       = 0
+        self._t_ojo_cerrado            = None
+        self._cara_ausente_antes       = False
+        self._frames_diferente         = 0
+        self._frames_pestaneo_count    = 0
+        self._enc_pestaneo_cache       = None
+
         self._liveness_ok_streak = 0
         self._frame_anterior     = None
 
@@ -415,6 +472,19 @@ class PantallaCaptura:
 
                 if dup_nombre and self._ultimo_bbox is not None:
                     self._dibujar_duplicado(resized, dup_nombre)
+                elif self._persona_diferente_activa and self._ultimo_bbox is not None:
+                    # Overlay rojo: persona diferente en etapa pestañeo
+                    bx, by, bw, bh = self._ultimo_bbox
+                    cv2.rectangle(resized, (bx-2, by-2), (bx+bw+2, by+bh+2), (0, 0, 160), 1)
+                    cv2.rectangle(resized, (bx, by), (bx+bw, by+bh), (0, 0, 255), 3)
+                    fn = cv2.FONT_HERSHEY_SIMPLEX
+                    msg1 = "NO ES LA MISMA PERSONA"
+                    (wt1, _), _ = cv2.getTextSize(msg1, fn, 0.65, 2)
+                    cx1 = (cw - wt1) // 2
+                    cv2.putText(resized, msg1, (cx1, by - 12 if by > 30 else by + bh + 24),
+                                fn, 0.65, (0, 0, 0), 4, cv2.LINE_AA)
+                    cv2.putText(resized, msg1, (cx1, by - 12 if by > 30 else by + bh + 24),
+                                fn, 0.65, (80, 80, 255), 2, cv2.LINE_AA)
                 else:
                     color_overlay = (80, 175, 76) if etapa == _ETAPA_FRENTE else (200, 80, 200)
 
@@ -586,27 +656,113 @@ class PantallaCaptura:
         self._checar_avance_frente()
 
     def _checar_avance_frente(self):
-        # Con 20 capturas de frente pasamos a pestañeo; las 10 restantes
-        # se capturan de vuelta en frente tras completar el pestañeo.
         if self._capturas_ok >= 20 and self._etapa_actual == _ETAPA_FRENTE:
-            self._etapa_actual = _ETAPA_PESTANEO
-            self._pestaneos_ok = 0
-            self._ojo_cerrado  = False
+            self._etapa_actual       = _ETAPA_PESTANEO
+            self._pestaneos_ok       = 0
+            # Reset completo del estado de pestañeo al entrar a la etapa
+            self._ojo_cerrado        = False
+            self._ear_cerrado_frames = 0
+            self._t_ojo_cerrado      = None
+            self._cara_ausente_antes      = False
+            self._frames_diferente        = 0
+            self._frames_pestaneo_count   = 0
+            self._enc_pestaneo_cache      = None
+            self._identidad_confirmada    = False   # exige verificación antes de contar EAR
             self.label_video.after(0, self._cambiar_etapa_ui, _ETAPA_PESTANEO)
 
-    # ── PESTAÑEO ──────────────────────────────────────────────────────────────
+    # ── PESTAÑEO (robusto) ────────────────────────────────────────────────────
     def _procesar_etapa_pestaneo(self, frame):
         gris    = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         rostros = self._det_frontal.detectMultiScale(
             gris, scaleFactor=1.3, minNeighbors=5, minSize=(80, 80))
+
+        # ── Sin cara en este frame ──────────────────────────────────────────
         if len(rostros) == 0:
+            self._cara_ausente_antes   = True
+            self._ojo_cerrado          = False
+            self._ear_cerrado_frames   = 0
+            self._t_ojo_cerrado        = None
+            self._frames_diferente     = 0
+            self._identidad_confirmada = False
+            self._enc_pestaneo_cache   = None   # invalidar cache de encoding
             return
 
         x, y, w, h = max(rostros, key=lambda r: r[2]*r[3])
+        self._frame_anterior = frame.copy()
 
+        # ── Si la cara acaba de reaparecer, ignorar este frame ─────────────
+        if self._cara_ausente_antes:
+            self._cara_ausente_antes   = False
+            self._ojo_cerrado          = False
+            self._ear_cerrado_frames   = 0
+            self._t_ojo_cerrado        = None
+            self._frames_diferente     = 0
+            self._identidad_confirmada = False
+            self._enc_pestaneo_cache   = None
+            return
+
+        # ── Verificación de identidad SINCRÓNICA cada N frames ─────────────
+        # Se calcula el encoding aquí mismo (en el hilo de captura) pero solo
+        # cada _ID_VERIFY_INTERVAL frames para no saturar la CPU. El resultado
+        # se guarda en _enc_pestaneo_cache y se usa para decidir si contar EAR.
+        self._frames_pestaneo_count = getattr(self, '_frames_pestaneo_count', 0) + 1
+
+        if FR_DISPONIBLE and self._enc_referencia is not None:
+            if self._frames_pestaneo_count % _ID_VERIFY_INTERVAL == 0:
+                # Calcular encoding del frame actual (sincrónico, mismo hilo)
+                margen = 10
+                fx1 = max(0, x - margen);  fy1 = max(0, y - margen)
+                fx2 = min(frame.shape[1], x + w + margen)
+                fy2 = min(frame.shape[0], y + h + margen)
+                roi_v = frame[fy1:fy2, fx1:fx2]
+                hr, wr = roi_v.shape[:2]
+                if wr > 160:
+                    roi_v = cv2.resize(roi_v, (160, int(hr * 160 / wr)),
+                                       interpolation=cv2.INTER_LINEAR)
+                try:
+                    roi_rgb_v = cv2.cvtColor(roi_v, cv2.COLOR_BGR2RGB)
+                    encs_v    = face_recognition.face_encodings(
+                        roi_rgb_v, num_jitters=1, model="small")
+                    self._enc_pestaneo_cache = encs_v[0] if encs_v else None
+                except Exception:
+                    self._enc_pestaneo_cache = None
+
+            # Decidir identidad con el encoding cacheado (puede ser del frame actual
+            # o de hasta _ID_VERIFY_INTERVAL frames atrás)
+            enc_cache = getattr(self, '_enc_pestaneo_cache', None)
+            if enc_cache is None:
+                # Aún no tenemos encoding → no contar EAR todavía
+                return
+            dist_cache = face_recognition.face_distance([self._enc_referencia], enc_cache)[0]
+            es_correcta = float(dist_cache) <= _UMBRAL_IDENTIDAD_PESTANEO
+
+            if not es_correcta:
+                if not self._persona_diferente_activa:
+                    self._pestaneos_ok = 0   # anular pestañeos acumulados
+                    self.label_video.after(0, self._on_persona_diferente_pestaneo)
+                self._identidad_confirmada = False
+                # Resetear estado de ojo para no heredar cierre de la persona incorrecta
+                self._ojo_cerrado        = False
+                self._ear_cerrado_frames = 0
+                self._t_ojo_cerrado      = None
+                return
+            else:
+                if self._persona_diferente_activa:
+                    self._pestaneos_ok = 0
+                    self.label_video.after(0, self._limpiar_overlay_persona_diferente)
+                self._identidad_confirmada = True
+
+        elif not FR_DISPONIBLE:
+            # Sin librería, no hay verificación de identidad; continuar directo
+            self._identidad_confirmada = True
+
+        if not self._identidad_confirmada:
+            return
+
+        # ── Calcular EAR ───────────────────────────────────────────────────
         if FR_DISPONIBLE:
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            ear       = _calcular_ear_frame(frame_rgb, (y, x+w, y+h, x))
+            frame_rgb         = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            ear               = _calcular_ear_frame(frame_rgb, (y, x+w, y+h, x))
             if ear is None:
                 return
             ojo_cerrado_ahora = ear < _EAR_UMBRAL
@@ -623,16 +779,37 @@ class PantallaCaptura:
             ojo_cerrado_ahora = (self._brillo_anterior - brillo) > 8
             self._brillo_anterior = brillo
 
-        if self._ojo_cerrado and not ojo_cerrado_ahora:
-            self._pestaneos_ok += 1
-            self.label_video.after(0, self._on_pestaneo_detectado)
+        ahora = time.monotonic()
+
+        # ── Máquina de estados del pestañeo ────────────────────────────────
+        if ojo_cerrado_ahora:
+            if not self._ojo_cerrado:
+                self._t_ojo_cerrado      = ahora
+                self._ear_cerrado_frames = 1
+            else:
+                self._ear_cerrado_frames += 1
+        else:
+            if (self._ojo_cerrado
+                    and self._ear_cerrado_frames >= _EAR_FRAMES_MINIMOS
+                    and self._t_ojo_cerrado is not None
+                    and (ahora - self._t_ojo_cerrado) <= (_PESTANEO_TIMEOUT_MS / 1000.0)):
+                # ✓ Pestañeo válido
+                self._pestaneos_ok += 1
+                self._ear_cerrado_frames = 0
+                self._t_ojo_cerrado      = None
+                self.label_video.after(0, self._on_pestaneo_detectado)
+
+                if self._pestaneos_ok >= _PESTANEOS_REQUERIDOS:
+                    self._etapa_actual       = _ETAPA_FRENTE
+                    self._cara_ausente_antes = False
+                    self.label_video.after(0, self._cambiar_etapa_ui, _ETAPA_FRENTE)
+            elif not self._ojo_cerrado:
+                pass
+            else:
+                self._ear_cerrado_frames = 0
+                self._t_ojo_cerrado      = None
 
         self._ojo_cerrado = ojo_cerrado_ahora
-
-        if self._pestaneos_ok >= _PESTANEOS_REQUERIDOS:
-            # Liveness confirmado; volver a frente para completar capturas
-            self._etapa_actual = _ETAPA_FRENTE
-            self.label_video.after(0, self._cambiar_etapa_ui, _ETAPA_FRENTE)
 
     # ── Callbacks UI ──────────────────────────────────────────────────────────
     def _cambiar_etapa_ui(self, etapa):
@@ -654,6 +831,38 @@ class PantallaCaptura:
         try:
             self._lbl_estado.config(
                 text=f"✓ Pestañeo {self._pestaneos_ok}/{_PESTANEOS_REQUERIDOS}",
+                fg="#9c27b0")
+        except tk.TclError:
+            pass
+
+    def _on_persona_diferente_pestaneo(self):
+        """
+        Activa overlay rojo de persona diferente pero NO detiene el escaneo.
+        En cuanto la verificación confirme que es la misma persona,
+        _limpiar_overlay_persona_diferente() quita el flag y continúa.
+        """
+        p = self._p
+        try:
+            self._persona_diferente_activa = True
+            self._lbl_etapa.config(text="🚫 Persona diferente", fg=p["rojo"])
+            self._lbl_estado.config(
+                text="No es la misma\npersona registrada",
+                fg=p["rojo"])
+        except tk.TclError:
+            pass
+
+    def _limpiar_overlay_persona_diferente(self):
+        """La persona correcta regresó; retomar la etapa de pestañeo normal."""
+        p = self._p
+        try:
+            self._persona_diferente_activa = False
+            self._pestaneos_ok             = 0   # empezar pestañeos desde 0 con la correcta
+            self._ojo_cerrado              = False
+            self._ear_cerrado_frames       = 0
+            self._t_ojo_cerrado            = None
+            self._lbl_etapa.config(text="👁  Pestañea 2 veces", fg=p["naranja"])
+            self._lbl_estado.config(
+                text=self._t("captura_rostro.etapa_pestañeo", "Pestañea 2 veces"),
                 fg="#9c27b0")
         except tk.TclError:
             pass
@@ -688,6 +897,11 @@ class PantallaCaptura:
             pass
 
     def _verificar_duplicado_rapido(self, encoding_parcial):
+        """
+        Chequeo rápido de duplicados. Si hay coincidencia muestra el overlay
+        pero NO detiene el escaneo; el aviso se limpia solo a los 3s para que
+        la persona correcta pueda continuar registrándose.
+        """
         try:
             from core.database import cargar_todos_encodings
             registrados = cargar_todos_encodings()
@@ -698,31 +912,48 @@ class PantallaCaptura:
             idx_min        = int(np.argmin(distancias))
             if float(distancias[idx_min]) <= _UMBRAL_DUPLICADO:
                 nombre_dup = registrados[idx_min].get("nombre", "—")
-                self._corriendo  = False
-                self._capturando = False
                 self.label_video.after(0, self._on_duplicado_detectado, nombre_dup)
         except Exception as e:
             print(f"[CAPTURA-RÁPIDO] Error: {e}")
 
     def _on_duplicado_detectado(self, nombre_dup: str):
+        """
+        Muestra overlay de duplicado pero NO detiene el escaneo.
+        Resetea contadores para que la persona correcta pueda registrarse.
+        El overlay se limpia automáticamente a los 3s.
+        """
         p = self._p
         try:
-            self._duplicado_nombre = nombre_dup
+            self._duplicado_nombre   = nombre_dup
+            self._chequeo_rapido     = False
+            self._encodings          = []
+            self._capturas_ok        = 0
+            self._enc_referencia     = None
+            self._descartes_seguidos = 0
+            self._lbl_contador.config(text=f"0 / {CAPTURAS_REQUERIDAS}", fg=p["rojo"])
+            self._prog_inner.place(x=0, y=0, height=8, width=0)
             self._lbl_estado.config(
                 text=self._t("captura_rostro.dup_encontrado",
                              "Rostro ya registrado:\n") + nombre_dup,
                 fg=p["rojo"])
-            self._lbl_etapa.config(text="")
-            self._btn_iniciar.config(
-                text=self._t("captura_rostro.btn_reintentar", "▶  REINTENTAR"),
-                bg=p["verde"], activebackground=p["verde_hover"], state="normal")
-            self._lbl_contador.config(text=f"0 / {CAPTURAS_REQUERIDAS}", fg=p["rojo"])
-            self._prog_inner.place(x=0, y=0, height=8, width=0)
-            self._encodings          = []
-            self._capturas_ok        = 0
-            self._chequeo_rapido     = False
-            self._enc_referencia     = None
-            self._descartes_seguidos = 0
+            self._lbl_etapa.config(text="⚠ Rostro duplicado", fg=p["rojo"])
+            # Limpiar el overlay a los 3s; el escaneo ya sigue corriendo
+            self.label_video.after(3000, self._limpiar_overlay_duplicado)
+        except tk.TclError:
+            pass
+
+    def _limpiar_overlay_duplicado(self):
+        """Limpia el flag de duplicado; el escaneo ya venía corriendo."""
+        try:
+            if not self._capturando:
+                return
+            self._duplicado_nombre = None
+            p = self._p
+            self._lbl_etapa.config(text="👁  Mira al frente", fg=p["naranja"])
+            self._lbl_estado.config(
+                text=self._t("captura_rostro.escaneando", "No te muevas\nescaneando..."),
+                fg="#43a047")
+            self._lbl_contador.config(fg=p["verde"])
         except tk.TclError:
             pass
 
