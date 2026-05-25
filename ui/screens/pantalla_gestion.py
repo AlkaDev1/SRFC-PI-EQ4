@@ -1,13 +1,12 @@
-# ui/screens/pantalla_gestion.py
-
 """
+ui/screens/pantalla_gestion.py
+
 CAMBIOS:
   - Conectado a GestorIdioma: tarjetas, columnas, filtros y botones
     leen del idioma activo. Menús de filtro usan opciones del idioma.
   - _limpiar() desregistra también el listener de idioma.
   - Menús usan _abrir_menu() centralizado (mismo fix que historial).
-  - VALIDACIÓN DE ROLES: Super Admin ve todo + tarjeta extra de Admins. 
-    Admin normal solo ve y gestiona Alumnos y Maestros.
+  - FIX: tarjeta "Accesos Denegados" ahora consulta la BD correctamente.
 """
 
 import tkinter as tk
@@ -25,6 +24,7 @@ from ui.styles import PALETA, FUENTES, MEDIDAS
 from ui.components.barra_superior import crear_encabezado
 from core.database import (listar_usuarios as obtener_usuarios,
                             listar_accesos as obtener_accesos,
+                            conteo_accesos_hoy,
                             inicializar_bd)
 
 _RAIZ = Path(__file__).resolve().parents[2]
@@ -93,15 +93,8 @@ class PantallaGestion:
 
     def _opciones_rol(self):
         v = self._t("gestion.roles")
-        lista_base = v if isinstance(v, list) else \
+        return v if isinstance(v, list) else \
             ["Rol", "Alumno", "Maestro", "Admin", "Super Admin"]
-        
-        # Filtrado del Menú Desplegable según jerarquía del usuario logueado
-        rol_actual = getattr(self.app, "rol_usuario", "Admin").lower().replace(" ", "")
-        if "super" not in rol_actual:
-            # Si no es super_admin, quitamos las opciones Admin y Super Admin del filtro visual
-            return [lista_base[0]] + [r for r in lista_base[1:] if r.lower() not in ("admin", "super admin", "superadmin")]
-        return lista_base
 
     def _opciones_mes(self):
         v = self._t("gestion.meses")
@@ -118,15 +111,12 @@ class PantallaGestion:
     def _aplicar_idioma(self):
         self._cerrar_menu()
         try:
-            # Título tabla
             self._lbl_titulo_tabla.config(
                 text=self._t("gestion.titulo_tabla", " USUARIOS "))
-            # Tarjetas
             specs_t = [
                 ("accesos_hoy_titulo",  "gestion.tarjeta_accesos_hoy",  "ACCESOS HOY"),
                 ("alumnos_titulo",      "gestion.tarjeta_alumnos",      "ALUMNOS"),
                 ("profesores_titulo",   "gestion.tarjeta_profesores",   "PROFESORES"),
-                ("admins_titulo",       "gestion.tarjeta_admins",       "ADMINS"),
                 ("denegados_titulo",    "gestion.tarjeta_denegados",    "ACCESOS DENEGADOS"),
             ]
             for key, clave, fb in specs_t:
@@ -135,7 +125,6 @@ class PantallaGestion:
                         self._tarjetas[key].config(text=self._t(clave, fb))
                     except tk.TclError:
                         pass
-            # Botones acción
             if hasattr(self, "_btn_agregar"):
                 self._btn_agregar.config(
                     text=self._t("gestion.btn_agregar", "  AGREGAR USUARIO"))
@@ -145,14 +134,12 @@ class PantallaGestion:
             if hasattr(self, "_btn_cerrar_sesion"):
                 self._btn_cerrar_sesion.config(
                     text=self._t("gestion.btn_cerrar_sesion", "  CERRAR SESIÓN"))
-            # Resetear filtros al primer valor del nuevo idioma
             primera_rol = self._opciones_rol()[0]
             self._filtro_rol.set(primera_rol)
             self._btn_rol.config(text=f"  {primera_rol}")
             primera_mes = self._opciones_mes()[0]
             self._filtro_mes.set(primera_mes)
             self._btn_mes.config(text=f"  {primera_mes}")
-            # Columnas
             for i, col in enumerate(self._columnas()):
                 col_id = self.tree_usuarios["columns"][i]
                 self.tree_usuarios.heading(col_id, text=col)
@@ -334,7 +321,7 @@ class PantallaGestion:
         self._construir_acciones_rapidas(pad)
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  TARJETAS (DINÁMICAS SEGÚN ROL)
+    #  TARJETAS
     # ══════════════════════════════════════════════════════════════════════════
     def _construir_tarjetas(self, parent):
         p = self._p
@@ -343,12 +330,6 @@ class PantallaGestion:
         self._reg(fila, "gris_bg")
 
         self._tarjetas = {}
-        
-        # Detectamos jerarquía del usuario logueado
-        rol_actual = getattr(self.app, "rol_usuario", "Admin").lower().replace(" ", "")
-        es_super_admin = "super" in rol_actual
-
-        # Tarjetas base comunes para ambos
         specs = [
             ("accesos_hoy",   "accesos_hoy_titulo",
              self._t("gestion.tarjeta_accesos_hoy","ACCESOS HOY"),
@@ -357,26 +338,14 @@ class PantallaGestion:
             ("total_alumnos", "alumnos_titulo",
              self._t("gestion.tarjeta_alumnos","ALUMNOS"),
              p["verde_claro"], "alumnos_sub", ""),
-            ("total_maestros", "profesores_titulo",
+            ("total_admins",  "profesores_titulo",
              self._t("gestion.tarjeta_profesores","PROFESORES"),
-             p["verde_claro"], "maestros_sub", ""),
-        ]
-
-        # Inyectamos la tarjeta de administradores solo si es Super Admin
-        if es_super_admin:
-            specs.append(
-                ("total_admins", "admins_titulo",
-                 self._t("gestion.tarjeta_admins", "ADMINS"),
-                 p["verde_claro"], "admins_sub", "")
-            )
-
-        # Tarjeta final de denegados común
-        specs.append(
+             p["verde_claro"], "admins_sub", ""),
             ("acc_denegados", "denegados_titulo",
              self._t("gestion.tarjeta_denegados","ACCESOS DENEGADOS"),
              p["rojo"], "deny_sub",
-             self._t("gestion.tarjeta_denegados_sub","accesos denegados hoy"))
-        )
+             self._t("gestion.tarjeta_denegados_sub","accesos denegados hoy")),
+        ]
 
         for i, (key_num, key_titulo, titulo, color_barra,
                 key_sub, sub_txt) in enumerate(specs):
@@ -490,7 +459,6 @@ class PantallaGestion:
         frame_t.pack(fill="both", expand=True, padx=14, pady=(0,12))
         self._reg(frame_t, "card_bg")
 
-        # IDs internos fijos
         col_ids  = [f"col{i}" for i in range(9)]
         col_txts = self._columnas()
         anchos   = [80, 80, 90, 90, 110, 70, 95, 60, 50]
@@ -591,7 +559,7 @@ class PantallaGestion:
         self._btns_accion.append((self._btn_historial, "verde"))
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  DATOS (MÉTRICAS ADAPTADAS POR SEGURIDAD)
+    #  DATOS
     # ══════════════════════════════════════════════════════════════════════════
     def _cargar_todo(self):
         self._cargar_estadisticas()
@@ -600,84 +568,51 @@ class PantallaGestion:
     def _cargar_estadisticas(self):
         p        = self._p
         usuarios = obtener_usuarios() or []
-        accesos  = obtener_accesos(limite=1000) or []
-        hoy      = datetime.now().strftime("%Y-%m-%d")
-        
-        # Filtro base por jerarquía del rol actual
-        rol_actual = getattr(self.app, "rol_usuario", "Admin").lower().replace(" ", "")
-        es_super_admin = "super" in rol_actual
+        total    = len(usuarios)
+        alumnos  = sum(1 for u in usuarios if u.get("rol","") == "Alumno")
+        admins   = sum(1 for u in usuarios
+                       if u.get("rol","") in
+                       ("Admin","SuperAdmin","SuperUsuario","Profesor","Maestro"))
 
-        if es_super_admin:
-            usuarios_visibles = usuarios
-        else:
-            # El admin normal no ve administradores en sus métricas de base
-            usuarios_visibles = [u for u in usuarios if (u.get("rol") or "").lower() not in ("admin", "superadmin", "superusuario")]
-
-        total    = len(usuarios_visibles)
-        alumnos  = sum(1 for u in usuarios_visibles if u.get("rol","").lower() == "alumno")
-        maestros = sum(1 for u in usuarios_visibles if (u.get("rol","").lower() in ("maestro", "profesor")))
-        acc_hoy  = len([a for a in accesos if a.get("fecha") == hoy])
+        # FIX: usar conteo_accesos_hoy() para obtener datos reales de la BD
+        conteos       = conteo_accesos_hoy()
+        acc_hoy       = conteos.get("total", 0)
+        denegados_hoy = conteos.get("denegados", 0)
 
         sin_reg = self._t("gestion.tarjeta_sin_registros", "Sin registros")
 
-        # Rellenar tarjetas comunes
-        if "accesos_hoy" in self._tarjetas:
-            self._tarjetas["accesos_hoy"].config(text=str(acc_hoy))
-        if "total_alumnos" in self._tarjetas:
-            self._tarjetas["total_alumnos"].config(text=str(alumnos))
-        if "alumnos_sub" in self._tarjetas:
-            self._tarjetas["alumnos_sub"].config(
-                text=f"{round(alumnos/total*100)}% del total" if total else sin_reg)
-        
-        if "total_maestros" in self._tarjetas:
-            self._tarjetas["total_maestros"].config(text=str(maestros))
-        if "maestros_sub" in self._tarjetas:
-            self._tarjetas["maestros_sub"].config(
-                text=f"{round(maestros/total*100)}% del total" if total else sin_reg)
+        self._tarjetas["accesos_hoy"].config(text=str(acc_hoy))
+        self._tarjetas["accesos_hoy_sub"].config(
+            text=self._t("gestion.tarjeta_accesos_sub", "accesos registrados hoy"))
+        self._tarjetas["total_alumnos"].config(text=str(alumnos))
+        self._tarjetas["alumnos_sub"].config(
+            text=f"{round(alumnos/total*100)}% del total" if total else sin_reg)
+        self._tarjetas["total_admins"].config(text=str(admins))
+        self._tarjetas["admins_sub"].config(
+            text=f"{round(admins/total*100)}% del total" if total else sin_reg)
 
-        # Si es Super Admin, rellenamos de forma independiente su tarjeta dedicada
-        if es_super_admin and "total_admins" in self._tarjetas:
-            admins = sum(1 for u in usuarios if (u.get("rol","").lower() in ("admin", "superadmin", "superusuario")))
-            self._tarjetas["total_admins"].config(text=str(admins))
-            if "admins_sub" in self._tarjetas:
-                total_global = len(usuarios)
-                self._tarjetas["admins_sub"].config(
-                    text=f"{round(admins/total_global*100)}% del total" if total_global else sin_reg)
+        # FIX: número real de denegados desde la BD
+        self._tarjetas["acc_denegados"].config(text=str(denegados_hoy))
+        self._tarjetas["deny_sub"].config(
+            text=self._t("gestion.tarjeta_denegados_sub", "accesos denegados hoy"),
+            fg=p["rojo_claro"])
 
-        if "acc_denegados" in self._tarjetas:
-            self._tarjetas["acc_denegados"].config(text="0")
-        if "deny_sub" in self._tarjetas:
-            self._tarjetas["deny_sub"].config(
-                text=self._t("gestion.tarjeta_denegados_sub", "accesos denegados hoy"),
-                fg=p["rojo_claro"])
-                
         self._todos_usuarios = usuarios
 
     def _cargar_tabla_usuarios(self):
         self._todos_usuarios = obtener_usuarios() or []
         self._filtrar_tabla()
 
-    # ══════════════════════════════════════════════════════════════════════════
-    #  FILTRADO DURO DE LA TABLA SEGÚN JERARQUÍA
-    # ══════════════════════════════════════════════════════════════════════════
     def _filtrar_tabla(self):
         rol_f = self._filtro_rol.get()
         mes_f = self._filtro_mes.get()
         datos = self._todos_usuarios
 
-        # 1. FILTRADO OBLIGATORIO DE CONTROL (Jerarquía de Accesos)
-        rol_actual = getattr(self.app, "rol_usuario", "Admin").lower().replace(" ", "")
-        if "super" not in rol_actual:
-            # Si el usuario logueado es Admin normal, le ocultamos de golpe todos los Admins de la BD
-            datos = [u for u in datos if (u.get("rol") or "").lower() not in ("admin", "superadmin", "superusuario")]
-
-        # 2. Filtro interactivo de la interfaz (Botón de Roles)
         sin_filtro_rol = [self._opciones_rol()[0], "Ninguno", "Rol", "All roles"]
         if rol_f and rol_f not in sin_filtro_rol:
             datos = [u for u in datos
                      if (u.get("rol") or "").lower() == rol_f.lower()]
 
-        # 3. Filtro interactivo de meses
         mes_num = _MESES_NUM.get(mes_f)
         if mes_num:
             datos = [u for u in datos

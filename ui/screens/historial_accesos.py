@@ -5,6 +5,8 @@ FIXES:
   - Un solo menú abierto a la vez (cerrar el anterior antes de abrir otro)
   - Al cambiar idioma se destruyen los menús abiertos antes de reconstruir
   - Menús usan unpost() + destroy() para limpieza completa
+  - FIX: filas de accesos denegados se pintan en rojo
+  - FIX: historial muestra TODOS los accesos (concedidos y denegados)
 """
 
 import sys
@@ -44,6 +46,8 @@ _C = {
     "btn_hover":"#2e7d32","btn_fg":"#ffffff","filtro_bg":"#ffffff",
     "filtro_borde":"#43a047","filtro_fg":"#1f2328",
     "flecha_img":"arrow_circle_black.png",
+    # Colores para filas denegadas
+    "fila_denegada_bg":"#ffebee","fila_denegada_fg":"#c62828",
 }
 _O = {
     "bg_app":"#071E07","card_bg":"#0d2a0d","texto_titulo":"#d0f0d0",
@@ -53,6 +57,8 @@ _O = {
     "btn_hover":"#477023","btn_fg":"#ffffff","filtro_bg":"#1a3a1a",
     "filtro_borde":"#477023","filtro_fg":"#d0f0d0",
     "flecha_img":"arrow_drop_down.png",
+    # Colores para filas denegadas (tema oscuro)
+    "fila_denegada_bg":"#3b0f0f","fila_denegada_fg":"#f87171",
 }
 
 
@@ -74,7 +80,7 @@ class PantallaHistorialAccesos:
         self._filtro_mes = tk.StringVar(value="")
         self._ico_flecha = None
         self._widgets_repintables = []
-        self._menu_abierto = None   # referencia al menú flotante activo
+        self._menu_abierto = None
 
         inicializar_bd()
         self._construir_ui()
@@ -122,7 +128,6 @@ class PantallaHistorialAccesos:
 
     # ── Aplicar idioma ────────────────────────────────────────────────────────
     def _aplicar_idioma(self):
-        # Primero cerrar cualquier menú flotante abierto
         self._cerrar_menu()
         try:
             self._lbl_titulo.config(
@@ -130,7 +135,6 @@ class PantallaHistorialAccesos:
             self._btn_cerrar.config(
                 text=self._t("historial.btn_cerrar", "← CERRAR"))
 
-            # Resetear filtros al primer valor del nuevo idioma
             primera_rol = self._opciones_rol()[0]
             self._filtro_rol.set(primera_rol)
             self._btn_rol.config(text=f"  {primera_rol}")
@@ -139,7 +143,6 @@ class PantallaHistorialAccesos:
             self._filtro_mes.set(primera_mes)
             self._btn_mes.config(text=f"  {primera_mes}")
 
-            # Actualizar encabezados de columnas
             for i, col in enumerate(self._columnas()):
                 col_id = self.tree["columns"][i]
                 self.tree.heading(col_id, text=col)
@@ -199,8 +202,12 @@ class PantallaHistorialAccesos:
             s.map("Historial.Treeview",
                   background=[("selected", p["sel_tree"])],
                   foreground=[("selected", p["sel_tree_fg"])])
-            self.tree.tag_configure("par",   background=p["fila_par"])
-            self.tree.tag_configure("impar", background=p["fila_impar"])
+            self.tree.tag_configure("par",      background=p["fila_par"])
+            self.tree.tag_configure("impar",    background=p["fila_impar"])
+            # FIX: reconfigurar tag denegado con colores del tema
+            self.tree.tag_configure("denegado",
+                                    background=p["fila_denegada_bg"],
+                                    foreground=p["fila_denegada_fg"])
         except tk.TclError:
             pass
 
@@ -345,7 +352,6 @@ class PantallaHistorialAccesos:
               background=[("selected", p["sel_tree"])],
               foreground=[("selected", p["sel_tree_fg"])])
 
-        # IDs internos fijos (col0..col6) — los textos se actualizan con idioma
         col_ids  = [f"col{i}" for i in range(7)]
         col_txts = self._columnas()
         anchos   = [90, 80, 90, 90, 130, 60, 100]
@@ -356,8 +362,13 @@ class PantallaHistorialAccesos:
             self.tree.heading(cid, text=col_txts[i] if i < len(col_txts) else cid)
             self.tree.column(cid, width=anchos[i], minwidth=40,
                              stretch=True, anchor="center")
+
         self.tree.tag_configure("par",   background=p["fila_par"])
         self.tree.tag_configure("impar", background=p["fila_impar"])
+        # FIX: tag para filas denegadas (fondo rojo claro, texto rojo)
+        self.tree.tag_configure("denegado",
+                                background=p["fila_denegada_bg"],
+                                foreground=p["fila_denegada_fg"])
         self.tree.pack(fill="both", expand=True)
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -368,8 +379,10 @@ class PantallaHistorialAccesos:
         rol = self._filtro_rol.get().strip()
         mes = self._filtro_mes.get().strip()
 
+        # FIX: traer TODOS los accesos (concedidos y denegados) con campo denegado
         sql = """
             SELECT a.cod_institucional,
+                   a.denegado,
                    COALESCE(u.primer_nombre,'') AS nombre,
                    COALESCE(u.apellido_paterno,'') AS apellido_paterno,
                    COALESCE(u.apellido_materno,'') AS apellido_materno,
@@ -404,7 +417,12 @@ class PantallaHistorialAccesos:
         try:
             rows = con.execute(sql, tuple(params)).fetchall()
             for i, row in enumerate(rows):
-                tag = "par" if i % 2 == 0 else "impar"
+                # FIX: filas denegadas usan el tag "denegado" (rojo)
+                if row["denegado"]:
+                    tag = "denegado"
+                else:
+                    tag = "par" if i % 2 == 0 else "impar"
+
                 self.tree.insert("", "end", tags=(tag,), values=(
                     row["cod_institucional"] or "-",
                     row["nombre"] or "-",
