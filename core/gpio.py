@@ -28,8 +28,14 @@ Secuencia acceso denegado:
 
 Secuencia botón comodín (salida):
   1. Buzzer sonido salida (2 cortos + 1 largo)
-  2. Solenoide ON → PUERTA_ABIERTA_SEGUNDOS → OFF
-  3. Callback on_fin() → la UI navega a pantalla principal
+  2. LED rojo + LED verde ON simultáneos (= amarillo)
+  3. Solenoide ON + Actuador sale ON juntos
+  4. Solenoide OFF a los 2s (_T_SOLENOIDE)
+  5. Actuador sale OFF a los 7s (_T_ACTUADOR)
+  6. Espera 3s (_T_ESPERA)
+  7. Actuador entra ON → 7s → OFF
+  8. LED rojo + LED verde OFF
+  9. Callback on_fin() → la UI navega a pantalla principal
 """
 
 import platform
@@ -52,7 +58,10 @@ _T_SOLENOIDE            = 2.0
 _T_ACTUADOR             = 7.0
 _T_ESPERA               = 3.0
 _T_LED_DENEGADO         = 2.0
-PUERTA_ABIERTA_SEGUNDOS = 5.0
+
+# Duración total del comodín = _T_ACTUADOR + _T_ESPERA + _T_ACTUADOR = 17s
+# Se usa en el overlay de la UI para sincronizar la barra de progreso
+PUERTA_ABIERTA_SEGUNDOS = _T_ACTUADOR + _T_ESPERA + _T_ACTUADOR  # 17.0
 
 # ── Setup gpiozero ────────────────────────────────────────────────────────────
 try:
@@ -163,26 +172,58 @@ def acceso_denegado():
 
 def activar_comodin(on_fin=None):
     """
-    Secuencia botón comodín — no bloqueante.
+    Secuencia botón comodín (salida) — no bloqueante.
+    Idéntica a acceso_concedido pero con LED amarillo (rojo + verde simultáneos).
 
     Parámetros:
         on_fin: callable opcional que se llama cuando termina la secuencia.
                 La UI lo usa para navegar a pantalla principal.
 
     Secuencia:
-        1. Buzzer sonido comodín
-        2. Solenoide ON → PUERTA_ABIERTA_SEGUNDOS → OFF
-        3. Llama on_fin() si se proporcionó
+        1. Buzzer sonido comodín (2 cortos + 1 largo)
+        2. LED rojo + LED verde ON simultáneos (= amarillo)
+        3. Solenoide ON + Actuador sale ON juntos
+        4. Solenoide OFF a los 2s (_T_SOLENOIDE)
+        5. Actuador sale OFF a los 7s (_T_ACTUADOR)
+        6. Espera 3s (_T_ESPERA)
+        7. Actuador entra ON → 7s (_T_ACTUADOR) → OFF
+        8. LED rojo + LED verde OFF
+        9. Llama on_fin() si se proporcionó
     """
     def _secuencia():
         print("[GPIO] >>> Botón COMODÍN activado")
         _sonido_comodin()
 
+        # LED amarillo = rojo + verde encendidos al mismo tiempo
+        led_rojo.on()
+        led_verde.on()
+
         solenoide.on()
-        print(f"[GPIO] Solenoide ON → {PUERTA_ABIERTA_SEGUNDOS}s (comodín)")
-        time.sleep(PUERTA_ABIERTA_SEGUNDOS)
-        solenoide.off()
-        print("[GPIO] Solenoide OFF — puerta cerrada")
+        actuador_sale.on()
+        print("[GPIO] Solenoide + Actuador sale ON (comodín)")
+
+        # Solenoide se apaga antes que el actuador, igual que en acceso_concedido
+        def _apagar_sol():
+            time.sleep(_T_SOLENOIDE)
+            solenoide.off()
+            print("[GPIO] Solenoide OFF (comodín)")
+        threading.Thread(target=_apagar_sol, daemon=True).start()
+
+        time.sleep(_T_ACTUADOR)
+        actuador_sale.off()
+        print("[GPIO] Actuador sale OFF — puerta abierta completa (comodín)")
+
+        time.sleep(_T_ESPERA)
+
+        actuador_entra.on()
+        print("[GPIO] Actuador entra ON (comodín)")
+        time.sleep(_T_ACTUADOR)
+        actuador_entra.off()
+        print("[GPIO] Actuador entra OFF — puerta cerrada (comodín)")
+
+        led_rojo.off()
+        led_verde.off()
+        print("[GPIO] Secuencia comodín completa")
 
         if on_fin:
             try:

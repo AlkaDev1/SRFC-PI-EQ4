@@ -39,9 +39,8 @@ class App:
         self.root.bind("<F1>", lambda e: self._activar_comodin())
 
         # ── Botón comodín: GPIO físico (producción) ──────────────────────────
-        # Descomentar cuando el botón esté conectado:
-        # from core.gpio import registrar_btn_comodin_hw
-        # registrar_btn_comodin_hw(lambda: self.root.after(0, self._activar_comodin))
+        from core.gpio import registrar_btn_comodin_hw
+        registrar_btn_comodin_hw(lambda: self.root.after(0, self._activar_comodin))
 
         self.mostrar_pantalla("principal")
 
@@ -113,7 +112,13 @@ class App:
             activar_comodin(on_fin=lambda: self.root.after(0, self._fin_comodin))
         except Exception as e:
             print(f"[COMODÍN] Error GPIO: {e}")
-            self.root.after(5000, self._fin_comodin)
+            # Fallback: usar la duración real de la secuencia (17s)
+            try:
+                from core.gpio import PUERTA_ABIERTA_SEGUNDOS
+                duracion_ms = int(PUERTA_ABIERTA_SEGUNDOS * 1000)
+            except Exception:
+                duracion_ms = 17000
+            self.root.after(duracion_ms, self._fin_comodin)
 
     def _fin_comodin(self):
         self._ocultar_overlay()
@@ -129,6 +134,13 @@ class App:
     def _mostrar_overlay(self):
         if self._overlay is not None:
             return
+
+        # Obtener duración real de la secuencia GPIO
+        try:
+            from core.gpio import PUERTA_ABIERTA_SEGUNDOS
+            duracion_ms = int(PUERTA_ABIERTA_SEGUNDOS * 1000)
+        except Exception:
+            duracion_ms = 17000  # 7 + 3 + 7 = 17s por defecto
 
         overlay = tk.Frame(self.root, bg="#FFC107")
         overlay.place(x=0, y=0, relwidth=1, relheight=1)
@@ -162,12 +174,6 @@ class App:
 
         barra_inner = tk.Frame(barra_outer, bg="#E65100", height=10, width=0)
         barra_inner.place(x=0, y=0, height=10)
-
-        try:
-            from core.gpio import PUERTA_ABIERTA_SEGUNDOS
-            duracion_ms = int(PUERTA_ABIERTA_SEGUNDOS * 1000)
-        except Exception:
-            duracion_ms = 5000
 
         self._animar_barra(barra_outer, barra_inner, duracion_ms, 0)
 
