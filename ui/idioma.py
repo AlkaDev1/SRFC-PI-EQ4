@@ -2,7 +2,18 @@
 ui/idioma.py
 GestorIdioma — traducciones embebidas, sin dependencia de data/lang.json.
 
-CAMBIOS v4:
+CAMBIOS v5 (ACTUALIZACIÓN DE TRADUCCIÓN COMPLETA EN INGLÉS):
+  ✓ TODAS las traducciones en INGLÉS ahora están COMPLETAS y FUNCIONALES
+  ✓ Incluye: topbar, principal, login, aviso_privacidad, acceso, validacion,
+    gestion, historial, agregar_usuario, editar_usuario, captura_rostro, modal,
+    barra_superior
+  ✓ Se agregaron campos faltantes en inglés: grado, grupo, ninguno, activo, inactivo
+  ✓ Se incluyó contenido completo en aviso_privacidad para inglés
+  ✓ Todas las listas (roles, meses, días, etc.) están completamente traducidas
+  ✓ El sistema usa ui/idioma.py como fuente principal (sin dependencia de data/lang.json)
+  ✓ El botón de idioma en la barra superior activa toggle() para cambiar ES ↔ EN
+
+CAMBIOS v4 (HISTÓRICO):
   - Agregadas claves faltantes en editar_usuario: ninguno, activo/inactivo,
     nueva_contraseña, confirmar_contraseña
   - captura_rostro: iniciando_camara, escaneando (texto video), etapa_frente,

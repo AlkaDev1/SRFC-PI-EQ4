@@ -2,8 +2,11 @@
 ui/screens/pantalla_aviso_privacidad.py
 
 CAMBIOS:
-  - Conectado a GestorIdioma: título y botón Aceptar leen del idioma activo.
+  - Conectado a GestorIdioma: título, botón Aceptar, y contenido completo del aviso
+    se actualizan dinámicamente según el idioma activo.
   - _limpiar() desregistra también el listener de idioma.
+  - _aplicar_idioma() ahora actualiza también el contenido completo del aviso de privacidad
+  - Soporta toggle entre español e inglés sin recargar la pantalla.
 """
 
 import tkinter as tk
@@ -92,6 +95,13 @@ class PantallaAvisoPrivacidad:
                 text=self._t("aviso_privacidad.titulo", "Aviso de Privacidad"))
             self._btn_aceptar.config(
                 text=f"     {self._t('aviso_privacidad.btn_aceptar', 'Aceptar').strip()}")
+            # Actualizar contenido del texto cuando cambia el idioma
+            contenido = self._t("aviso_privacidad.contenido", TEXTO_AVISO)
+            self._texto.config(state="normal")
+            self._texto.delete("1.0", "end")
+            self._texto.insert("1.0", contenido)
+            self._texto.config(state="disabled")
+            self._texto.yview("moveto", 0)  # Scroll al inicio
         except tk.TclError:
             pass
 
@@ -334,7 +344,9 @@ class PantallaAvisoPrivacidad:
         self._scrollbar.config(command=self._texto.yview)
         self._texto.grid(row=0, column=0, sticky="nsew")
 
-        self._texto.insert("1.0", TEXTO_AVISO)
+        # Insertar contenido del aviso desde la traducción (o fallback)
+        contenido_aviso = self._t("aviso_privacidad.contenido", TEXTO_AVISO)
+        self._texto.insert("1.0", contenido_aviso)
         self._texto.config(state="disabled")
 
         self._texto.bind("<ButtonPress-1>",   self._on_touch_start, add="+")
