@@ -50,8 +50,8 @@ _PIN_ACTUADOR_SALE  = 27   # GPIO 27 — PIN 13
 _PIN_ACTUADOR_ENTRA = 22   # GPIO 22 — PIN 15
 _PIN_LED_ROJO       = 18   # GPIO 18 — PIN 12
 _PIN_LED_VERDE      = 23   # GPIO 23 — PIN 16
-_PIN_BUZZER         = 25   # GPIO 25 — PIN 22
-_PIN_BTN_COMODIN    = 13   # GPIO 13 — PIN 33  (GND → PIN 34)
+_PIN_BUZZER         = 12   # GPIO 12 — PIN 22
+_PIN_BTN_COMODIN    = 18   # GPIO 18 — PIN 33  (GND → PIN 34)
 
 # ── Tiempos ───────────────────────────────────────────────────────────────────
 _T_SOLENOIDE        = 2.0
