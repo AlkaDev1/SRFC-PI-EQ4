@@ -10,7 +10,7 @@ Componentes:
   LED RGB Rojo               → GPIO 18  (PIN 12)
   LED RGB Verde              → GPIO 23  (PIN 16)
   Buzzer                     → GPIO 25  (PIN 22)
-  BOTÓN COMODÍN              → GPIO 13  (PIN 33)  ← conectar a GND PIN 34
+  BOTÓN COMODÍN              → GPIO 24  (PIN 18)  ← conectar a GND PIN 20
 
 Secuencia acceso concedido:
   1. Buzzer beep doble (concedido)
@@ -50,14 +50,14 @@ _PIN_ACTUADOR_SALE  = 27   # GPIO 27 — PIN 13
 _PIN_ACTUADOR_ENTRA = 22   # GPIO 22 — PIN 15
 _PIN_LED_ROJO       = 18   # GPIO 18 — PIN 12
 _PIN_LED_VERDE      = 23   # GPIO 23 — PIN 16
-_PIN_BUZZER         = 12   # GPIO 12 — PIN 22
-_PIN_BTN_COMODIN    = 18   # GPIO 18 — PIN 33  (GND → PIN 34)
+_PIN_BUZZER         = 25   # GPIO 25 — PIN 22
+_PIN_BTN_COMODIN    = 13   # GPIO 13 — PIN 33  (GND → PIN 34)
 
 # ── Tiempos ───────────────────────────────────────────────────────────────────
-_T_SOLENOIDE        = 2.0
-_T_ACTUADOR         = 7.0
-_T_ESPERA           = 3.0
-_T_LED_DENEGADO     = 2.0
+_T_SOLENOIDE            = 2.0
+_T_ACTUADOR             = 7.0
+_T_ESPERA               = 3.0
+_T_LED_DENEGADO         = 2.0
 
 # Duración total del comodín = _T_ACTUADOR + _T_ESPERA + _T_ACTUADOR = 17s
 # Se usa en el overlay de la UI para sincronizar la barra de progreso
@@ -74,19 +74,14 @@ try:
     actuador_entra = OutputDevice(_PIN_ACTUADOR_ENTRA, active_high=False, initial_value=False)
     led_rojo       = OutputDevice(_PIN_LED_ROJO,       active_high=True,  initial_value=False)
     led_verde      = OutputDevice(_PIN_LED_VERDE,      active_high=True,  initial_value=False)
-
-    # ── BUZZER ────────────────────────────────────────────────────────────────
-    # active_high=False → el buzzer activo se energiza cuando el pin va a LOW.
-    # Si antes funcionaba y dejó de sonar, casi siempre es polaridad invertida.
-    # Si con False tampoco suena, cambia a active_high=True.
-    buzzer = OutputDevice(_PIN_BUZZER, active_high=False, initial_value=False)
+    buzzer         = OutputDevice(_PIN_BUZZER,         active_high=True,  initial_value=False)
 
     # Botón comodín físico — pull_up=True: reposo=HIGH, pulsado=LOW (conectar a GND)
     _btn_comodin_hw = Button(_PIN_BTN_COMODIN, pull_up=True)
 
     _GPIO_OK = True
     print("[GPIO] Inicializado correctamente")
-    print(f"[GPIO] Botón comodín HW listo en GPIO {_PIN_BTN_COMODIN} (PIN 33)")
+    print(f"[GPIO] Botón comodín HW listo en GPIO {_PIN_BTN_COMODIN} (PIN 18)")
 
 except Exception as e:
     print(f"[GPIO] Error al inicializar: {e}")
@@ -110,7 +105,6 @@ except Exception as e:
 
 # ── Helpers de buzzer ─────────────────────────────────────────────────────────
 def _beep(dur, pausa=0.08):
-    """Enciende el buzzer 'dur' segundos y luego espera 'pausa' segundos."""
     buzzer.on()
     time.sleep(dur)
     buzzer.off()
@@ -118,21 +112,18 @@ def _beep(dur, pausa=0.08):
 
 def _sonido_concedido():
     """Dos beeps cortos — acceso concedido."""
-    time.sleep(0.05)   # pequeña pausa para que el hilo esté estable
     _beep(0.15, 0.08)
-    _beep(0.15, 0.08)
+    _beep(0.15)
 
 def _sonido_denegado():
     """Un beep largo — acceso denegado."""
-    time.sleep(0.05)
     _beep(1.0)
 
 def _sonido_comodin():
     """Dos beeps cortos + uno largo — salida por comodín."""
-    time.sleep(0.05)
     _beep(0.1, 0.05)
     _beep(0.1, 0.05)
-    _beep(0.3, 0.08)
+    _beep(0.3)
 
 
 # ── API pública ───────────────────────────────────────────────────────────────
@@ -145,25 +136,21 @@ def acceso_concedido():
 
         solenoide.on()
         actuador_sale.on()
-        print("[GPIO] Solenoide + Actuador sale ON")
 
         def _apagar_sol():
             time.sleep(_T_SOLENOIDE)
             solenoide.off()
-            print("[GPIO] Solenoide OFF")
         threading.Thread(target=_apagar_sol, daemon=True).start()
 
         time.sleep(_T_ACTUADOR)
         actuador_sale.off()
-        print("[GPIO] Actuador sale OFF — puerta abierta")
+        print("[GPIO] Puerta abierta")
 
         time.sleep(_T_ESPERA)
 
         actuador_entra.on()
-        print("[GPIO] Actuador entra ON")
         time.sleep(_T_ACTUADOR)
         actuador_entra.off()
-        print("[GPIO] Actuador entra OFF — puerta cerrada")
 
         led_verde.off()
         print("[GPIO] Secuencia concedido completa")
@@ -179,7 +166,6 @@ def acceso_denegado():
         led_rojo.on()
         time.sleep(_T_LED_DENEGADO)
         led_rojo.off()
-        print("[GPIO] Secuencia denegado completa")
 
     threading.Thread(target=_secuencia, daemon=True).start()
 
@@ -216,6 +202,7 @@ def activar_comodin(on_fin=None):
         actuador_sale.on()
         print("[GPIO] Solenoide + Actuador sale ON (comodín)")
 
+        # Solenoide se apaga antes que el actuador, igual que en acceso_concedido
         def _apagar_sol():
             time.sleep(_T_SOLENOIDE)
             solenoide.off()
