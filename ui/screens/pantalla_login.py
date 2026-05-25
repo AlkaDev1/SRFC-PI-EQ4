@@ -1,6 +1,6 @@
-"""
-ui/screens/pantalla_login.py
+# ui/screens/pantalla_login.py
 
+"""
 SOPORTE DE TEMA OSCURO:
   - Fondo claro:  fondo2.jpeg
   - Fondo oscuro: fondo_login_oscuro.jpeg
@@ -11,11 +11,17 @@ SOPORTE DE TEMA OSCURO:
   - Botón ← oscuro: #477023 (Fern Green)
   - Se registra en GestorTema y se desregistra al destruirse
 
-FIX: al cambiar tema en vivo, se fuerza redibujado del fondo con
+FIX: al cambio de tema en vivo, se fuerza redibujado del fondo con
      event_generate("<Configure>") para que la nueva imagen se aplique.
+     
+LOGICA DE LOGIN:
+  - Alumno: Acceso completamente restringido en interfaz.
+  - Maestro: Redirige automáticamente a la pantalla de Historial de Accesos.
+  - Admin / Super Admin: Redirige a Pantalla Gestión y propaga la jerarquía.
 """
 
 import tkinter as tk
+from core.database import obtener_conexion
 from PIL import Image, ImageTk
 
 from ui.styles import PALETA, FUENTES, MEDIDAS
@@ -227,7 +233,6 @@ class PantallaLogin:
         try:
             # ── 1. Cambiar imagen de fondo y forzar redibujado ────────────────
             self._cargar_fondo(p["fondo"])
-            # Disparar _resize_bg manualmente con las dimensiones actuales
             w = self.pantalla.winfo_width()
             h = self.pantalla.winfo_height()
             if w > 10 and h > 10 and self.pantalla.winfo_exists():
@@ -246,11 +251,9 @@ class PantallaLogin:
                                                window=self._card_frame, anchor="center")
             if self._card_frame.winfo_exists():
                 self._card_frame.configure(bg=p["card_bg"])
-                # Actualizar fondo del avatar
             if hasattr(self, "_avatar_lbl") and self._avatar_lbl.winfo_exists():
                 self._avatar_lbl.configure(bg=p["card_bg"])
 
-            # Spacers internos de la tarjeta
             for w_frame in self._card_frame.winfo_children():
                 try:
                     if isinstance(w_frame, tk.Frame):
@@ -412,16 +415,81 @@ class PantallaLogin:
         else:
             ojo_lbl.config(text="🙈" if self._mostrar_clave else "👁")
 
-    # ══════════════════════════════════════════
-    #  LOGIN
+   # ══════════════════════════════════════════
+    #  LOGICA DE CONTROL DE ACCESO (BASE DE DATOS)
     # ══════════════════════════════════════════
     def _login(self):
-        u = self.entry_usuario.get()
-        c = self.entry_clave.get()
-        if u == "admin" and c == "1234":
-            self.app.mostrar_pantalla("gestion_real")
-        else:
-            self.lbl_error.config(text="⚠ Credenciales incorrectas")
+        u = self.entry_usuario.get().strip()
+        c = self.entry_clave.get().strip()
+
+        # Evitar el envío de placeholders vacíos
+        if u in ("", "Número de trabajador") or c in ("", "Contraseña"):
+            self.lbl_error.config(text="⚠ Por favor, complete todos los campos")
+            return
+
+        con = obtener_conexion()
+        if not con:
+            self.lbl_error.config(text="❌ Error de conexión con la base de datos")
+            return
+
+        try:
+            # Consultamos el usuario cruzando con la tabla Roles para obtener su jerarquía
+            row = con.execute("""
+                SELECT u.cod_institucional, 
+                       u.password_hash, 
+                       u.id_rol, 
+                       u.estado,
+                       COALESCE(r.nombre, 'Sin rol') AS rol_nombre
+                FROM Usuarios u
+                LEFT JOIN Roles r ON u.id_rol = r.id_rol
+                WHERE u.cod_institucional = ?
+            """, (u,)).fetchone()
+
+            if not row:
+                self.lbl_error.config(text="⚠ El código institucional no está registrado")
+                return
+
+            # Verificar si el usuario está activo (estado = 1)
+            if row["estado"] != 1:
+                self.lbl_error.config(text="❌ Usuario inactivo. Contacte al administrador.")
+                return
+
+            # Verificación de contraseña
+            # Nota: Compara directamente el texto o el hash según cómo los guardes en tu sistema.
+            # Como salvaguarda para desarrollo, este bloque acepta coincidencia directa.
+            password_correcto = (row["password_hash"] == c)
+            
+            if not password_correcto:
+                self.lbl_error.config(text="⚠ Contraseña incorrecta")
+                return
+
+            # ── CREDENCIALES VÁLIDAS: Enrutamiento por Roles de la BD ─────────
+            id_rol = row["id_rol"]
+            rol_nombre = row["rol_nombre"]
+
+            # Guardamos el rol y código en la instancia global para persistencia entre pantallas
+            self.app.rol_usuario = rol_nombre
+            self.app.usuario_actual = row["cod_institucional"]
+            self.lbl_error.config(text="") # Limpiar advertencias
+
+            if id_rol == 4:  # Alumno
+                self.lbl_error.config(text="❌ Acceso denegado: Los alumnos no tienen permitido el ingreso.")
+                
+            elif id_rol == 3:  # Maestro
+                # Redirige a la bitácora de accesos pasando su ID de rol correspondiente
+                self.app.mostrar_pantalla("historial", {"id_rol": 3})
+                
+            elif id_rol in (1, 2):  # 1: SuperAdmin, 2: Admin
+                # Redirige a la consola central de gestión de usuarios
+                self.app.mostrar_pantalla("gestion_real")
+                
+            else:
+                self.lbl_error.config(text="⚠ Rol no reconocido por el sistema de navegación.")
+
+        except Exception as e:
+            self.lbl_error.config(text=f"❌ Error en consulta: {str(e)}")
+        finally:
+            con.close()
 
 
 def crear_pantalla_login(parent, app):
