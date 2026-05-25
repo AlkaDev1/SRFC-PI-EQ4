@@ -5,6 +5,7 @@ CAMBIOS:
   - Conectado a GestorIdioma: textos del HUD (OpenCV) y etiquetas
     de acceso concedido/info leen del idioma activo.
   - _limpiar() desregistra también el listener de idioma.
+  - FIX: acceso denegado ahora se registra en la BD correctamente.
 """
 
 import tkinter as tk
@@ -103,7 +104,6 @@ class PantallaAcceso:
         try:
             self._lbl_acceso_concedido.config(
                 text=self._t("acceso.acceso_concedido", "ACCESO CONCEDIDO"))
-            # lbl_info_ok incluye hora, solo refrescar si ya hay texto
             info_actual = self.lbl_info_ok.cget("text")
             if info_actual:
                 hora = datetime.now().strftime("%I:%M %p").lower()
@@ -322,7 +322,6 @@ class PantallaAcceso:
                                      else (80,175,76)
                         cv2.rectangle(resized, (x1,y1), (x2,y2), color_bbox, 2)
 
-                    # Textos HUD desde idioma activo
                     msgs   = self._msgs_hud()
                     titulo, sub = msgs.get(self._estado, ("ESCANEANDO...", ""))
                     fuente = cv2.FONT_HERSHEY_SIMPLEX
@@ -493,9 +492,14 @@ class PantallaAcceso:
                           fill=p["acceso_ok_bg"])
             self._btn_volver_ok.place_forget()
             self._after_reset = self.canvas_icono.after(20000, self._fin_secuencia_ok)
+
         elif estado == "acceso_deny":
             threading.Thread(target=self._gpio_acceso_deny, daemon=True).start()
+            # FIX: registrar acceso denegado en la base de datos
+            threading.Thread(target=self._registrar_acceso_denegado_bd,
+                              daemon=True).start()
             self._mostrar_capa("escaneo")
+
         else:
             self._mostrar_capa("escaneo")
 
@@ -520,9 +524,18 @@ class PantallaAcceso:
         try:
             from core.database import registrar_acceso
             registrar_acceso(cod)
-            print(f"[ACCESO] Acceso registrado para: {cod}")
+            print(f"[ACCESO] Acceso concedido registrado para: {cod}")
         except Exception as e:
-            print(f"[ACCESO] Error registrando acceso: {e}")
+            print(f"[ACCESO] Error registrando acceso concedido: {e}")
+
+    # FIX: nuevo método para registrar acceso denegado
+    def _registrar_acceso_denegado_bd(self):
+        try:
+            from core.database import registrar_acceso_denegado
+            registrar_acceso_denegado(None)
+            print("[ACCESO] Acceso denegado registrado en BD")
+        except Exception as e:
+            print(f"[ACCESO] Error registrando acceso denegado: {e}")
 
     # ══════════════════════════════════════════
     #  Animación
