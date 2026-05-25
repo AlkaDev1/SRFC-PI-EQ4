@@ -1,6 +1,15 @@
 """
 ui/idioma.py
 GestorIdioma — traducciones embebidas, sin dependencia de data/lang.json.
+
+CAMBIOS v4:
+  - Agregadas claves faltantes en editar_usuario: ninguno, activo/inactivo,
+    nueva_contraseña, confirmar_contraseña
+  - captura_rostro: iniciando_camara, escaneando (texto video), etapa_frente,
+    etapa_pestañeo, liveness msgs
+  - agregar_usuario: grado, grupo, ninguno
+  - login: claves completas
+  - aviso_privacidad: contenido completo en español e inglés
 """
 
 from pathlib import Path
@@ -10,7 +19,6 @@ _CFG_FILE = _RAIZ / "data" / "idioma.cfg"
 _IDIOMAS  = ("es", "en")
 _DEFAULT  = "es"
 
-# ── Traducciones embebidas ────────────────────────────────────────────────────
 _LANG: dict = {
   "es": {
     "topbar": {
@@ -34,7 +42,30 @@ _LANG: dict = {
     },
     "aviso_privacidad": {
       "titulo": "Aviso de Privacidad",
-      "btn_aceptar": "     Aceptar"
+      "btn_aceptar": "     Aceptar",
+      "contenido": (
+        "AVISO DE PRIVACIDAD\n\n"
+        "La Universidad de Colima, a través de la Facultad de Ingeniería Electromecánica, "
+        "es responsable del tratamiento de sus datos biométricos.\n\n"
+        "DATOS QUE RECOPILAMOS\n"
+        "  • Imagen facial para reconocimiento biométrico\n"
+        "  • Registros de acceso (fecha, hora, laboratorio)\n"
+        "  • Datos de identificación (nombre, matrícula o número de empleado)\n\n"
+        "FINALIDAD\n"
+        "Los datos recabados se utilizarán exclusivamente para:\n"
+        "  • Control de acceso a laboratorios\n"
+        "  • Trazabilidad de uso de instalaciones\n"
+        "  • Seguridad institucional\n\n"
+        "ALMACENAMIENTO\n"
+        "Toda la información se procesa y almacena de forma local en el dispositivo. "
+        "No se transmite ningún dato a servidores externos ni servicios en la nube.\n\n"
+        "DERECHOS ARCO\n"
+        "Usted tiene derecho a Acceder, Rectificar, Cancelar u Oponerse al tratamiento "
+        "de sus datos personales, conforme a la Ley Federal de Protección de Datos "
+        "Personales en Posesión de los Particulares.\n\n"
+        "Al presionar 'Aceptar', usted otorga su consentimiento para el tratamiento de "
+        "sus datos biométricos bajo los términos descritos."
+      )
     },
     "acceso": {
       "iniciando_camara": "Iniciando cámara...",
@@ -77,6 +108,7 @@ _LANG: dict = {
       "tarjeta_accesos_hoy": "ACCESOS HOY",
       "tarjeta_alumnos": "ALUMNOS",
       "tarjeta_profesores": "PROFESORES",
+      "tarjeta_admins": "ADMINS",
       "tarjeta_denegados": "ACCESOS DENEGADOS",
       "tarjeta_accesos_sub": "accesos registrados hoy",
       "tarjeta_denegados_sub": "accesos denegados hoy",
@@ -98,7 +130,7 @@ _LANG: dict = {
       "titulo": "HISTORIAL DE ACCESOS",
       "filtro_todos_roles": "Todos los roles",
       "filtro_mes": "Mes",
-      "roles": ["Todos los roles", "Alumno", "Admin", "Profesor", "SuperAdmin", "SuperUsuario"],
+      "roles": ["Todos los roles", "Alumno", "Admin", "Maestro", "SuperAdmin"],
       "meses": ["Mes", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
                 "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"],
       "columnas": ["No. Institucional", "Nombre", "Ap.Paterno", "Ap.Materno",
@@ -122,13 +154,18 @@ _LANG: dict = {
       "campo_ap_paterno": "Apellido Paterno",
       "campo_ap_materno": "Apellido Materno",
       "campo_programa": "Programa Académico",
+      "campo_grado": "Grado",
+      "campo_grupo": "Grupo",
       "campo_rol": "Rol",
       "campo_status": "Status",
       "campo_password": "Contraseña  (mayúscula, minúscula y número)",
       "campo_confirmar_password": "Confirmar contraseña",
+      "ninguno": "Ninguno",
       "roles": ["Alumno", "Maestro", "Admin", "Super Admin"],
       "programas": ["Software", "Mecatrónica"],
       "status": ["Activo", "Inactivo"],
+      "grados": ["1°", "2°", "3°", "4°", "5°"],
+      "grupos": ["A", "B", "C", "D"],
       "error_sin_rostro": "Primero captura el rostro.",
       "error_cod": "El código es requerido.",
       "error_nombre": "El nombre es requerido.",
@@ -147,14 +184,21 @@ _LANG: dict = {
       "campo_ap_paterno": "Apellido Paterno",
       "campo_ap_materno": "Apellido Materno",
       "campo_programa": "Programa / Carrera",
+      "campo_grado": "Grado",
+      "campo_grupo": "Grupo",
       "campo_fecha_hora": "Fecha y Hora",
       "campo_rol": "Rol",
       "campo_status": "Status",
       "campo_password": "Nueva Contraseña  (mayúscula, minúscula y número — vacío = no cambiar)",
       "campo_confirmar_password": "Confirmar nueva contraseña",
+      "ninguno": "Ninguno",
+      "activo": "Activo",
+      "inactivo": "Inactivo",
       "roles": ["Alumno", "Maestro", "Admin", "Super Admin"],
-      "programas": ["Software", "Mecatrónica"],
+      "programas": ["Ninguno", "Software", "Mecatrónica"],
       "status": ["Activo", "Inactivo"],
+      "grados": ["1°", "2°", "3°", "4°", "5°"],
+      "grupos": ["A", "B", "C", "D"],
       "btn_guardar": "GUARDAR CAMBIOS",
       "btn_cancelar": "CANCELAR",
       "error_nombre": "El nombre no puede estar vacío.",
@@ -173,7 +217,15 @@ _LANG: dict = {
       "usuario_default": "Usuario",
       "label_capturas": "CAPTURAS",
       "listo": "Listo para\nescanear",
+      "iniciando_camara": "Iniciando cámara...",
       "escaneando": "No te muevas\nescaneando...",
+      "escaneando_video": "ESCANEANDO...",
+      "etapa_frente": "Mira al frente",
+      "etapa_pestañeo": "Pestañea 2 veces",
+      "liveness_estatica": "⚠ Imagen estática\ndetectada",
+      "liveness_foto": "⚠ Posible foto\nimpresa",
+      "liveness_fondo": "⚠ Muévete un poco",
+      "rostro_extrano": "Aleja a otras\npersonas",
       "detenido": "Detenido",
       "completo": "¡Escaneo\ncompleto!",
       "verificando_dup": "Verificando\nduplicados...",
@@ -198,6 +250,7 @@ _LANG: dict = {
                 "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
     }
   },
+
   "en": {
     "topbar": {
       "sistema_linea1": "BIOMETRIC CONTROL",
@@ -220,7 +273,30 @@ _LANG: dict = {
     },
     "aviso_privacidad": {
       "titulo": "Privacy Notice",
-      "btn_aceptar": "     Accept"
+      "btn_aceptar": "     Accept",
+      "contenido": (
+        "PRIVACY NOTICE\n\n"
+        "The University of Colima, through the Faculty of Electromechanical Engineering, "
+        "is responsible for the processing of your biometric data.\n\n"
+        "DATA WE COLLECT\n"
+        "  • Facial image for biometric recognition\n"
+        "  • Access records (date, time, laboratory)\n"
+        "  • Identification data (name, student ID or employee number)\n\n"
+        "PURPOSE\n"
+        "The collected data will be used exclusively for:\n"
+        "  • Laboratory access control\n"
+        "  • Facility usage traceability\n"
+        "  • Institutional security\n\n"
+        "STORAGE\n"
+        "All information is processed and stored locally on the device. "
+        "No data is transmitted to external servers or cloud services.\n\n"
+        "ARCO RIGHTS\n"
+        "You have the right to Access, Rectify, Cancel or Object to the processing "
+        "of your personal data, in accordance with the Federal Law on Protection of "
+        "Personal Data Held by Private Parties.\n\n"
+        "By pressing 'Accept', you grant your consent to the processing of your "
+        "biometric data under the described terms."
+      )
     },
     "acceso": {
       "iniciando_camara": "Starting camera...",
@@ -263,6 +339,7 @@ _LANG: dict = {
       "tarjeta_accesos_hoy": "TODAY'S ACCESSES",
       "tarjeta_alumnos": "STUDENTS",
       "tarjeta_profesores": "TEACHERS",
+      "tarjeta_admins": "ADMINS",
       "tarjeta_denegados": "DENIED ACCESSES",
       "tarjeta_accesos_sub": "accesses logged today",
       "tarjeta_denegados_sub": "denied accesses today",
@@ -284,7 +361,7 @@ _LANG: dict = {
       "titulo": "ACCESS HISTORY",
       "filtro_todos_roles": "All roles",
       "filtro_mes": "Month",
-      "roles": ["All roles", "Student", "Admin", "Teacher", "SuperAdmin", "SuperUser"],
+      "roles": ["All roles", "Student", "Admin", "Teacher", "SuperAdmin"],
       "meses": ["Month", "January", "February", "March", "April", "May", "June",
                 "July", "August", "September", "October", "November", "December"],
       "columnas": ["Inst. Number", "First Name", "Last Name", "Second Last Name",
@@ -308,13 +385,18 @@ _LANG: dict = {
       "campo_ap_paterno": "Last Name",
       "campo_ap_materno": "Second Last Name",
       "campo_programa": "Academic Program",
+      "campo_grado": "Grade",
+      "campo_grupo": "Group",
       "campo_rol": "Role",
       "campo_status": "Status",
       "campo_password": "Password  (uppercase, lowercase and number)",
       "campo_confirmar_password": "Confirm password",
+      "ninguno": "None",
       "roles": ["Student", "Teacher", "Admin", "Super Admin"],
       "programas": ["Software", "Mechatronics"],
       "status": ["Active", "Inactive"],
+      "grados": ["1st", "2nd", "3rd", "4th", "5th"],
+      "grupos": ["A", "B", "C", "D"],
       "error_sin_rostro": "Please capture the face first.",
       "error_cod": "Code is required.",
       "error_nombre": "First name is required.",
@@ -333,14 +415,21 @@ _LANG: dict = {
       "campo_ap_paterno": "Last Name",
       "campo_ap_materno": "Second Last Name",
       "campo_programa": "Program / Major",
+      "campo_grado": "Grade",
+      "campo_grupo": "Group",
       "campo_fecha_hora": "Date and Time",
       "campo_rol": "Role",
       "campo_status": "Status",
       "campo_password": "New Password  (uppercase, lowercase and number — leave empty to keep current)",
       "campo_confirmar_password": "Confirm new password",
+      "ninguno": "None",
+      "activo": "Active",
+      "inactivo": "Inactive",
       "roles": ["Student", "Teacher", "Admin", "Super Admin"],
-      "programas": ["Software", "Mechatronics"],
+      "programas": ["None", "Software", "Mechatronics"],
       "status": ["Active", "Inactive"],
+      "grados": ["1st", "2nd", "3rd", "4th", "5th"],
+      "grupos": ["A", "B", "C", "D"],
       "btn_guardar": "SAVE CHANGES",
       "btn_cancelar": "CANCEL",
       "error_nombre": "First name cannot be empty.",
@@ -359,7 +448,15 @@ _LANG: dict = {
       "usuario_default": "User",
       "label_capturas": "CAPTURES",
       "listo": "Ready to\nscan",
+      "iniciando_camara": "Starting camera...",
       "escaneando": "Don't move\nscanning...",
+      "escaneando_video": "SCANNING...",
+      "etapa_frente": "Look straight ahead",
+      "etapa_pestañeo": "Blink 2 times",
+      "liveness_estatica": "⚠ Static image\ndetected",
+      "liveness_foto": "⚠ Possible printed\nphoto",
+      "liveness_fondo": "⚠ Move a little",
+      "rostro_extrano": "Move other people\naway",
       "detenido": "Stopped",
       "completo": "Scan\ncomplete!",
       "verificando_dup": "Checking\nduplicates...",
@@ -394,7 +491,6 @@ class GestorIdioma:
         self._diccionario: dict  = _LANG.get(self._idioma, _LANG[_DEFAULT])
         self._listeners: list    = []
 
-    # ── API pública ───────────────────────────────────────────────────────────
     def idioma_actual(self) -> str:
         return self._idioma
 
@@ -404,7 +500,7 @@ class GestorIdioma:
     def set(self, codigo: str):
         if codigo not in _IDIOMAS or codigo == self._idioma:
             return
-        self._idioma     = codigo
+        self._idioma      = codigo
         self._diccionario = _LANG.get(codigo, _LANG[_DEFAULT])
         self._guardar_preferencia()
         self._notificar()
@@ -429,7 +525,6 @@ class GestorIdioma:
             return fallback if fallback else clave
         return nodo
 
-    # ── Listeners ─────────────────────────────────────────────────────────────
     def registrar(self, callback):
         if callback not in self._listeners:
             self._listeners.append(callback)
@@ -446,9 +541,11 @@ class GestorIdioma:
                 cb()
             except Exception as e:
                 print(f"[GestorIdioma] Error en listener: {e}")
-                self._listeners.remove(cb)
+                try:
+                    self._listeners.remove(cb)
+                except ValueError:
+                    pass
 
-    # ── Persistencia (solo guarda "es" o "en") ────────────────────────────────
     def _cargar_preferencia(self) -> str:
         try:
             if _CFG_FILE.exists():
