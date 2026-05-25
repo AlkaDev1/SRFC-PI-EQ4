@@ -815,23 +815,28 @@ class PantallaCaptura:
     def _cambiar_etapa_ui(self, etapa):
         try:
             if etapa == _ETAPA_PESTANEO:
-                self._lbl_etapa.config(text="👁  Pestañea 2 veces")
-                self._lbl_estado.config(
-                    text=self._t("captura_rostro.etapa_pestañeo", "Pestañea 2 veces"),
-                    fg="#9c27b0")
+                if self._lbl_etapa.winfo_exists():
+                    self._lbl_etapa.config(text="👁  Pestañea 2 veces")
+                if self._lbl_estado.winfo_exists():
+                    self._lbl_estado.config(
+                        text=self._t("captura_rostro.etapa_pestañeo", "Pestañea 2 veces"),
+                        fg="#9c27b0")
             else:
-                self._lbl_etapa.config(text="👁  Mira al frente")
-                self._lbl_estado.config(
-                    text=self._t("captura_rostro.escaneando", "No te muevas\nescaneando..."),
-                    fg="#43a047")
+                if self._lbl_etapa.winfo_exists():
+                    self._lbl_etapa.config(text="👁  Mira al frente")
+                if self._lbl_estado.winfo_exists():
+                    self._lbl_estado.config(
+                        text=self._t("captura_rostro.escaneando", "No te muevas\nescaneando..."),
+                        fg="#43a047")
         except tk.TclError:
             pass
 
     def _on_pestaneo_detectado(self):
         try:
-            self._lbl_estado.config(
-                text=f"✓ Pestañeo {self._pestaneos_ok}/{_PESTANEOS_REQUERIDOS}",
-                fg="#9c27b0")
+            if self._lbl_estado.winfo_exists():
+                self._lbl_estado.config(
+                    text=f"✓ Pestañeo {self._pestaneos_ok}/{_PESTANEOS_REQUERIDOS}",
+                    fg="#9c27b0")
         except tk.TclError:
             pass
 
@@ -844,10 +849,12 @@ class PantallaCaptura:
         p = self._p
         try:
             self._persona_diferente_activa = True
-            self._lbl_etapa.config(text="🚫 Persona diferente", fg=p["rojo"])
-            self._lbl_estado.config(
-                text="No es la misma\npersona registrada",
-                fg=p["rojo"])
+            if self._lbl_etapa.winfo_exists():
+                self._lbl_etapa.config(text="🚫 Persona diferente", fg=p["rojo"])
+            if self._lbl_estado.winfo_exists():
+                self._lbl_estado.config(
+                    text="No es la misma\npersona registrada",
+                    fg=p["rojo"])
         except tk.TclError:
             pass
 
@@ -860,10 +867,12 @@ class PantallaCaptura:
             self._ojo_cerrado              = False
             self._ear_cerrado_frames       = 0
             self._t_ojo_cerrado            = None
-            self._lbl_etapa.config(text="👁  Pestañea 2 veces", fg=p["naranja"])
-            self._lbl_estado.config(
-                text=self._t("captura_rostro.etapa_pestañeo", "Pestañea 2 veces"),
-                fg="#9c27b0")
+            if self._lbl_etapa.winfo_exists():
+                self._lbl_etapa.config(text="👁  Pestañea 2 veces", fg=p["naranja"])
+            if self._lbl_estado.winfo_exists():
+                self._lbl_estado.config(
+                    text=self._t("captura_rostro.etapa_pestañeo", "Pestañea 2 veces"),
+                    fg="#9c27b0")
         except tk.TclError:
             pass
 
@@ -874,25 +883,29 @@ class PantallaCaptura:
             "fondo_estatico": "⚠ Muévete un poco",
         }
         try:
-            self._lbl_estado.config(
-                text=mensajes.get(razon, "⚠ Liveness falló"),
-                fg=self._p["rojo"])
-            self.label_video.after(
-                1500,
-                lambda: self._lbl_estado.config(
-                    text=_FALLBACK_ETAPA.get(self._etapa_actual, ""),
-                    fg="#43a047") if self._capturando else None)
+            if self._lbl_estado.winfo_exists():
+                self._lbl_estado.config(
+                    text=mensajes.get(razon, "⚠ Liveness falló"),
+                    fg=self._p["rojo"])
+            def _restaurar_estado():
+                if self._capturando and self._lbl_estado.winfo_exists():
+                    self._lbl_estado.config(
+                        text=_FALLBACK_ETAPA.get(self._etapa_actual, ""),
+                        fg="#43a047")
+            self.label_video.after(1500, _restaurar_estado)
         except tk.TclError:
             pass
 
     def _avisar_rostro_extrano(self):
         try:
-            self._lbl_estado.config(text="Aleja a otras\npersonas", fg=self._p["rojo"])
-            self.label_video.after(
-                2000,
-                lambda: self._lbl_estado.config(
-                    text=self._t("captura_rostro.escaneando", "No te muevas\nescaneando..."),
-                    fg="#43a047") if self._capturando else None)
+            if self._lbl_estado.winfo_exists():
+                self._lbl_estado.config(text="Aleja a otras\npersonas", fg=self._p["rojo"])
+            def _restaurar_msg():
+                if self._capturando and self._lbl_estado.winfo_exists():
+                    self._lbl_estado.config(
+                        text=self._t("captura_rostro.escaneando", "No te muevas\nescaneando..."),
+                        fg="#43a047")
+            self.label_video.after(2000, _restaurar_msg)
         except tk.TclError:
             pass
 
@@ -930,13 +943,18 @@ class PantallaCaptura:
             self._capturas_ok        = 0
             self._enc_referencia     = None
             self._descartes_seguidos = 0
-            self._lbl_contador.config(text=f"0 / {CAPTURAS_REQUERIDAS}", fg=p["rojo"])
-            self._prog_inner.place(x=0, y=0, height=8, width=0)
-            self._lbl_estado.config(
-                text=self._t("captura_rostro.dup_encontrado",
-                             "Rostro ya registrado:\n") + nombre_dup,
-                fg=p["rojo"])
-            self._lbl_etapa.config(text="⚠ Rostro duplicado", fg=p["rojo"])
+            
+            if self._lbl_contador.winfo_exists():
+                self._lbl_contador.config(text=f"0 / {CAPTURAS_REQUERIDAS}", fg=p["rojo"])
+            if self._prog_inner.winfo_exists():
+                self._prog_inner.place(x=0, y=0, height=8, width=0)
+            if self._lbl_estado.winfo_exists():
+                self._lbl_estado.config(
+                    text=self._t("captura_rostro.dup_encontrado",
+                                 "Rostro ya registrado:\n") + nombre_dup,
+                    fg=p["rojo"])
+            if self._lbl_etapa.winfo_exists():
+                self._lbl_etapa.config(text="⚠ Rostro duplicado", fg=p["rojo"])
             # Limpiar el overlay a los 3s; el escaneo ya sigue corriendo
             self.label_video.after(3000, self._limpiar_overlay_duplicado)
         except tk.TclError:
@@ -949,23 +967,28 @@ class PantallaCaptura:
                 return
             self._duplicado_nombre = None
             p = self._p
-            self._lbl_etapa.config(text="👁  Mira al frente", fg=p["naranja"])
-            self._lbl_estado.config(
-                text=self._t("captura_rostro.escaneando", "No te muevas\nescaneando..."),
-                fg="#43a047")
-            self._lbl_contador.config(fg=p["verde"])
+            if self._lbl_etapa.winfo_exists():
+                self._lbl_etapa.config(text="👁  Mira al frente", fg=p["naranja"])
+            if self._lbl_estado.winfo_exists():
+                self._lbl_estado.config(
+                    text=self._t("captura_rostro.escaneando", "No te muevas\nescaneando..."),
+                    fg="#43a047")
+            if self._lbl_contador.winfo_exists():
+                self._lbl_contador.config(fg=p["verde"])
         except tk.TclError:
             pass
 
     def _actualizar_contador(self, n):
-        self._lbl_contador.config(text=f"{n} / {CAPTURAS_REQUERIDAS}")
         try:
-            ancho = self._prog_outer.winfo_width()
-            if ancho > 0:
-                self._prog_inner.place(
-                    x=0, y=0, height=8,
-                    width=int(ancho * n / CAPTURAS_REQUERIDAS))
-        except Exception:
+            if self._lbl_contador.winfo_exists():
+                self._lbl_contador.config(text=f"{n} / {CAPTURAS_REQUERIDAS}")
+            if self._prog_outer.winfo_exists() and self._prog_inner.winfo_exists():
+                ancho = self._prog_outer.winfo_width()
+                if ancho > 0:
+                    self._prog_inner.place(
+                        x=0, y=0, height=8,
+                        width=int(ancho * n / CAPTURAS_REQUERIDAS))
+        except tk.TclError:
             pass
 
     def _finalizar(self, n):
@@ -973,30 +996,47 @@ class PantallaCaptura:
         p = self._p
 
         if n >= CAPTURAS_REQUERIDAS:
-            self._lbl_estado.config(
-                text=self._t("captura_rostro.completo", "¡Escaneo\ncompleto!"),
-                fg=p["verde"])
-            self._lbl_etapa.config(text="✓ Liveness OK", fg=p["verde"])
-            self._btn_iniciar.config(
-                text=self._t("captura_rostro.btn_completado", "✓  COMPLETADO"),
-                bg=p["verde_ok"], state="disabled")
-            self._lbl_contador.config(fg=p["verde"])
-            self._lbl_estado.config(
-                text=self._t("captura_rostro.verificando_dup", "Verificando\nduplicados..."),
-                fg=p["texto2"])
-            encoding_final = np.mean(self._encodings, axis=0)
-            threading.Thread(target=self._verificar_y_regresar,
-                             args=(encoding_final,), daemon=True).start()
+            # Verificar que los widgets aún existan antes de modificarlos
+            try:
+                if self._lbl_estado.winfo_exists():
+                    self._lbl_estado.config(
+                        text=self._t("captura_rostro.completo", "¡Escaneo\ncompleto!"),
+                        fg=p["verde"])
+                if self._lbl_etapa.winfo_exists():
+                    self._lbl_etapa.config(text="✓ Liveness OK", fg=p["verde"])
+                if self._btn_iniciar.winfo_exists():
+                    self._btn_iniciar.config(
+                        text=self._t("captura_rostro.btn_completado", "✓  COMPLETADO"),
+                        bg=p["verde_ok"], state="disabled")
+                if self._lbl_contador.winfo_exists():
+                    self._lbl_contador.config(fg=p["verde"])
+                if self._lbl_estado.winfo_exists():
+                    self._lbl_estado.config(
+                        text=self._t("captura_rostro.verificando_dup", "Verificando\nduplicados..."),
+                        fg=p["texto2"])
+                encoding_final = np.mean(self._encodings, axis=0)
+                threading.Thread(target=self._verificar_y_regresar,
+                                 args=(encoding_final,), daemon=True).start()
+            except tk.TclError:
+                # Widget destruido, no hacer nada
+                return
         else:
             if not self._chequeo_rapido or n > 0:
-                self._lbl_estado.config(
-                    text=self._t("captura_rostro.incompleto", "Incompleto\n") +
-                         f"{n}/{CAPTURAS_REQUERIDAS}",
-                    fg=p["rojo"])
-                self._lbl_etapa.config(text="")
-                self._btn_iniciar.config(
-                    text=self._t("captura_rostro.btn_reintentar", "▶  REINTENTAR"),
-                    bg=p["verde"], state="normal")
+                try:
+                    if self._lbl_estado.winfo_exists():
+                        self._lbl_estado.config(
+                            text=self._t("captura_rostro.incompleto", "Incompleto\n") +
+                                 f"{n}/{CAPTURAS_REQUERIDAS}",
+                            fg=p["rojo"])
+                    if self._lbl_etapa.winfo_exists():
+                        self._lbl_etapa.config(text="")
+                    if self._btn_iniciar.winfo_exists():
+                        self._btn_iniciar.config(
+                            text=self._t("captura_rostro.btn_reintentar", "▶  REINTENTAR"),
+                            bg=p["verde"], state="normal")
+                except tk.TclError:
+                    # Widget destruido, no hacer nada
+                    return
 
     def _verificar_y_regresar(self, encoding):
         try:

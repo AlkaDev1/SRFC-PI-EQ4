@@ -21,6 +21,7 @@ LOGICA DE LOGIN:
 """
 
 import tkinter as tk
+from core.database import obtener_conexion
 from PIL import Image, ImageTk
 
 from ui.styles import PALETA, FUENTES, MEDIDAS
@@ -414,48 +415,81 @@ class PantallaLogin:
         else:
             ojo_lbl.config(text="🙈" if self._mostrar_clave else "👁")
 
-    # ══════════════════════════════════════════
-    #  LOGICA DE CONTROL DE ACCESO (LOGIN)
+   # ══════════════════════════════════════════
+    #  LOGICA DE CONTROL DE ACCESO (BASE DE DATOS)
     # ══════════════════════════════════════════
     def _login(self):
-        u = self.entry_usuario.get().strip().lower()
+        u = self.entry_usuario.get().strip()
         c = self.entry_clave.get().strip()
 
-        # Validamos que no se intenten enviar los marcadores de posición (placeholders)
-        if u in ("", "número de trabajador") or c in ("", "contraseña"):
+        # Evitar el envío de placeholders vacíos
+        if u in ("", "Número de trabajador") or c in ("", "Contraseña"):
             self.lbl_error.config(text="⚠ Por favor, complete todos los campos")
             return
 
-        # Diccionario maestro de credenciales estáticas para tu fase de testing
-        usuarios_simulados = {
-            "alumno":     {"clave": "1234", "rol": "Alumno"},
-            "maestro":    {"clave": "1234", "rol": "Maestro"},
-            "profesor":   {"clave": "1234", "rol": "Maestro"},
-            "admin":      {"clave": "1234", "rol": "Admin"},
-            "super":      {"clave": "1234", "rol": "Super Admin"},
-            "superadmin": {"clave": "1234", "rol": "Super Admin"},
-        }
+        con = obtener_conexion()
+        if not con:
+            self.lbl_error.config(text="❌ Error de conexión con la base de datos")
+            return
 
-        if u in usuarios_simulados and usuarios_simulados[u]["clave"] == c:
-            rol = usuarios_simulados[u]["rol"]
+        try:
+            # Consultamos el usuario cruzando con la tabla Roles para obtener su jerarquía
+            row = con.execute("""
+                SELECT u.cod_institucional, 
+                       u.password_hash, 
+                       u.id_rol, 
+                       u.estado,
+                       COALESCE(r.nombre, 'Sin rol') AS rol_nombre
+                FROM Usuarios u
+                LEFT JOIN Roles r ON u.id_rol = r.id_rol
+                WHERE u.cod_institucional = ?
+            """, (u,)).fetchone()
+
+            if not row:
+                self.lbl_error.config(text="⚠ El código institucional no está registrado")
+                return
+
+            # Verificar si el usuario está activo (estado = 1)
+            if row["estado"] != 1:
+                self.lbl_error.config(text="❌ Usuario inactivo. Contacte al administrador.")
+                return
+
+            # Verificación de contraseña
+            # Nota: Compara directamente el texto o el hash según cómo los guardes en tu sistema.
+            # Como salvaguarda para desarrollo, este bloque acepta coincidencia directa.
+            password_correcto = (row["password_hash"] == c)
             
-            # PASO CRÍTICO: Registramos el rol activo en la app global
-            self.app.rol_usuario = rol
-            self.lbl_error.config(text="") # Limpieza de errores anteriores
+            if not password_correcto:
+                self.lbl_error.config(text="⚠ Contraseña incorrecta")
+                return
 
-            # Enrutamiento basado en requerimientos jerárquicos
-            if rol == "Alumno":
-                self.lbl_error.config(text="❌ Acceso denegado: Sin permisos para este sistema.")
+            # ── CREDENCIALES VÁLIDAS: Enrutamiento por Roles de la BD ─────────
+            id_rol = row["id_rol"]
+            rol_nombre = row["rol_nombre"]
+
+            # Guardamos el rol y código en la instancia global para persistencia entre pantallas
+            self.app.rol_usuario = rol_nombre
+            self.app.usuario_actual = row["cod_institucional"]
+            self.lbl_error.config(text="") # Limpiar advertencias
+
+            if id_rol == 4:  # Alumno
+                self.lbl_error.config(text="❌ Acceso denegado: Los alumnos no tienen permitido el ingreso.")
                 
-            elif rol == "Maestro":
-                # Redirige directo a la pantalla de historial de accesos
-                self.app.mostrar_pantalla("historial", {"id_rol": 2})
+            elif id_rol == 3:  # Maestro
+                # Redirige a la bitácora de accesos pasando su ID de rol correspondiente
+                self.app.mostrar_pantalla("historial", {"id_rol": 3})
                 
-            elif rol in ("Admin", "Super Admin"):
-                # Redirige a la pantalla central de gestión real
+            elif id_rol in (1, 2):  # 1: SuperAdmin, 2: Admin
+                # Redirige a la consola central de gestión de usuarios
                 self.app.mostrar_pantalla("gestion_real")
-        else:
-            self.lbl_error.config(text="⚠ Credenciales incorrectas")
+                
+            else:
+                self.lbl_error.config(text="⚠ Rol no reconocido por el sistema de navegación.")
+
+        except Exception as e:
+            self.lbl_error.config(text=f"❌ Error en consulta: {str(e)}")
+        finally:
+            con.close()
 
 
 def crear_pantalla_login(parent, app):
