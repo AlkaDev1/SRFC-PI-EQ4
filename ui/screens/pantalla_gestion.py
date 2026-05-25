@@ -2,11 +2,14 @@
 ui/screens/pantalla_gestion.py
 
 CAMBIOS:
-  - Conectado a GestorIdioma: tarjetas, columnas, filtros y botones
-    leen del idioma activo. Menús de filtro usan opciones del idioma.
-  - _limpiar() desregistra también el listener de idioma.
-  - Menús usan _abrir_menu() centralizado (mismo fix que historial).
-  - FIX: tarjeta "Accesos Denegados" ahora consulta la BD correctamente.
+  - Recibe datos={"id_rol": ...} desde validacionUsrs para saber quién entró.
+  - Admin  (id_rol=2): solo ve Alumnos y Maestros en tabla y dropdown.
+  - Super Admin (id_rol=1): ve Alumnos, Maestros y Admins.
+  - Super Admin tiene un 4to cuadro "INGRESOS ADMINS" en lugar de "ACCESOS DENEGADOS".
+  - Admin mantiene el cuadro rojo "ACCESOS DENEGADOS".
+  - Conectado a GestorIdioma.
+  - _limpiar() desregistra tema e idioma.
+  - Menús usan _abrir_menu() centralizado.
 """
 
 import tkinter as tk
@@ -36,6 +39,7 @@ _C = {
     "rojo":"#c62828","rojo_claro":"#ef5350","fila_par":"#f9f9f9",
     "fila_impar":"#ffffff","sel_tree":"#e8f5e9","sel_tree_fg":"#2e7d32",
     "filtro_bg":"#f5f5f5","filtro_borde":"#e0e0e0","filtro_fg":"#1a1a1a",
+    "azul":"#1565c0","azul_claro":"#42a5f5",
     "flecha_img":"arrow_circle_black.png",
 }
 _O = {
@@ -45,6 +49,7 @@ _O = {
     "rojo":"#7f1d1d","rojo_claro":"#f87171","fila_par":"#0d2a0d",
     "fila_impar":"#071E07","sel_tree":"#1a3a1a","sel_tree_fg":"#4ade80",
     "filtro_bg":"#1a3a1a","filtro_borde":"#1a3a1a","filtro_fg":"#d0f0d0",
+    "azul":"#1e3a5f","azul_claro":"#90caf9",
     "flecha_img":"arrow_drop_down.png",
 }
 
@@ -64,10 +69,15 @@ def _paleta(app) -> dict:
 
 class PantallaGestion:
 
-    def __init__(self, parent, app):
-        self.parent = parent
-        self.app    = app
-        self._p     = _paleta(app)
+    def __init__(self, parent, app, datos=None):
+        self.parent  = parent
+        self.app     = app
+        self._p      = _paleta(app)
+        # ── id_rol del usuario que inició sesión ─────────────────────────────
+        # 1 = Super Admin  →  ve Alumnos + Maestros + Admins
+        # 2 = Admin        →  ve Alumnos + Maestros
+        self._id_rol = (datos or {}).get("id_rol", 2)
+
         self._todos_usuarios      = []
         self._filtro_rol          = tk.StringVar(value="")
         self._filtro_mes          = tk.StringVar(value="")
@@ -75,6 +85,7 @@ class PantallaGestion:
         self._widgets_repintables = []
         self._btns_accion         = []
         self._menu_abierto        = None
+
         inicializar_bd()
         self._construir_ui()
         self.pantalla.after(100, self._cargar_todo)
@@ -85,7 +96,21 @@ class PantallaGestion:
             app.idioma.registrar(self._aplicar_idioma)
         self.pantalla.bind("<Destroy>", self._limpiar)
 
-    # ── Idioma ────────────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    #  PERMISOS POR ROL
+    # ══════════════════════════════════════════════════════════════════════════
+    def _roles_visibles(self) -> set:
+        """Roles de usuario que puede ver en la tabla según quién inició sesión."""
+        if self._id_rol == 1:          # Super Admin
+            return {"Alumno", "Maestro", "Admin"}
+        return {"Alumno", "Maestro"}   # Admin normal
+
+    def _es_super_admin(self) -> bool:
+        return self._id_rol == 1
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  IDIOMA
+    # ══════════════════════════════════════════════════════════════════════════
     def _t(self, clave, fallback=""):
         if hasattr(self.app, "idioma"):
             return self.app.idioma.t(clave, fallback)
@@ -93,8 +118,13 @@ class PantallaGestion:
 
     def _opciones_rol(self):
         v = self._t("gestion.roles")
-        return v if isinstance(v, list) else \
+        todos = v if isinstance(v, list) else \
             ["Rol", "Alumno", "Maestro", "Admin", "Super Admin"]
+        # Admin no puede ver ni filtrar por Admin/Super Admin
+        if not self._es_super_admin():
+            todos = [r for r in todos
+                     if r.lower() not in ("admin", "super admin")]
+        return todos
 
     def _opciones_mes(self):
         v = self._t("gestion.meses")
@@ -113,18 +143,26 @@ class PantallaGestion:
         try:
             self._lbl_titulo_tabla.config(
                 text=self._t("gestion.titulo_tabla", " USUARIOS "))
+
             specs_t = [
                 ("accesos_hoy_titulo",  "gestion.tarjeta_accesos_hoy",  "ACCESOS HOY"),
                 ("alumnos_titulo",      "gestion.tarjeta_alumnos",      "ALUMNOS"),
                 ("profesores_titulo",   "gestion.tarjeta_profesores",   "PROFESORES"),
-                ("denegados_titulo",    "gestion.tarjeta_denegados",    "ACCESOS DENEGADOS"),
             ]
+            if self._es_super_admin():
+                specs_t.append(
+                    ("admins_titulo", "gestion.tarjeta_admins", "INGRESOS ADMINS"))
+            else:
+                specs_t.append(
+                    ("denegados_titulo", "gestion.tarjeta_denegados", "ACCESOS DENEGADOS"))
+
             for key, clave, fb in specs_t:
                 if key in self._tarjetas:
                     try:
                         self._tarjetas[key].config(text=self._t(clave, fb))
                     except tk.TclError:
                         pass
+
             if hasattr(self, "_btn_agregar"):
                 self._btn_agregar.config(
                     text=self._t("gestion.btn_agregar", "  AGREGAR USUARIO"))
@@ -134,20 +172,26 @@ class PantallaGestion:
             if hasattr(self, "_btn_cerrar_sesion"):
                 self._btn_cerrar_sesion.config(
                     text=self._t("gestion.btn_cerrar_sesion", "  CERRAR SESIÓN"))
+
             primera_rol = self._opciones_rol()[0]
             self._filtro_rol.set(primera_rol)
             self._btn_rol.config(text=f"  {primera_rol}")
+
             primera_mes = self._opciones_mes()[0]
             self._filtro_mes.set(primera_mes)
             self._btn_mes.config(text=f"  {primera_mes}")
+
             for i, col in enumerate(self._columnas()):
                 col_id = self.tree_usuarios["columns"][i]
                 self.tree_usuarios.heading(col_id, text=col)
+
             self._filtrar_tabla()
         except tk.TclError:
             pass
 
-    # ── Menú único ────────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    #  MENÚ ÚNICO
+    # ══════════════════════════════════════════════════════════════════════════
     def _cerrar_menu(self):
         if self._menu_abierto:
             try:
@@ -179,7 +223,9 @@ class PantallaGestion:
         y = btn.winfo_rooty() + btn.winfo_height()
         menu.post(x, y)
 
-    # ── Tema ──────────────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    #  TEMA
+    # ══════════════════════════════════════════════════════════════════════════
     def _on_tema_cambio(self, _):
         self._p = _O if self.app.tema.es_oscuro() else _C
         self._aplicar_tema()
@@ -251,7 +297,7 @@ class PantallaGestion:
             self._ico_flecha = None
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  UI
+    #  UI PRINCIPAL
     # ══════════════════════════════════════════════════════════════════════════
     def _construir_ui(self):
         p = self._p
@@ -330,29 +376,49 @@ class PantallaGestion:
         self._reg(fila, "gris_bg")
 
         self._tarjetas = {}
-        specs = [
+
+        # ── Primeras 3 tarjetas: iguales para todos ──────────────────────────
+        specs_comunes = [
             ("accesos_hoy",   "accesos_hoy_titulo",
-             self._t("gestion.tarjeta_accesos_hoy","ACCESOS HOY"),
+             self._t("gestion.tarjeta_accesos_hoy", "ACCESOS HOY"),
              p["verde_claro"], "accesos_hoy_sub",
-             self._t("gestion.tarjeta_accesos_sub","accesos registrados hoy")),
+             self._t("gestion.tarjeta_accesos_sub", "accesos registrados hoy")),
+
             ("total_alumnos", "alumnos_titulo",
-             self._t("gestion.tarjeta_alumnos","ALUMNOS"),
+             self._t("gestion.tarjeta_alumnos", "ALUMNOS"),
              p["verde_claro"], "alumnos_sub", ""),
+
             ("total_admins",  "profesores_titulo",
-             self._t("gestion.tarjeta_profesores","PROFESORES"),
+             self._t("gestion.tarjeta_profesores", "PROFESORES"),
              p["verde_claro"], "admins_sub", ""),
-            ("acc_denegados", "denegados_titulo",
-             self._t("gestion.tarjeta_denegados","ACCESOS DENEGADOS"),
-             p["rojo"], "deny_sub",
-             self._t("gestion.tarjeta_denegados_sub","accesos denegados hoy")),
         ]
 
+        # ── 4ta tarjeta: distinta según rol ──────────────────────────────────
+        if self._es_super_admin():
+            # Cuadro azul: ingresos de admins hoy
+            spec_4ta = (
+                "acc_admins_hoy", "admins_titulo",
+                self._t("gestion.tarjeta_admins", "INGRESOS ADMINS"),
+                p["azul"], "admins_hoy_sub",
+                self._t("gestion.tarjeta_admins_sub", "accesos de admins hoy"),
+            )
+        else:
+            # Cuadro rojo: accesos denegados
+            spec_4ta = (
+                "acc_denegados", "denegados_titulo",
+                self._t("gestion.tarjeta_denegados", "ACCESOS DENEGADOS"),
+                p["rojo"], "deny_sub",
+                self._t("gestion.tarjeta_denegados_sub", "accesos denegados hoy"),
+            )
+
+        todas = specs_comunes + [spec_4ta]
+
         for i, (key_num, key_titulo, titulo, color_barra,
-                key_sub, sub_txt) in enumerate(specs):
+                key_sub, sub_txt) in enumerate(todas):
             card = tk.Frame(fila, bg=p["card_bg"],
                             highlightthickness=1, highlightbackground=p["borde"])
             card.pack(side="left", fill="both", expand=True,
-                      padx=(0 if i==0 else 8, 0))
+                      padx=(0 if i == 0 else 8, 0))
             self._reg(card, "card_bg")
 
             tk.Frame(card, bg=color_barra, height=3).pack(fill="x")
@@ -374,11 +440,15 @@ class PantallaGestion:
             lbl_num.pack(anchor="w")
             self._reg(lbl_num, "card_bg", "texto_oscuro")
 
+            # Sub-texto con color según tipo de tarjeta
+            sub_color = p["rojo_claro"] if key_num in ("acc_denegados",) else \
+                        p["azul_claro"] if key_num == "acc_admins_hoy" else \
+                        p["verde_claro"]
             lbl_sub = tk.Label(body, text=sub_txt,
                                font=("Segoe UI", 6),
-                               fg=p["verde_claro"], bg=p["card_bg"])
+                               fg=sub_color, bg=p["card_bg"])
             lbl_sub.pack(anchor="w")
-            self._reg(lbl_sub, "card_bg", "verde_claro")
+            self._reg(lbl_sub, "card_bg")
 
             self._tarjetas[key_num] = lbl_num
             self._tarjetas[key_sub] = lbl_sub
@@ -459,9 +529,9 @@ class PantallaGestion:
         frame_t.pack(fill="both", expand=True, padx=14, pady=(0,12))
         self._reg(frame_t, "card_bg")
 
-        col_ids  = [f"col{i}" for i in range(9)]
-        col_txts = self._columnas()
-        anchos   = [80, 80, 90, 90, 110, 70, 95, 60, 50]
+        col_ids   = [f"col{i}" for i in range(9)]
+        col_txts  = self._columnas()
+        anchos    = [80, 80, 90, 90, 110, 70, 95, 60, 50]
         centradas = {6, 7, 8}
 
         self.tree_usuarios = ttk.Treeview(
@@ -554,7 +624,8 @@ class PantallaGestion:
             fg="#ffffff", bg=p["verde_btn"],
             activebackground=p["verde_hover"], activeforeground="#ffffff",
             bd=0, padx=14, pady=10, cursor="hand2", relief="flat",
-            command=lambda: self.app.mostrar_pantalla("historial", {"id_rol": 2}))
+            command=lambda: self.app.mostrar_pantalla(
+                "historial", {"id_rol": self._id_rol}))
         self._btn_historial.pack(side="left", padx=(0,8))
         self._btns_accion.append((self._btn_historial, "verde"))
 
@@ -570,11 +641,10 @@ class PantallaGestion:
         usuarios = obtener_usuarios() or []
         total    = len(usuarios)
         alumnos  = sum(1 for u in usuarios if u.get("rol","") == "Alumno")
-        admins   = sum(1 for u in usuarios
+        profes   = sum(1 for u in usuarios
                        if u.get("rol","") in
-                       ("Admin","SuperAdmin","SuperUsuario","Profesor","Maestro"))
+                       ("Maestro", "Profesor"))
 
-        # FIX: usar conteo_accesos_hoy() para obtener datos reales de la BD
         conteos       = conteo_accesos_hoy()
         acc_hoy       = conteos.get("total", 0)
         denegados_hoy = conteos.get("denegados", 0)
@@ -584,18 +654,42 @@ class PantallaGestion:
         self._tarjetas["accesos_hoy"].config(text=str(acc_hoy))
         self._tarjetas["accesos_hoy_sub"].config(
             text=self._t("gestion.tarjeta_accesos_sub", "accesos registrados hoy"))
+
         self._tarjetas["total_alumnos"].config(text=str(alumnos))
         self._tarjetas["alumnos_sub"].config(
             text=f"{round(alumnos/total*100)}% del total" if total else sin_reg)
-        self._tarjetas["total_admins"].config(text=str(admins))
-        self._tarjetas["admins_sub"].config(
-            text=f"{round(admins/total*100)}% del total" if total else sin_reg)
 
-        # FIX: número real de denegados desde la BD
-        self._tarjetas["acc_denegados"].config(text=str(denegados_hoy))
-        self._tarjetas["deny_sub"].config(
-            text=self._t("gestion.tarjeta_denegados_sub", "accesos denegados hoy"),
-            fg=p["rojo_claro"])
+        self._tarjetas["total_admins"].config(text=str(profes))
+        self._tarjetas["admins_sub"].config(
+            text=f"{round(profes/total*100)}% del total" if total else sin_reg)
+
+        if self._es_super_admin():
+            # Contar accesos de admins hoy usando conteo_accesos_hoy
+            # Si tu BD ya tiene conteos por rol, usa: conteos.get("admins", 0)
+            # Si no, filtra de la lista de accesos:
+            try:
+                accesos = obtener_accesos() or []
+                hoy = datetime.now().strftime("%Y-%m-%d")
+                admins_ids = {
+                    u.get("cod_institucional")
+                    for u in usuarios
+                    if u.get("rol","") in ("Admin", "Super Admin")
+                }
+                acc_admins = sum(
+                    1 for a in accesos
+                    if a.get("fecha","").startswith(hoy)
+                    and a.get("cod_institucional") in admins_ids
+                )
+            except Exception:
+                acc_admins = 0
+            self._tarjetas["acc_admins_hoy"].config(text=str(acc_admins))
+            self._tarjetas["admins_hoy_sub"].config(
+                text=self._t("gestion.tarjeta_admins_sub", "accesos de admins hoy"))
+        else:
+            self._tarjetas["acc_denegados"].config(text=str(denegados_hoy))
+            self._tarjetas["deny_sub"].config(
+                text=self._t("gestion.tarjeta_denegados_sub", "accesos denegados hoy"),
+                fg=p["rojo_claro"])
 
         self._todos_usuarios = usuarios
 
@@ -608,11 +702,18 @@ class PantallaGestion:
         mes_f = self._filtro_mes.get()
         datos = self._todos_usuarios
 
+        # ── Filtrar por roles permitidos según quién inició sesión ───────────
+        visibles = self._roles_visibles()
+        datos = [u for u in datos
+                 if (u.get("rol") or "").strip() in visibles]
+
+        # ── Filtro de dropdown de rol ─────────────────────────────────────────
         sin_filtro_rol = [self._opciones_rol()[0], "Ninguno", "Rol", "All roles"]
         if rol_f and rol_f not in sin_filtro_rol:
             datos = [u for u in datos
                      if (u.get("rol") or "").lower() == rol_f.lower()]
 
+        # ── Filtro de mes ─────────────────────────────────────────────────────
         mes_num = _MESES_NUM.get(mes_f)
         if mes_num:
             datos = [u for u in datos
@@ -631,16 +732,16 @@ class PantallaGestion:
         for i, u in enumerate(datos):
             fecha_hora = f"{u.get('fecha_registro','')} {u.get('hora_registro','')}".strip()
             t.insert("", "end",
-                tags=("par" if i%2==0 else "impar",),
+                tags=("par" if i % 2 == 0 else "impar",),
                 values=(
-                    u.get("cod_institucional",""),
-                    u.get("nombre","—"),
-                    u.get("apellido_paterno",""),
-                    u.get("apellido_materno",""),
-                    u.get("carrera",""),
-                    u.get("rol","Alumno"),
+                    u.get("cod_institucional", ""),
+                    u.get("nombre", "—"),
+                    u.get("apellido_paterno", ""),
+                    u.get("apellido_materno", ""),
+                    u.get("carrera", ""),
+                    u.get("rol", "Alumno"),
                     fecha_hora,
-                    u.get("status","Activo"),
+                    u.get("status", "Activo"),
                     icono_editar,
                 ))
 
@@ -648,5 +749,5 @@ class PantallaGestion:
         self.app.mostrar_pantalla("principal")
 
 
-def crear_pantalla_gestion_real(parent, app):
-    PantallaGestion(parent, app)
+def crear_pantalla_gestion_real(parent, app, datos=None):
+    PantallaGestion(parent, app, datos)
