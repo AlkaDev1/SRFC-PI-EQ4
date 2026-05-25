@@ -2,22 +2,22 @@
 core/database.py
 Módulo de base de datos SQLite para el sistema SRFC.
 
-CAMBIOS v3:
-  - BUG 3/4 FIX: cargar_todos_encodings() ahora construye el nombre completo
-    con primer_nombre + segundo_nombre + apellido_paterno para que la pantalla
-    de acceso y captura muestren el nombre completo (ej: "Brandom Yair Jacobo").
-  - BUG 3/4 FIX: listar_usuarios() devuelve nombre completo (primer + segundo)
-    en el campo "nombre" para que la tabla de gestión lo muestre correctamente.
-  - BUG 5 FIX: registrar_usuario() solo inserta en Alumnos_Detalle si el rol
-    es Alumno (id_rol=4). Maestros, Admins y SuperAdmins ya no generan
-    registros huérfanos en esa tabla.
-  - BUG 5 FIX: actualizar_usuario() también limpia Alumnos_Detalle si el rol
-    cambia a algo distinto de Alumno.
+CAMBIOS v4:
+  - Tabla Acceso ahora tiene columna `denegado` (0=concedido, 1=denegado)
+    para registrar accesos denegados correctamente en historial y tarjetas.
+  - Nueva función: registrar_acceso_denegado(motivo) — guarda acceso denegado
+    con cod_institucional NULL y denegado=1.
+  - Nueva función: verificar_credenciales(cod, password) — busca por
+    cod_institucional (número de trabajador) y verifica hash bcrypt.
+  - conteo_accesos_hoy() separado por denegados vs concedidos.
+  - listar_accesos() filtra por denegado=0 (historial normal).
+  - listar_accesos_denegados() para panel de gestión.
 """
 
 import sqlite3
 import os
 import pickle
+import hashlib
 import numpy as np
 
 
@@ -57,7 +57,7 @@ ROL_NOMBRE_A_ID: dict = {
     "Alumno":      4,
 }
 
-_ID_ROL_ALUMNO = 4   # constante para comparaciones internas
+_ID_ROL_ALUMNO = 4
 
 
 def _normalizar_rol(rol: str) -> str:
@@ -65,7 +65,7 @@ def _normalizar_rol(rol: str) -> str:
 
 
 # ══════════════════════════════════════════════
-#  inicialización
+#  Inicialización
 # ══════════════════════════════════════════════
 def inicializar_bd() -> bool:
     sql = """
@@ -113,6 +113,7 @@ def inicializar_bd() -> bool:
         cod_institucional VARCHAR(20),
         fecha             DATE DEFAULT (DATE('now','localtime')),
         hora              TIME DEFAULT (TIME('now','localtime')),
+        denegado          INTEGER DEFAULT 0,
         FOREIGN KEY (cod_institucional) REFERENCES Usuarios(cod_institucional)
     );
     """
@@ -121,6 +122,12 @@ def inicializar_bd() -> bool:
         return False
     try:
         con.executescript(sql)
+
+        # Migración: agregar columna denegado si no existe (BD existente)
+        cols = [r[1] for r in con.execute("PRAGMA table_info(Acceso)").fetchall()]
+        if "denegado" not in cols:
+            con.execute("ALTER TABLE Acceso ADD COLUMN denegado INTEGER DEFAULT 0")
+            print("[DB] Migración v4: columna 'denegado' agregada a Acceso.")
 
         con.executemany(
             "INSERT OR IGNORE INTO Roles (id_rol, nombre, usuario_registro) VALUES (?,?,?)",
@@ -135,13 +142,10 @@ def inicializar_bd() -> bool:
         necesita_migrar = con.execute(
             "SELECT 1 FROM Roles WHERE id_rol = 3 AND nombre = 'SuperUsuario'"
         ).fetchone()
-
         if necesita_migrar:
-            con.execute("""
-                UPDATE Roles
-                SET nombre = 'Maestro'
-                WHERE id_rol = 3 AND nombre = 'SuperUsuario'
-            """)
+            con.execute(
+                "UPDATE Roles SET nombre='Maestro' WHERE id_rol=3 AND nombre='SuperUsuario'"
+            )
             print("[DB] Migración v2: 'SuperUsuario' → 'Maestro' completada.")
 
         con.commit()
@@ -149,6 +153,70 @@ def inicializar_bd() -> bool:
     except sqlite3.Error as e:
         print(f"[DB] Error inicializando: {e}")
         return False
+    finally:
+        con.close()
+
+
+# ══════════════════════════════════════════════
+#  Autenticación
+# ══════════════════════════════════════════════
+def _hash_password(password: str) -> str:
+    """SHA-256 simple. Compatible con lo que ya existe en la BD."""
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def verificar_credenciales(cod_institucional: str, password: str):
+    """
+    Verifica usuario por cod_institucional (número de trabajador) y contraseña.
+
+    Intenta primero con SHA-256 directo.  Si el hash guardado empieza con '$2'
+    asume bcrypt e intenta con bcrypt (si está instalado).
+
+    Retorna dict con datos del usuario o None si las credenciales son inválidas.
+    """
+    if not cod_institucional or not password:
+        return None
+    con = obtener_conexion()
+    if not con:
+        return None
+    try:
+        row = con.execute("""
+            SELECT u.cod_institucional, u.primer_nombre, u.segundo_nombre,
+                   u.apellido_paterno, u.id_rol, u.password_hash, u.estado,
+                   r.nombre AS rol
+            FROM Usuarios u
+            LEFT JOIN Roles r ON u.id_rol = r.id_rol
+            WHERE u.cod_institucional = ? AND u.estado = 1
+        """, (cod_institucional,)).fetchone()
+
+        if not row:
+            return None
+
+        stored = row["password_hash"] or ""
+        ok = False
+
+        if stored.startswith("$2"):
+            # bcrypt
+            try:
+                import bcrypt
+                ok = bcrypt.checkpw(password.encode("utf-8"), stored.encode("utf-8"))
+            except ImportError:
+                # bcrypt no instalado: fallback SHA-256
+                ok = _hash_password(password) == stored
+        else:
+            ok = _hash_password(password) == stored
+
+        if not ok:
+            return None
+
+        return {
+            "cod_institucional": row["cod_institucional"],
+            "nombre":            row["primer_nombre"],
+            "segundo_nombre":    row["segundo_nombre"],
+            "apellido_paterno":  row["apellido_paterno"],
+            "id_rol":            row["id_rol"],
+            "rol":               row["rol"],
+        }
     finally:
         con.close()
 
@@ -172,12 +240,6 @@ def obtener_roles() -> list:
 #  Usuarios
 # ══════════════════════════════════════════════
 def registrar_usuario(datos: dict) -> tuple:
-    """
-    Inserta usuario + encoding en una transacción.
-
-    BUG 5 FIX: Solo inserta en Alumnos_Detalle si id_rol == 4 (Alumno).
-    Maestros, Admins y SuperAdmins ya no generan registros huérfanos.
-    """
     con = obtener_conexion()
     if not con:
         return False, "No se pudo conectar a la base de datos."
@@ -202,7 +264,6 @@ def registrar_usuario(datos: dict) -> tuple:
             datos.get("password_hash") or None,
         ))
 
-        # BUG 5 FIX: solo insertar en Alumnos_Detalle si es alumno (id_rol=4)
         if datos.get("id_rol") == _ID_ROL_ALUMNO:
             con.execute("""
                 INSERT OR REPLACE INTO Alumnos_Detalle
@@ -235,12 +296,6 @@ def registrar_usuario(datos: dict) -> tuple:
 
 
 def listar_usuarios() -> list:
-    """
-    Devuelve lista de dicts con las claves que espera PantallaGestion.
-
-    BUG 3/4 FIX: el campo "nombre" ahora incluye primer_nombre + segundo_nombre
-    para que la tabla de gestión muestre el nombre completo del usuario.
-    """
     con = obtener_conexion()
     if not con:
         return []
@@ -248,7 +303,6 @@ def listar_usuarios() -> list:
         rows = con.execute("""
             SELECT
                 u.cod_institucional,
-                -- BUG 3/4 FIX: nombre completo con segundo nombre si existe
                 CASE
                     WHEN u.segundo_nombre IS NOT NULL AND TRIM(u.segundo_nombre) != ''
                     THEN u.primer_nombre || ' ' || u.segundo_nombre
@@ -261,7 +315,8 @@ def listar_usuarios() -> list:
                 DATE(u.fecha_registro)       AS fecha_registro,
                 TIME(u.fecha_registro)       AS hora_registro,
                 CASE WHEN u.estado = 1 THEN 'Activo' ELSE 'Inactivo' END AS status,
-                CASE WHEN re.cod_institucional IS NOT NULL THEN 1 ELSE 0 END AS tiene_encoding
+                CASE WHEN re.cod_institucional IS NOT NULL THEN 1 ELSE 0 END AS tiene_encoding,
+                u.id_rol
             FROM Usuarios u
             LEFT JOIN Roles r             ON u.id_rol = r.id_rol
             LEFT JOIN Alumnos_Detalle a   ON u.cod_institucional = a.cod_institucional
@@ -275,13 +330,6 @@ def listar_usuarios() -> list:
 
 
 def actualizar_usuario(datos: dict) -> tuple:
-    """
-    Actualiza nombre, apellidos, carrera, rol y status de un usuario.
-
-    BUG 5 FIX: si el nuevo rol NO es Alumno, elimina el registro de
-    Alumnos_Detalle para no dejar datos huérfanos. Si sí es Alumno,
-    actualiza carrera normalmente.
-    """
     con = obtener_conexion()
     if not con:
         return False, "No se pudo conectar a la base de datos."
@@ -296,14 +344,12 @@ def actualizar_usuario(datos: dict) -> tuple:
 
         if not row_rol:
             return False, (
-                f"Rol '{rol_raw}' no encontrado en la base de datos. "
+                f"Rol '{rol_raw}' no encontrado. "
                 f"Roles disponibles: SuperAdmin, Admin, Maestro, Alumno."
             )
 
         id_rol = row_rol["id_rol"]
-        estado = 1 if datos.get("status", "Activo") == "Activo" else 0
-
-        # BUG 3/4 FIX: también actualiza segundo_nombre cuando viene del formulario
+        estado = 1 if datos.get("status", "Activo") in ("Activo", "Active") else 0
         segundo_nombre = datos.get("segundo_nombre") or None
 
         con.execute("""
@@ -327,26 +373,25 @@ def actualizar_usuario(datos: dict) -> tuple:
             datos["cod_institucional"],
         ))
 
-        # BUG 5 FIX: solo actualizar Alumnos_Detalle si el rol es Alumno.
-        # Si cambió a Maestro/Admin/SuperAdmin, borrar el detalle.
         if id_rol == _ID_ROL_ALUMNO:
             carrera = datos.get("carrera", "") or None
             if carrera == "Ninguno":
                 carrera = None
+            grado = datos.get("grado") or None
+            grupo = datos.get("grupo") or None
             con.execute("""
-                INSERT INTO Alumnos_Detalle (cod_institucional, carrera)
-                VALUES (?, ?)
+                INSERT INTO Alumnos_Detalle (cod_institucional, grado, grupo, carrera)
+                VALUES (?, ?, ?, ?)
                 ON CONFLICT(cod_institucional)
-                DO UPDATE SET carrera = excluded.carrera
-            """, (datos["cod_institucional"], carrera))
+                DO UPDATE SET grado=excluded.grado, grupo=excluded.grupo,
+                              carrera=excluded.carrera
+            """, (datos["cod_institucional"], grado, grupo, carrera))
         else:
-            # No es alumno: eliminar detalle de alumno si existe
             con.execute(
                 "DELETE FROM Alumnos_Detalle WHERE cod_institucional = ?",
                 (datos["cod_institucional"],)
             )
 
-        # Actualizar contraseña si viene en los datos
         if datos.get("password_hash"):
             con.execute("""
                 UPDATE Usuarios SET password_hash = ?
@@ -366,20 +411,12 @@ def actualizar_usuario(datos: dict) -> tuple:
 #  Encodings
 # ══════════════════════════════════════════════
 def cargar_todos_encodings() -> list:
-    """
-    Retorna lista de dicts {cod, nombre, encoding, id_rol, rol}.
-
-    BUG 3/4 FIX: el campo "nombre" ahora incluye primer_nombre + segundo_nombre
-    + apellido_paterno para que la pantalla de acceso muestre el nombre completo
-    en el recuadro de reconocimiento (ej: "Brandom Yair Jacobo").
-    """
     con = obtener_conexion()
     if not con:
         return []
     try:
         rows = con.execute("""
             SELECT re.cod_institucional,
-                   -- BUG 3/4 FIX: nombre completo con segundo nombre si existe
                    CASE
                        WHEN u.segundo_nombre IS NOT NULL AND TRIM(u.segundo_nombre) != ''
                        THEN u.primer_nombre || ' ' || u.segundo_nombre || ' ' || u.apellido_paterno
@@ -414,12 +451,13 @@ def cargar_todos_encodings() -> list:
 #  Accesos
 # ══════════════════════════════════════════════
 def registrar_acceso(cod: str) -> bool:
+    """Registra acceso concedido (denegado=0)."""
     con = obtener_conexion()
     if not con:
         return False
     try:
         con.execute(
-            "INSERT INTO Acceso (cod_institucional) VALUES (?)", (cod,))
+            "INSERT INTO Acceso (cod_institucional, denegado) VALUES (?, 0)", (cod,))
         con.commit()
         return True
     except sqlite3.Error as e:
@@ -429,10 +467,70 @@ def registrar_acceso(cod: str) -> bool:
         con.close()
 
 
-def listar_accesos(limite: int = 100) -> list:
+def registrar_acceso_denegado(cod: str = None) -> bool:
     """
-    BUG 3/4 FIX: nombre completo con segundo nombre en el historial de accesos.
+    Registra un acceso denegado (denegado=1).
+    cod puede ser None si la persona no está registrada.
     """
+    con = obtener_conexion()
+    if not con:
+        return False
+    try:
+        con.execute(
+            "INSERT INTO Acceso (cod_institucional, denegado) VALUES (?, 1)", (cod,))
+        con.commit()
+        return True
+    except sqlite3.Error as e:
+        print(f"[DB] Error registrando acceso denegado: {e}")
+        return False
+    finally:
+        con.close()
+
+
+def conteo_accesos_hoy() -> dict:
+    """
+    Retorna conteos del día actual separados por tipo.
+    {
+      "total":     int,   # accesos concedidos
+      "denegados": int,   # accesos denegados
+      "alumnos":   int,
+      "profesores": int,
+    }
+    """
+    con = obtener_conexion()
+    if not con:
+        return {"total": 0, "denegados": 0, "alumnos": 0, "profesores": 0}
+    try:
+        hoy = con.execute(
+            "SELECT COUNT(*) FROM Acceso WHERE fecha = DATE('now','localtime') AND denegado=0"
+        ).fetchone()[0]
+        denegados = con.execute(
+            "SELECT COUNT(*) FROM Acceso WHERE fecha = DATE('now','localtime') AND denegado=1"
+        ).fetchone()[0]
+        alumnos = con.execute("""
+            SELECT COUNT(*) FROM Acceso a
+            JOIN Usuarios u ON a.cod_institucional = u.cod_institucional
+            WHERE a.fecha = DATE('now','localtime') AND a.denegado=0
+              AND u.id_rol = 4
+        """).fetchone()[0]
+        profesores = con.execute("""
+            SELECT COUNT(*) FROM Acceso a
+            JOIN Usuarios u ON a.cod_institucional = u.cod_institucional
+            WHERE a.fecha = DATE('now','localtime') AND a.denegado=0
+              AND u.id_rol = 3
+        """).fetchone()[0]
+        return {
+            "total":      hoy,
+            "denegados":  denegados,
+            "alumnos":    alumnos,
+            "profesores": profesores,
+        }
+    finally:
+        con.close()
+
+
+def listar_accesos(limite: int = 200) -> list:
+    """Retorna historial de accesos CONCEDIDOS (denegado=0)."""
     con = obtener_conexion()
     if not con:
         return []
@@ -444,9 +542,41 @@ def listar_accesos(limite: int = 100) -> list:
                        THEN u.primer_nombre || ' ' || u.segundo_nombre || ' ' || u.apellido_paterno
                        ELSE u.primer_nombre || ' ' || u.apellido_paterno
                    END AS nombre,
+                   COALESCE(u.apellido_paterno, '') AS apellido_paterno,
+                   COALESCE(u.apellido_materno, '') AS apellido_materno,
+                   COALESCE(ad.carrera, '')         AS carrera,
+                   COALESCE(r.nombre, '')           AS rol,
+                   a.fecha, a.hora
+            FROM Acceso a
+            LEFT JOIN Usuarios u      ON a.cod_institucional = u.cod_institucional
+            LEFT JOIN Alumnos_Detalle ad ON u.cod_institucional = ad.cod_institucional
+            LEFT JOIN Roles r         ON u.id_rol = r.id_rol
+            WHERE a.denegado = 0
+            ORDER BY a.id_acceso DESC LIMIT ?
+        """, (limite,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def listar_accesos_denegados(limite: int = 200) -> list:
+    """Retorna historial de accesos DENEGADOS (denegado=1)."""
+    con = obtener_conexion()
+    if not con:
+        return []
+    try:
+        rows = con.execute("""
+            SELECT a.id_acceso, a.cod_institucional,
+                   COALESCE(
+                       CASE
+                           WHEN u.segundo_nombre IS NOT NULL AND TRIM(u.segundo_nombre) != ''
+                           THEN u.primer_nombre || ' ' || u.segundo_nombre || ' ' || u.apellido_paterno
+                           ELSE u.primer_nombre || ' ' || u.apellido_paterno
+                       END, 'Desconocido') AS nombre,
                    a.fecha, a.hora
             FROM Acceso a
             LEFT JOIN Usuarios u ON a.cod_institucional = u.cod_institucional
+            WHERE a.denegado = 1
             ORDER BY a.id_acceso DESC LIMIT ?
         """, (limite,)).fetchall()
         return [dict(r) for r in rows]
