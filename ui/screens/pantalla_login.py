@@ -1,6 +1,6 @@
-"""
-ui/screens/pantalla_login.py
+# ui/screens/pantalla_login.py
 
+"""
 SOPORTE DE TEMA OSCURO:
   - Fondo claro:  fondo2.jpeg
   - Fondo oscuro: fondo_login_oscuro.jpeg
@@ -11,8 +11,13 @@ SOPORTE DE TEMA OSCURO:
   - Botón ← oscuro: #477023 (Fern Green)
   - Se registra en GestorTema y se desregistra al destruirse
 
-FIX: al cambiar tema en vivo, se fuerza redibujado del fondo con
+FIX: al cambio de tema en vivo, se fuerza redibujado del fondo con
      event_generate("<Configure>") para que la nueva imagen se aplique.
+     
+LOGICA DE LOGIN:
+  - Alumno: Acceso completamente restringido en interfaz.
+  - Maestro: Redirige automáticamente a la pantalla de Historial de Accesos.
+  - Admin / Super Admin: Redirige a Pantalla Gestión y propaga la jerarquía.
 """
 
 import tkinter as tk
@@ -227,7 +232,6 @@ class PantallaLogin:
         try:
             # ── 1. Cambiar imagen de fondo y forzar redibujado ────────────────
             self._cargar_fondo(p["fondo"])
-            # Disparar _resize_bg manualmente con las dimensiones actuales
             w = self.pantalla.winfo_width()
             h = self.pantalla.winfo_height()
             if w > 10 and h > 10 and self.pantalla.winfo_exists():
@@ -246,11 +250,9 @@ class PantallaLogin:
                                                window=self._card_frame, anchor="center")
             if self._card_frame.winfo_exists():
                 self._card_frame.configure(bg=p["card_bg"])
-                # Actualizar fondo del avatar
             if hasattr(self, "_avatar_lbl") and self._avatar_lbl.winfo_exists():
                 self._avatar_lbl.configure(bg=p["card_bg"])
 
-            # Spacers internos de la tarjeta
             for w_frame in self._card_frame.winfo_children():
                 try:
                     if isinstance(w_frame, tk.Frame):
@@ -413,13 +415,45 @@ class PantallaLogin:
             ojo_lbl.config(text="🙈" if self._mostrar_clave else "👁")
 
     # ══════════════════════════════════════════
-    #  LOGIN
+    #  LOGICA DE CONTROL DE ACCESO (LOGIN)
     # ══════════════════════════════════════════
     def _login(self):
-        u = self.entry_usuario.get()
-        c = self.entry_clave.get()
-        if u == "admin" and c == "1234":
-            self.app.mostrar_pantalla("gestion_real")
+        u = self.entry_usuario.get().strip().lower()
+        c = self.entry_clave.get().strip()
+
+        # Validamos que no se intenten enviar los marcadores de posición (placeholders)
+        if u in ("", "número de trabajador") or c in ("", "contraseña"):
+            self.lbl_error.config(text="⚠ Por favor, complete todos los campos")
+            return
+
+        # Diccionario maestro de credenciales estáticas para tu fase de testing
+        usuarios_simulados = {
+            "alumno":     {"clave": "1234", "rol": "Alumno"},
+            "maestro":    {"clave": "1234", "rol": "Maestro"},
+            "profesor":   {"clave": "1234", "rol": "Maestro"},
+            "admin":      {"clave": "1234", "rol": "Admin"},
+            "super":      {"clave": "1234", "rol": "Super Admin"},
+            "superadmin": {"clave": "1234", "rol": "Super Admin"},
+        }
+
+        if u in usuarios_simulados and usuarios_simulados[u]["clave"] == c:
+            rol = usuarios_simulados[u]["rol"]
+            
+            # PASO CRÍTICO: Registramos el rol activo en la app global
+            self.app.rol_usuario = rol
+            self.lbl_error.config(text="") # Limpieza de errores anteriores
+
+            # Enrutamiento basado en requerimientos jerárquicos
+            if rol == "Alumno":
+                self.lbl_error.config(text="❌ Acceso denegado: Sin permisos para este sistema.")
+                
+            elif rol == "Maestro":
+                # Redirige directo a la pantalla de historial de accesos
+                self.app.mostrar_pantalla("historial", {"id_rol": 2})
+                
+            elif rol in ("Admin", "Super Admin"):
+                # Redirige a la pantalla central de gestión real
+                self.app.mostrar_pantalla("gestion_real")
         else:
             self.lbl_error.config(text="⚠ Credenciales incorrectas")
 
